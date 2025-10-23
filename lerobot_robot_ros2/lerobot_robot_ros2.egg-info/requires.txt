@@ -1,0 +1,5 @@
+lerobot
+rclpy
+cv-bridge
+sensor-msgs
+numpy
