@@ -205,8 +205,20 @@ def main():
                     
                     # Add observation state (all float features combined)
                     obs_state = []
+                    # Joint positions
                     for joint_name in robot.config.ros2_interface.joint_names:
                         obs_state.append(obs.get(f"{joint_name}.pos", 0.0))
+                    # Joint velocities
+                    for joint_name in robot.config.ros2_interface.joint_names:
+                        obs_state.append(obs.get(f"{joint_name}.vel", 0.0))
+                    # Joint efforts
+                    for joint_name in robot.config.ros2_interface.joint_names:
+                        obs_state.append(obs.get(f"{joint_name}.effort", 0.0))
+                    # Gripper position (if enabled)
+                    if robot.config.ros2_interface.gripper_enabled:
+                        gripper_joint_name = robot.config.ros2_interface.gripper_joint_name
+                        obs_state.append(obs.get(f"{gripper_joint_name}.pos", 0.0))
+                    # End-effector pose
                     obs_state.extend([
                         obs.get("end_effector.position.x", 0.0),
                         obs.get("end_effector.position.y", 0.0),

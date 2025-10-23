@@ -120,6 +120,18 @@ class ROS2Robot(Robot):
         for joint_name in self.config.ros2_interface.joint_names:
             features[f"{joint_name}.pos"] = float
         
+        # Joint velocities
+        for joint_name in self.config.ros2_interface.joint_names:
+            features[f"{joint_name}.vel"] = float
+        
+        # Joint efforts (torques)
+        for joint_name in self.config.ros2_interface.joint_names:
+            features[f"{joint_name}.effort"] = float
+        
+        # Gripper position (if enabled)
+        if self.config.ros2_interface.gripper_enabled:
+            features[f"{self.config.ros2_interface.gripper_joint_name}.pos"] = float
+        
         # End-effector pose
         features["end_effector.position.x"] = float
         features["end_effector.position.y"] = float
@@ -225,17 +237,33 @@ class ROS2Robot(Robot):
         if joint_state is None:
             raise RuntimeError("Joint state not available")
         
-        # Extract joint positions
+        # Extract joint positions, velocities, and efforts
         joint_names = joint_state["names"]
         joint_positions = joint_state["positions"]
+        joint_velocities = joint_state["velocities"]
+        joint_efforts = joint_state["efforts"]
         
         for joint_name in self.config.ros2_interface.joint_names:
             try:
                 idx = joint_names.index(joint_name)
                 obs_dict[f"{joint_name}.pos"] = joint_positions[idx]
+                obs_dict[f"{joint_name}.vel"] = joint_velocities[idx]
+                obs_dict[f"{joint_name}.effort"] = joint_efforts[idx]
             except ValueError:
                 logger.warning(f"Joint '{joint_name}' not found in joint state")
                 obs_dict[f"{joint_name}.pos"] = 0.0
+                obs_dict[f"{joint_name}.vel"] = 0.0
+                obs_dict[f"{joint_name}.effort"] = 0.0
+        
+        # Extract gripper position (if enabled)
+        if self.config.ros2_interface.gripper_enabled:
+            gripper_joint_name = self.config.ros2_interface.gripper_joint_name
+            try:
+                idx = joint_names.index(gripper_joint_name)
+                obs_dict[f"{gripper_joint_name}.pos"] = joint_positions[idx]
+            except ValueError:
+                logger.warning(f"Gripper joint '{gripper_joint_name}' not found in joint state")
+                obs_dict[f"{gripper_joint_name}.pos"] = 0.0
         
         # Get end-effector pose
         end_effector_pose = self.ros2_interface.get_end_effector_pose()

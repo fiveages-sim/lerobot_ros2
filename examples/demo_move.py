@@ -51,11 +51,16 @@ def main():
             control_type=ControlType.CARTESIAN_POSE,
             max_linear_velocity=0.1,
             max_angular_velocity=0.5,
-            joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+            joint_names=["left_joint1", "left_joint2", "left_joint3", "left_joint4", "left_joint5", "left_joint6"],
             min_joint_positions=[-3.14, -3.14, -3.14, -3.14, -3.14, -3.14],
             max_joint_positions=[3.14, 3.14, 3.14, 3.14, 3.14, 3.14],
             joint_state_timeout=1.0,
-            end_effector_pose_timeout=1.0
+            end_effector_pose_timeout=1.0,
+            # Gripper configuration
+            gripper_enabled=True,
+            gripper_joint_name="left_gripper_joint",
+            gripper_min_position=0.0,  # Closed position
+            gripper_max_position=1.0   # Open position
         )
     )
     
@@ -71,7 +76,31 @@ def main():
     print("Waiting for robot to be ready...")
     time.sleep(2)
     
+    # Display robot features
+    print("\n" + "="*60)
+    print("ROBOT FEATURES INFORMATION")
+    print("="*60)
+    
+    # Display observation features
+    print("Observation Features:")
+    obs_features = robot.observation_features
+    for key, value in obs_features.items():
+        print(f"  {key}: {value}")
+    
+    print(f"\nTotal observation features: {len(obs_features)}")
+    
+    # Display action features
+    print("\nAction Features:")
+    action_features = robot.action_features
+    for key, value in action_features.items():
+        print(f"  {key}: {value}")
+    
+    print(f"\nTotal action features: {len(action_features)}")
+    
     # Get current observation using standard LeRobot interface
+    print("\n" + "="*60)
+    print("GETTING ROBOT OBSERVATION")
+    print("="*60)
     print("Recording current robot state...")
     try:
         current_obs = robot.get_observation()
@@ -92,6 +121,21 @@ def main():
     
     print(f"Current observation keys: {list(current_obs.keys())}")
     print(f"Current end-effector position: x={current_x:.3f}, y={current_y:.3f}, z={current_z:.3f}")
+    
+    # Display joint states (positions, velocities, efforts)
+    print("\nJoint States:")
+    for joint_name in robot.config.ros2_interface.joint_names:
+        pos = current_obs.get(f"{joint_name}.pos", 0.0)
+        vel = current_obs.get(f"{joint_name}.vel", 0.0)
+        effort = current_obs.get(f"{joint_name}.effort", 0.0)
+        print(f"  {joint_name}: pos={pos:.3f}, vel={vel:.3f}, effort={effort:.3f}")
+    
+    # Display gripper state (if enabled)
+    if robot.config.ros2_interface.gripper_enabled:
+        gripper_joint_name = robot.config.ros2_interface.gripper_joint_name
+        gripper_pos = current_obs.get(f"{gripper_joint_name}.pos", 0.0)
+        print(f"\nGripper State:")
+        print(f"  {gripper_joint_name}: pos={gripper_pos:.3f}")
     
     # Create target action (x + 0.1)
     target_action = {
@@ -174,6 +218,20 @@ def main():
                 current_y = current_obs["end_effector.position.y"]
                 current_z = current_obs["end_effector.position.z"]
                 print(f"Current robot position: x={current_x:.3f}, y={current_y:.3f}, z={current_z:.3f}")
+                
+                # Display joint states during movement
+                print("Joint States:")
+                for joint_name in robot.config.ros2_interface.joint_names:
+                    pos = current_obs.get(f"{joint_name}.pos", 0.0)
+                    vel = current_obs.get(f"{joint_name}.vel", 0.0)
+                    effort = current_obs.get(f"{joint_name}.effort", 0.0)
+                    print(f"  {joint_name}: pos={pos:.3f}, vel={vel:.3f}, effort={effort:.3f}")
+                
+                # Display gripper state during movement (if enabled)
+                if robot.config.ros2_interface.gripper_enabled:
+                    gripper_joint_name = robot.config.ros2_interface.gripper_joint_name
+                    gripper_pos = current_obs.get(f"{gripper_joint_name}.pos", 0.0)
+                    print(f"  {gripper_joint_name}: pos={gripper_pos:.3f}")
             except Exception as e:
                 print(f"⚠️ Could not get current observation: {e}")
             

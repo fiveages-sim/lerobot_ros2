@@ -1,3 +1,4 @@
 .idea
 /lerobot_camera_ros2/lerobot_camera_ros2.egg-info/
 /lerobot_robot_ros2/lerobot_robot_ros2.egg-info/
+__pycache__/

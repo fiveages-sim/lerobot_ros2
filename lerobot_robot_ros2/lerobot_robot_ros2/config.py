@@ -28,8 +28,16 @@ class ROS2RobotInterfaceConfig:
     
     # Joint names
     joint_names: list[str] = field(default_factory=lambda: [
-        "joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "gripper_joint"
+        "joint1", "joint2", "joint3", "joint4", "joint5", "joint6"
     ])
+    
+    # Gripper configuration
+    gripper_enabled: bool = True
+    gripper_joint_name: str = "gripper_joint"
+    gripper_state_topic: str = "/gripper_state"  # Optional: separate gripper state topic
+    gripper_command_topic: str = "/gripper_command"  # Optional: separate gripper command topic
+    gripper_min_position: float = 0.0  # Closed position
+    gripper_max_position: float = 1.0  # Open position
     
     # Control parameters
     control_type: ControlType = ControlType.CARTESIAN_POSE
