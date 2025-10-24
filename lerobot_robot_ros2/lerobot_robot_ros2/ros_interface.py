@@ -18,6 +18,7 @@ from rclpy.node import Node
 from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64
 
 from .config import ControlType, ROS2RobotInterfaceConfig
 
@@ -50,6 +51,7 @@ class ROS2RobotInterface:
         
         # Publishers
         self.end_effector_target_pub: Publisher | None = None
+        self.gripper_command_pub: Publisher | None = None
         
         # Data storage
         self.latest_joint_state: Dict[str, Any] | None = None
@@ -108,6 +110,15 @@ class ROS2RobotInterface:
                 self.config.end_effector_target_topic,
                 10
             )
+            
+            # Create gripper command publisher (if gripper is enabled)
+            if self.config.gripper_enabled and self.config.gripper_command_topic:
+                self.gripper_command_pub = self.robot_node.create_publisher(
+                    Float64,
+                    self.config.gripper_command_topic,
+                    10
+                )
+                logger.info(f"Created gripper command publisher on topic: {self.config.gripper_command_topic}")
             
             # Start executor in separate thread
             self.executor = SingleThreadedExecutor()
@@ -199,6 +210,36 @@ class ROS2RobotInterface:
         self.end_effector_target_pub.publish(pose)
         logger.debug(f"Published end-effector target: {pose}")
     
+    def send_gripper_command(self, position: float) -> None:
+        """Send gripper position command.
+        
+        Args:
+            position: Target gripper position (typically 0.0 to 1.0)
+        """
+        if not self.is_connected:
+            raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
+        
+        if not self.config.gripper_enabled:
+            logger.warning("Gripper is not enabled in configuration")
+            return
+        
+        if self.gripper_command_pub is None:
+            logger.warning("Gripper command publisher not initialized")
+            return
+        
+        # Clamp position to configured limits
+        clamped_position = max(
+            self.config.gripper_min_position,
+            min(position, self.config.gripper_max_position)
+        )
+        
+        # Create and publish Float64 message
+        gripper_msg = Float64()
+        gripper_msg.data = clamped_position
+        
+        self.gripper_command_pub.publish(gripper_msg)
+        logger.debug(f"Published gripper command: {clamped_position}")
+    
     def send_cartesian_velocity(self, linear: Tuple[float, float, float], angular: Tuple[float, float, float]) -> None:
         """Send cartesian velocity commands.
         
@@ -239,6 +280,10 @@ class ROS2RobotInterface:
         if self.end_effector_target_pub:
             self.end_effector_target_pub.destroy()
             self.end_effector_target_pub = None
+        
+        if self.gripper_command_pub:
+            self.gripper_command_pub.destroy()
+            self.gripper_command_pub = None
         
         # Destroy node
         if self.robot_node:

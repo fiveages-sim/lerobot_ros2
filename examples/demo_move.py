@@ -30,16 +30,17 @@ from lerobot_robot_ros2 import ROS2RobotConfig, ROS2Robot, ROS2RobotInterfaceCon
 
 
 def main():
-    """Simple ROS2 robot control example using LeRobot standard interface."""
-    print("Simple ROS2 Robot Control Example (LeRobot Standard Interface)")
-    print("=" * 60)
+    """Simple ROS2 robot control example with gripper control using LeRobot standard interface."""
+    print("Simple ROS2 Robot Control Example with Gripper Control (LeRobot Standard Interface)")
+    print("=" * 70)
     print("This script will:")
     print("1. Get current robot observation using get_observation()")
-    print("2. Send target action using send_action() (x + 0.1)")
-    print("3. Cycle between these two positions")
-    print("4. Monitor robot state with get_observation()")
+    print("2. Send target action using send_action() (x + 0.1) with gripper OPEN")
+    print("3. Send current action (back to original position) with gripper CLOSED")
+    print("4. Cycle between these two positions with gripper open/close")
+    print("5. Monitor robot state and gripper position with get_observation()")
     print("Press Ctrl+C to stop")
-    print("-" * 60)
+    print("-" * 70)
     
     # Create robot configuration (no cameras needed for pure motion)
     robot_config = ROS2RobotConfig(
@@ -137,7 +138,7 @@ def main():
         print(f"\nGripper State:")
         print(f"  {gripper_joint_name}: pos={gripper_pos:.3f}")
     
-    # Create target action (x + 0.1)
+    # Create target action (x + 0.1) with gripper open
     target_action = {
         "end_effector.position.x": current_x + 0.1,
         "end_effector.position.y": current_y,
@@ -145,10 +146,11 @@ def main():
         "end_effector.orientation.x": current_qx,
         "end_effector.orientation.y": current_qy,
         "end_effector.orientation.z": current_qz,
-        "end_effector.orientation.w": current_qw
+        "end_effector.orientation.w": current_qw,
+        "gripper.position": 1.0  # Open gripper
     }
     
-    # Create current action (back to original position)
+    # Create current action (back to original position) with gripper closed
     current_action = {
         "end_effector.position.x": current_x,
         "end_effector.position.y": current_y,
@@ -156,10 +158,12 @@ def main():
         "end_effector.orientation.x": current_qx,
         "end_effector.orientation.y": current_qy,
         "end_effector.orientation.z": current_qz,
-        "end_effector.orientation.w": current_qw
+        "end_effector.orientation.w": current_qw,
+        "gripper.position": 0.0  # Close gripper
     }
     
-    print(f"Target action: x={target_action['end_effector.position.x']:.3f}, y={target_action['end_effector.position.y']:.3f}, z={target_action['end_effector.position.z']:.3f}")
+    print(f"Target action: x={target_action['end_effector.position.x']:.3f}, y={target_action['end_effector.position.y']:.3f}, z={target_action['end_effector.position.z']:.3f}, gripper={target_action['gripper.position']:.1f}")
+    print(f"Current action: x={current_action['end_effector.position.x']:.3f}, y={current_action['end_effector.position.y']:.3f}, z={current_action['end_effector.position.z']:.3f}, gripper={current_action['gripper.position']:.1f}")
     
     # Flag to track if robot is already disconnected
     robot_disconnected = False
@@ -182,8 +186,9 @@ def main():
     move_duration = 3.0  # seconds to move between positions
     pause_duration = 1.0  # seconds to pause at each position
     
-    print("\nStarting position cycling...")
+    print("\nStarting position cycling with gripper control...")
     print(f"Moving between positions every {move_duration} seconds")
+    print("Gripper will open when moving to target position, close when returning")
     print("-" * 50)
     
     try:
@@ -191,20 +196,20 @@ def main():
             cycle_count += 1
             
             if move_to_target:
-                print(f"Cycle {cycle_count}: Moving to TARGET position (x + 0.1)")
+                print(f"Cycle {cycle_count}: Moving to TARGET position (x + 0.1) with gripper OPEN")
                 try:
                     sent_action = robot.send_action(target_action)
-                    print(f"✓ Action sent successfully: {sent_action}")
+                    print(f"✓ Action sent successfully: gripper={sent_action.get('gripper.position', 'N/A')}")
                 except Exception as e:
                     print(f"❌ Failed to send action: {e}")
                     break
                 time.sleep(move_duration)
                 move_to_target = False
             else:
-                print(f"Cycle {cycle_count}: Moving to CURRENT position")
+                print(f"Cycle {cycle_count}: Moving to CURRENT position with gripper CLOSED")
                 try:
                     sent_action = robot.send_action(current_action)
-                    print(f"✓ Action sent successfully: {sent_action}")
+                    print(f"✓ Action sent successfully: gripper={sent_action.get('gripper.position', 'N/A')}")
                 except Exception as e:
                     print(f"❌ Failed to send action: {e}")
                     break

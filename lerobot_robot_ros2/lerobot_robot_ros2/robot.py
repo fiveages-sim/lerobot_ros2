@@ -157,7 +157,7 @@ class ROS2Robot(Robot):
         Returns:
             Dictionary mapping action keys to their types.
         """
-        return {
+        features = {
             "end_effector.position.x": float,
             "end_effector.position.y": float,
             "end_effector.position.z": float,
@@ -166,6 +166,12 @@ class ROS2Robot(Robot):
             "end_effector.orientation.z": float,
             "end_effector.orientation.w": float,
         }
+        
+        # Add gripper control feature if enabled
+        if self.config.ros2_interface.gripper_enabled:
+            features["gripper.position"] = float
+        
+        return features
     
     @property
     def is_connected(self) -> bool:
@@ -326,6 +332,12 @@ class ROS2Robot(Robot):
         
         # Send the target pose
         self.ros2_interface.send_end_effector_target(pose)
+        
+        # Send gripper command if provided and gripper is enabled
+        if self.config.ros2_interface.gripper_enabled and "gripper.position" in action:
+            gripper_position = action["gripper.position"]
+            self.ros2_interface.send_gripper_command(gripper_position)
+            logger.debug(f"Sent gripper command: {gripper_position}")
         
         return action
     
