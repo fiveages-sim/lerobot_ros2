@@ -66,6 +66,10 @@ class ROS2RobotInterface:
         # Timing
         self.last_joint_state_time = 0.0
         self.last_end_effector_pose_time = 0.0
+        
+        # Track if we previously had no data (for recovery logging)
+        self._had_joint_state = False
+        self._had_end_effector_pose = False
     
     @property
     def is_connected(self) -> bool:
@@ -143,20 +147,71 @@ class ROS2RobotInterface:
     def _joint_state_callback(self, msg: JointState) -> None:
         """Callback for joint state messages."""
         with self.data_lock:
+            # Check if we're recovering from no data state or stale data
+            # Recovery happens if:
+            # 1. We never had data before (first time receiving), OR
+            # 2. Data was missing/None, OR  
+            # 3. If timeout > 0, data was stale (older than timeout)
+            current_time = time.time()
+            was_recovering = False
+            
+            if not self._had_joint_state:
+                # First time receiving data
+                was_recovering = True
+            elif self.latest_joint_state is None:
+                # Data was lost/missing, now recovering
+                was_recovering = True
+            elif self.config.joint_state_timeout > 0:
+                # Check if previous data was stale (only if timeout is enabled)
+                time_since_last = current_time - self.last_joint_state_time
+                if time_since_last > self.config.joint_state_timeout:
+                    was_recovering = True
+            
             self.latest_joint_state = {
                 "names": list(msg.name),
                 "positions": list(msg.position),
                 "velocities": list(msg.velocity),
                 "efforts": list(msg.effort),
-                "timestamp": time.time()
+                "timestamp": current_time
             }
-            self.last_joint_state_time = time.time()
+            self.last_joint_state_time = current_time
+            self._had_joint_state = True
+
+            
+            # Log recovery if we just started receiving data again
+            if was_recovering:
+                logger.info("Joint state data recovery: Started receiving joint state messages again")
     
     def _end_effector_pose_callback(self, msg: PoseStamped) -> None:
         """Callback for end-effector pose messages."""
         with self.data_lock:
+            # Check if we're recovering from no data state or stale data
+            # Recovery happens if:
+            # 1. We never had data before (first time receiving), OR
+            # 2. Data was missing/None, OR
+            # 3. If timeout > 0, data was stale (older than timeout)
+            current_time = time.time()
+            was_recovering = False
+            
+            if not self._had_end_effector_pose:
+                # First time receiving data
+                was_recovering = True
+            elif self.latest_end_effector_pose is None:
+                # Data was lost/missing, now recovering
+                was_recovering = True
+            elif self.config.end_effector_pose_timeout > 0:
+                # Check if previous data was stale (only if timeout is enabled)
+                time_since_last = current_time - self.last_end_effector_pose_time
+                if time_since_last > self.config.end_effector_pose_timeout:
+                    was_recovering = True
+            
             self.latest_end_effector_pose = msg.pose
-            self.last_end_effector_pose_time = time.time()
+            self.last_end_effector_pose_time = current_time
+            self._had_end_effector_pose = True
+            
+            # Log recovery if we just started receiving data again
+            if was_recovering:
+                logger.info("End-effector pose data recovery: Started receiving end-effector pose messages again")
     
     def get_joint_state(self) -> Dict[str, Any] | None:
         """Get the latest joint state.
@@ -164,16 +219,20 @@ class ROS2RobotInterface:
         Returns:
             Dict containing joint names, positions, velocities, efforts, and timestamp,
             or None if no joint state has been received yet.
+            When timeout is 0, returns the last received state even if stale.
         """
         if not self.is_connected:
             raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
         
         with self.data_lock:
-            # Check if joint state is recent enough
-            if (time.time() - self.last_joint_state_time) > self.config.joint_state_timeout:
-                logger.warning("Joint state data is stale")
-                return None
+            # Check if joint state is recent enough (skip check if timeout is 0)
+            if self.config.joint_state_timeout > 0:
+                if (time.time() - self.last_joint_state_time) > self.config.joint_state_timeout:
+                    logger.warning("Joint state data is stale")
+                    return None
             
+            # When timeout is 0, always return last received state if available
+            # This allows the system to continue working when ROS2 nodes restart
             return self.latest_joint_state.copy() if self.latest_joint_state else None
     
     def get_end_effector_pose(self) -> Pose | None:
@@ -182,16 +241,20 @@ class ROS2RobotInterface:
         Returns:
             Pose message containing position and orientation,
             or None if no end-effector pose has been received yet.
+            When timeout is 0, returns the last received pose even if stale.
         """
         if not self.is_connected:
             raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
         
         with self.data_lock:
-            # Check if end-effector pose is recent enough
-            if (time.time() - self.last_end_effector_pose_time) > self.config.end_effector_pose_timeout:
-                logger.warning("End-effector pose data is stale")
-                return None
+            # Check if end-effector pose is recent enough (skip check if timeout is 0)
+            if self.config.end_effector_pose_timeout > 0:
+                if (time.time() - self.last_end_effector_pose_time) > self.config.end_effector_pose_timeout:
+                    logger.warning("End-effector pose data is stale")
+                    return None
             
+            # When timeout is 0, always return last received pose if available
+            # This allows the system to continue working when ROS2 nodes restart
             return self.latest_end_effector_pose
     
     def send_end_effector_target(self, pose: Pose) -> None:

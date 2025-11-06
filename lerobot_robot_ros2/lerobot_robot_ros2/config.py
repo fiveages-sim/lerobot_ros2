@@ -51,8 +51,9 @@ class ROS2RobotInterfaceConfig:
     max_joint_positions: list[float] | None = None
     
     # Timeout settings
-    joint_state_timeout: float = 1.0  # seconds
-    end_effector_pose_timeout: float = 1.0  # seconds
+    # Set to 0 to disable timeout checking (useful when ROS2 nodes may restart)
+    joint_state_timeout: float = 0.0  # seconds
+    end_effector_pose_timeout: float = 0.0  # seconds
 
 
 @RobotConfig.register_subclass("lerobot_robot_ros2")

@@ -60,6 +60,7 @@ def main():
             # Gripper configuration
             gripper_enabled=True,
             gripper_joint_name="left_gripper_joint",
+            gripper_command_topic="left_gripper_joint/position_command",
             gripper_min_position=0.0,  # Closed position
             gripper_max_position=1.0   # Open position
         )
