@@ -95,6 +95,9 @@ class ROS2RobotInterface:
                 self._joint_state_callback,
                 10
             )
+            logger.debug(
+                "Subscribed to joint states topic %s", self.config.joint_states_topic
+            )
             
             # Create end-effector pose subscription
             self.end_effector_pose_sub = self.robot_node.create_subscription(
@@ -103,12 +106,20 @@ class ROS2RobotInterface:
                 self._end_effector_pose_callback,
                 10
             )
+            logger.debug(
+                "Subscribed to end-effector pose topic %s",
+                self.config.end_effector_pose_topic,
+            )
             
             # Create end-effector target publisher
             self.end_effector_target_pub = self.robot_node.create_publisher(
                 Pose,
                 self.config.end_effector_target_topic,
                 10
+            )
+            logger.debug(
+                "Publishing end-effector targets to topic %s",
+                self.config.end_effector_target_topic,
             )
             
             # Create gripper command publisher (if gripper is enabled)
