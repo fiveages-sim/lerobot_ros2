@@ -96,7 +96,7 @@ def main():
     # Create dataset
     print("Creating dataset...")
     try:
-        action_features = hw_to_dataset_features(robot.action_features, "action")
+        action_features = hw_to_dataset_features(robot.action_features, "action")#schema
         obs_features = hw_to_dataset_features(robot.observation_features, "observation")
         dataset_features = {**action_features, **obs_features}
         
