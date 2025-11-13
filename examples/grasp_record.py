@@ -39,7 +39,7 @@ from lerobot_camera_ros2 import ROS2CameraConfig
 
 # ----------------------- Configuration --------------------------------------
 FPS = 30
-STAGE_DURATION = 2.0          # seconds to sample after each command 2s
+STAGE_DURATION = 2          # seconds to sample after each command 2s
 CAMERA_TOPIC = "/global_camera/rgb"
 OBJECT_TF_TOPIC = "/isaac/tf"
 TARGET_FRAME_ID = "apple"
