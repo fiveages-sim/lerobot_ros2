@@ -159,14 +159,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Visualize LeRobot dataset with Rerun.")
     parser.add_argument(
         "dataset_path",
-        help="Path to the dataset directory",
+        nargs="?",
+        default=None,
+        help="Path to the dataset directory (default: latest under ./dataset)",
     )
-    parser.add_argument(
-        "--episode-index",
-        type=int,
-        default=0,
-        help="Episode to visualize",
-    )
+    parser.add_argument("--episode-index", type=int, default=0, help="Episode to visualize")
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -199,7 +196,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    dataset_path = Path(args.dataset_path).expanduser().resolve()
+    if args.dataset_path is None:
+        dataset_root = REPO_ROOT / "dataset"
+        candidates = sorted(dataset_root.glob("grasp_dataset_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            raise FileNotFoundError(f"No datasets found under {dataset_root}")
+        dataset_path = candidates[0]
+        print(f"[info] No dataset path provided, using latest: {dataset_path}")
+    else:
+        dataset_path = Path(args.dataset_path).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset path does not exist: {dataset_path}")
 

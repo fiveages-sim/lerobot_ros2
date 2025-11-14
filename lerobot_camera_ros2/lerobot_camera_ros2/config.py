@@ -43,6 +43,10 @@ class ROS2CameraConfig(CameraConfig):
     timeout_ms: float = 1000.0
     queue_size: int = 10
     encoding: str = "bgr8"
+    depth_topic_name: str | None = None
+    depth_encoding: str = "32FC1"
+    depth_topic_name: str | None = None
+    depth_encoding: str = "32FC1"
     # LeRobot required parameters with default values
     width: int = 1280
     height: int = 720

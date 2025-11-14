@@ -42,6 +42,7 @@ FPS = 30
 STAGE_DURATION = 2          # seconds to sample after each command 2s
 
 CAMERA_TOPIC = "/global_camera/rgb"
+DEPTH_TOPIC = "/global_camera/depth"
 OBJECT_TF_TOPIC = "/isaac/tf"
 TARGET_FRAME_ID = "apple"
 USE_OBJECT_ORIENTATION = False
@@ -137,13 +138,15 @@ class ObjectPoseListener:
 
 def build_robot_config() -> ROS2RobotConfig:
     camera_cfg = {
-        "wrist_camera": ROS2CameraConfig(
+        "global_camera": ROS2CameraConfig(
             topic_name=CAMERA_TOPIC,
-            node_name="lerobot_wrist_camera",
+            node_name="lerobot_global_camera",
             width=1280,
             height=720,
             fps=FPS,
             encoding="bgr8",
+            depth_topic_name=DEPTH_TOPIC,
+            depth_encoding="32FC1",
         )
     }
     ros2_interface = ROS2RobotInterfaceConfig(
@@ -199,11 +202,36 @@ def action_from_pose(pose: Pose, gripper: float) -> dict[str, float]:
     }
 
 
+def pose_from_observation(obs: dict[str, float]) -> Pose:
+    pose = Pose()
+    pose.position.x = obs.get("end_effector.position.x", 0.0)
+    pose.position.y = obs.get("end_effector.position.y", 0.0)
+    pose.position.z = obs.get("end_effector.position.z", 0.0)
+    pose.orientation.x = obs.get("end_effector.orientation.x", 0.0)
+    pose.orientation.y = obs.get("end_effector.orientation.y", 0.0)
+    pose.orientation.z = obs.get("end_effector.orientation.z", 0.0)
+    pose.orientation.w = obs.get("end_effector.orientation.w", 1.0)
+    return pose
+
+
+def action_from_observation(obs: dict[str, float], gripper: float) -> dict[str, float]:
+    pose = pose_from_observation(obs)
+    return action_from_pose(pose, gripper)
+
+
 def build_dataset(robot: ROS2Robot) -> tuple[LeRobotDataset, Path]:
     features = {}
     features.update(hw_to_dataset_features(robot.action_features, "action"))
     features.update(hw_to_dataset_features(robot.observation_features, "observation"))
-    dataset_dir = Path.cwd() / f"grasp_dataset_{int(time.time())}"
+    dataset_root = Path.cwd() / "dataset"
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    dataset_dir = dataset_root / f"grasp_dataset_{int(time.time())}"
+    for key, info in features.items():
+        if key.endswith(".depth") and info.get("dtype") == "video":
+            h, w, _ = info["shape"]
+            info["dtype"] = "image"
+            info["shape"] = (h, w, 1)
+            info["names"] = ["height", "width", "channels"]
     dataset = LeRobotDataset.create(
         repo_id=str(dataset_dir),
         fps=FPS,
@@ -259,10 +287,18 @@ def extract_observation_frame(
 
     frame["observation.state"] = np.array(obs_state, dtype=np.float32)
 
-    # Attach camera frames if available
     for cam_name in robot.config.cameras.keys():
-        if cam_name in obs:
+        rgb_key = f"{cam_name}.rgb"
+        depth_key = f"{cam_name}.depth"
+        if rgb_key in obs:
+            frame[f"observation.images.{cam_name}.rgb"] = obs[rgb_key]
+        elif cam_name in obs:
             frame[f"observation.images.{cam_name}"] = obs[cam_name]
+        if depth_key in obs:
+            depth_img = obs[depth_key]
+            if depth_img.ndim == 2:
+                depth_img = depth_img[:, :, None]
+            frame[f"observation.images.{cam_name}.depth"] = depth_img
 
     return frame, ee_pose, gripper_pos
 
@@ -270,6 +306,12 @@ def extract_observation_frame(
 def main() -> None:
     print("ROS2 Grasp Recording Demo (LeRobot)")
     print("=" * 70)
+
+    loops = 1
+    try:
+        loops = max(1, int(input("How many grasp episodes to record? ")))
+    except Exception:
+        print("[info] invalid input, defaulting to 1 episode")
 
     robot_config = build_robot_config()
     robot = ROS2Robot(robot_config)
@@ -324,108 +366,131 @@ def main() -> None:
         )
         print(f"[OK] Dataset initialized at {dataset_path}")
 
-        print("Waiting for object pose TF...")
-        sample = pose_listener.wait_for_pose(timeout=POSE_TIMEOUT)
-        if sample is None:
-            raise RuntimeError(
-                f"No TF data for frame '{TARGET_FRAME_ID}' within {POSE_TIMEOUT:.1f}s"
+        initial_obs = robot.get_observation()
+        initial_pose = pose_from_observation(initial_obs)
+        initial_action_open = action_from_pose(initial_pose, GRIPPER_OPEN)
+        initial_action_closed = action_from_pose(initial_pose, GRIPPER_CLOSED)
+
+        for episode in range(loops):
+            print(f"=== Recording episode {episode + 1}/{loops} ===")
+            print("Waiting for object pose TF...")
+            sample = pose_listener.wait_for_pose(timeout=POSE_TIMEOUT)
+            if sample is None:
+                raise RuntimeError(
+                    f"No TF data for frame '{TARGET_FRAME_ID}' within {POSE_TIMEOUT:.1f}s"
+                )
+            target_pose = pose_from_sample(sample)
+
+            current_obs = robot.get_observation()
+            current_orientation = (
+                current_obs["end_effector.orientation.x"],
+                current_obs["end_effector.orientation.y"],
+                current_obs["end_effector.orientation.z"],
+                current_obs["end_effector.orientation.w"],
             )
-        target_pose = pose_from_sample(sample)
 
-        current_obs = robot.get_observation()
-        current_orientation = (
-            current_obs["end_effector.orientation.x"],
-            current_obs["end_effector.orientation.y"],
-            current_obs["end_effector.orientation.z"],
-            current_obs["end_effector.orientation.w"],
-        )
+            orientation_vec = np.array(
+                [
+                    target_pose.orientation.x,
+                    target_pose.orientation.y,
+                    target_pose.orientation.z,
+                    target_pose.orientation.w,
+                ]
+            )
+            if not USE_OBJECT_ORIENTATION or np.linalg.norm(orientation_vec) < 1e-3:
+                (
+                    target_pose.orientation.x,
+                    target_pose.orientation.y,
+                    target_pose.orientation.z,
+                    target_pose.orientation.w,
+                ) = current_orientation
 
-        orientation_vec = np.array(
-            [
-                target_pose.orientation.x,
-                target_pose.orientation.y,
-                target_pose.orientation.z,
-                target_pose.orientation.w,
+            approach_pose = Pose()
+            approach_pose.position.x = target_pose.position.x
+            approach_pose.position.y = target_pose.position.y
+            approach_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
+            approach_pose.orientation = target_pose.orientation
+
+            descend_pose = Pose()
+            descend_pose.position.x = target_pose.position.x
+            descend_pose.position.y = target_pose.position.y
+            descend_pose.position.z = target_pose.position.z + GRASP_CLEARANCE
+            descend_pose.orientation = target_pose.orientation
+
+            lift_pose = Pose()
+            lift_pose.position.x = target_pose.position.x
+            lift_pose.position.y = target_pose.position.y
+            lift_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
+            lift_pose.orientation = target_pose.orientation
+
+            sequence = [
+                ("Approach", action_from_pose(approach_pose, GRIPPER_OPEN)),
+                ("Descend", action_from_pose(descend_pose, GRIPPER_OPEN)),
+                ("Close", action_from_pose(descend_pose, GRIPPER_CLOSED)),
+                ("Lift", action_from_pose(lift_pose, GRIPPER_CLOSED)),
             ]
-        )
-        if not USE_OBJECT_ORIENTATION or np.linalg.norm(orientation_vec) < 1e-3:
-            (
-                target_pose.orientation.x,
-                target_pose.orientation.y,
-                target_pose.orientation.z,
-                target_pose.orientation.w,
-            ) = current_orientation
 
-        approach_pose = Pose()
-        approach_pose.position.x = target_pose.position.x
-        approach_pose.position.y = target_pose.position.y
-        approach_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
-        approach_pose.orientation = target_pose.orientation
+            recorded_frames: list[dict] = []
 
-        descend_pose = Pose()
-        descend_pose.position.x = target_pose.position.x
-        descend_pose.position.y = target_pose.position.y
-        descend_pose.position.z = target_pose.position.z + GRASP_CLEARANCE
-        descend_pose.orientation = target_pose.orientation
+            for step_name, action in sequence:
+                print(f"[Step] {step_name}")
+                robot.send_action(action)
+                start = time.time()
+                while (time.time() - start) < STAGE_DURATION:
+                    obs = robot.get_observation()
+                    frame, ee_pose, gripper = extract_observation_frame(robot, obs)
+                    frame["_ee_pose"] = ee_pose
+                    frame["_gripper"] = gripper
 
-        lift_pose = Pose()
-        lift_pose.position.x = target_pose.position.x
-        lift_pose.position.y = target_pose.position.y
-        lift_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
-        lift_pose.orientation = target_pose.orientation
+                    recorded_frames.append(frame)
+                    time.sleep(max(0.0, (1.0 / FPS)))
 
-        sequence = [
-            ("Approach", action_from_pose(approach_pose, GRIPPER_OPEN)),
-            ("Descend", action_from_pose(descend_pose, GRIPPER_OPEN)),
-            ("Close", action_from_pose(descend_pose, GRIPPER_CLOSED)),
-            ("Lift", action_from_pose(lift_pose, GRIPPER_CLOSED)),
-        ]
+            if not recorded_frames:
+                raise RuntimeError("No frames captured during grasp sequence.")
 
-        recorded_frames: list[dict] = []
+            for idx, frame in enumerate(recorded_frames):
+                if idx < len(recorded_frames) - 1:
+                    ref = recorded_frames[idx + 1]
+                else:
+                    ref = recorded_frames[idx]
 
-        for step_name, action in sequence:
-            print(f"[Step] {step_name}")
-            robot.send_action(action)
-            start = time.time()
-            while (time.time() - start) < STAGE_DURATION:
-                obs = robot.get_observation()
-                frame, ee_pose, gripper = extract_observation_frame(robot, obs)
-                frame["_ee_pose"] = ee_pose
-                frame["_gripper"] = gripper
+                pose = ref["_ee_pose"]
+                act = [
+                    pose["x"],
+                    pose["y"],
+                    pose["z"],
+                    pose["qx"],
+                    pose["qy"],
+                    pose["qz"],
+                    pose["qw"],
+                ]
+                if robot.config.ros2_interface.gripper_enabled:
+                    act.append(ref["_gripper"])
 
-                recorded_frames.append(frame)
-                time.sleep(max(0.0, (1.0 / FPS)))
+                frame["action"] = np.array(act, dtype=np.float32)
+                del frame["_ee_pose"]
+                del frame["_gripper"]
+                dataset.add_frame(frame)
 
-        if not recorded_frames:
-            raise RuntimeError("No frames captured during grasp sequence.")
+            dataset.save_episode()
+            print(f"[OK] Episode saved with {len(recorded_frames)} frames.")
 
-        # Build next-frame actions
-        for idx, frame in enumerate(recorded_frames):
-            if idx < len(recorded_frames) - 1:
-                ref = recorded_frames[idx + 1]
-            else:
-                ref = recorded_frames[idx]
-
-            pose = ref["_ee_pose"]
-            act = [
-                pose["x"],
-                pose["y"],
-                pose["z"],
-                pose["qx"],
-                pose["qy"],
-                pose["qz"],
-                pose["qw"],
-            ]
             if robot.config.ros2_interface.gripper_enabled:
-                act.append(ref["_gripper"])
+                print("Opening gripper before returning to initial pose...")
+                current_obs = robot.get_observation()
+                open_current = action_from_observation(current_obs, GRIPPER_OPEN)
+                robot.send_action(open_current)
+                time.sleep(STAGE_DURATION)
 
-            frame["action"] = np.array(act, dtype=np.float32)
-            del frame["_ee_pose"]
-            del frame["_gripper"]
-            dataset.add_frame(frame)
- 
-        dataset.save_episode()
-        print(f"[OK] Episode saved with {len(recorded_frames)} frames.")
+            print("Returning to initial pose...")
+            robot.send_action(initial_action_open)
+            time.sleep(STAGE_DURATION)
+
+            if robot.config.ros2_interface.gripper_enabled:
+                print("Closing gripper after return...")
+                robot.send_action(initial_action_closed)
+                time.sleep(STAGE_DURATION)
+
         print(f"[OK] Dataset available at: {dataset_path}")
 
     except Exception as exc:
