@@ -357,7 +357,7 @@ def main() -> None:
                 crf=23,
                 overwrite=True,
             )
-
+        
             # NOTE: we intentionally keep img_dir to preserve original PNG frames
             return temp_path
 
