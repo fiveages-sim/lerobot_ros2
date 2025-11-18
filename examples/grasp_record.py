@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from types import MethodType
 
 import numpy as np
 import rclpy
@@ -230,7 +231,7 @@ def build_dataset(robot: ROS2Robot) -> tuple[LeRobotDataset, Path]:
         if key.endswith(".depth") and info.get("dtype") == "video":
             h, w, _ = info["shape"]
             info["dtype"] = "image"
-            info["shape"] = (h, w, 1)
+            info["shape"] = (h, w, 3)
             info["names"] = ["height", "width", "channels"]
     dataset = LeRobotDataset.create(
         repo_id=str(dataset_dir),
@@ -297,7 +298,9 @@ def extract_observation_frame(
         if depth_key in obs:
             depth_img = obs[depth_key]
             if depth_img.ndim == 2:
-                depth_img = depth_img[:, :, None]
+                depth_img = np.repeat(depth_img[:, :, None], 3, axis=2)
+            elif depth_img.shape[-1] == 1:
+                depth_img = np.repeat(depth_img, 3, axis=2)
             frame[f"observation.images.{cam_name}.depth"] = depth_img
 
     return frame, ee_pose, gripper_pos
@@ -364,6 +367,11 @@ def main() -> None:
         dataset._encode_temporary_episode_video = _encode_temporary_episode_video_h265.__get__(
             dataset, LeRobotDataset
         )
+
+        def _clear_episode_buffer_keep_images(self, delete_images: bool = True) -> None:
+            return LeRobotDataset.clear_episode_buffer(self, delete_images=False)
+
+        dataset.clear_episode_buffer = MethodType(_clear_episode_buffer_keep_images, dataset)
         print(f"[OK] Dataset initialized at {dataset_path}")
 
         initial_obs = robot.get_observation()

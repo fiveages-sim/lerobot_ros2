@@ -299,7 +299,9 @@ class ROS2Camera(Camera):
 
             depth_vis = np.clip(depth_norm * 255.0, 0.0, 255.0).astype(np.uint8)
             if depth_vis.ndim == 2:
-                depth_vis = depth_vis[:, :, None]
+                depth_vis = np.repeat(depth_vis[:, :, None], 3, axis=2)
+            elif depth_vis.shape[-1] == 1:
+                depth_vis = np.repeat(depth_vis, 3, axis=2)
 
             with self.depth_lock:
                 self.latest_depth = depth_vis.copy()
