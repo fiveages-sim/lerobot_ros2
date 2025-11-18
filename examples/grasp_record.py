@@ -578,6 +578,6 @@ def main() -> None:
             robot.disconnect()
             print("Robot disconnected")
 
-
+ 
 if __name__ == "__main__":
     main()
