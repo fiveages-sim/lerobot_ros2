@@ -12,12 +12,14 @@ end-effector pose plus gripper state (the final frame reuses its own pose).
 
 from __future__ import annotations
 
+import json
 import signal
 import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import MethodType
 from typing import Optional
 from types import MethodType
 
@@ -53,6 +55,16 @@ GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
 POSE_TIMEOUT = 10.0
 TASK_NAME = "grasp_apples"
+# Order used for action vectors in dataset/keypoints
+ACTION_KEYS = [
+    "end_effector.position.x",
+    "end_effector.position.y",
+    "end_effector.position.z",
+    "end_effector.orientation.x",
+    "end_effector.orientation.y",
+    "end_effector.orientation.z",
+    "end_effector.orientation.w",
+]
 # ----------------------------------------------------------------------------
 
 
@@ -220,6 +232,13 @@ def action_from_observation(obs: dict[str, float], gripper: float) -> dict[str, 
     return action_from_pose(pose, gripper)
 
 
+def action_dict_to_array(action: dict[str, float], include_gripper: bool) -> np.ndarray:
+    values = [action.get(key, 0.0) for key in ACTION_KEYS]
+    if include_gripper:
+        values.append(action.get("gripper.position", 0.0))
+    return np.array(values, dtype=np.float32)
+
+
 def build_dataset(robot: ROS2Robot) -> tuple[LeRobotDataset, Path]:
     features = {}
     features.update(hw_to_dataset_features(robot.action_features, "action"))
@@ -306,6 +325,25 @@ def extract_observation_frame(
     return frame, ee_pose, gripper_pos
 
 
+def save_episode_keypoints(dataset_dir: Path, episode_index: int, keypoints: list[dict]) -> None:
+    if not keypoints:
+        return
+    kp_dir = dataset_dir / "keypoints"
+    kp_dir.mkdir(parents=True, exist_ok=True)
+    payload = []
+    for kp in keypoints:
+        payload.append(
+            {
+                "episode_index": episode_index,
+                "command_index": kp["command_index"],
+                "frame_index": kp["frame_index"],
+                "action": kp["action"].tolist(),
+            }
+        )
+    out_path = kp_dir / f"episode-{episode_index:06d}.json"
+    out_path.write_text(json.dumps(payload, indent=2))
+
+
 def main() -> None:
     print("ROS2 Grasp Recording Demo (LeRobot)")
     print("=" * 70)
@@ -315,6 +353,9 @@ def main() -> None:
         loops = max(1, int(input("How many grasp episodes to record? ")))
     except Exception:
         print("[info] invalid input, defaulting to 1 episode")
+
+    pause_input = input("Pause between episodes after returning to home? [y/N]: ").strip().lower()
+    pause_between_episodes = pause_input in {"y", "yes"}
 
     robot_config = build_robot_config()
     robot = ROS2Robot(robot_config)
@@ -337,6 +378,7 @@ def main() -> None:
         print("[OK] Robot connected")
 
         dataset, dataset_path = build_dataset(robot)
+        include_gripper = robot.config.ros2_interface.gripper_enabled
         # # 修改视频编码方法以使用H.265编码器并保留图
         def _encode_temporary_episode_video_h265(self, video_key: str, episode_index: int) -> Path:
             """
@@ -381,6 +423,7 @@ def main() -> None:
 
         for episode in range(loops):
             print(f"=== Recording episode {episode + 1}/{loops} ===")
+            command_counter = 0
             print("Waiting for object pose TF...")
             sample = pose_listener.wait_for_pose(timeout=POSE_TIMEOUT)
             if sample is None:
@@ -440,18 +483,40 @@ def main() -> None:
 
             recorded_frames: list[dict] = []
 
+            pending_keypoint: Optional[dict] = None
+            episode_keypoints: list[dict] = []
+
             for step_name, action in sequence:
                 print(f"[Step] {step_name}")
                 robot.send_action(action)
+                pending_keypoint = {
+                    "command_index": command_counter,
+                    "action_vec": action_dict_to_array(action, include_gripper),
+                }
+                command_counter += 1
                 start = time.time()
                 while (time.time() - start) < STAGE_DURATION:
                     obs = robot.get_observation()
                     frame, ee_pose, gripper = extract_observation_frame(robot, obs)
                     frame["_ee_pose"] = ee_pose
                     frame["_gripper"] = gripper
-
+                    frame_idx = len(recorded_frames)
+                    if pending_keypoint is not None:
+                        episode_keypoints.append(
+                            {
+                                "command_index": pending_keypoint["command_index"],
+                                "frame_index": frame_idx,
+                                "action": pending_keypoint["action_vec"].copy(),
+                            }
+                        )
+                        pending_keypoint = None
                     recorded_frames.append(frame)
                     time.sleep(max(0.0, (1.0 / FPS)))
+
+                if pending_keypoint is not None:
+                    raise RuntimeError(
+                        f"No frame captured after sending action index {pending_keypoint['command_index']}"
+                    )
 
             if not recorded_frames:
                 raise RuntimeError("No frames captured during grasp sequence.")
@@ -463,24 +528,25 @@ def main() -> None:
                     ref = recorded_frames[idx]
 
                 pose = ref["_ee_pose"]
-                act = [
-                    pose["x"],
-                    pose["y"],
-                    pose["z"],
-                    pose["qx"],
-                    pose["qy"],
-                    pose["qz"],
-                    pose["qw"],
-                ]
-                if robot.config.ros2_interface.gripper_enabled:
-                    act.append(ref["_gripper"])
+                action_dict = {
+                    "end_effector.position.x": pose["x"],
+                    "end_effector.position.y": pose["y"],
+                    "end_effector.position.z": pose["z"],
+                    "end_effector.orientation.x": pose["qx"],
+                    "end_effector.orientation.y": pose["qy"],
+                    "end_effector.orientation.z": pose["qz"],
+                    "end_effector.orientation.w": pose["qw"],
+                }
+                if include_gripper:
+                    action_dict["gripper.position"] = ref["_gripper"]
 
-                frame["action"] = np.array(act, dtype=np.float32)
+                frame["action"] = action_dict_to_array(action_dict, include_gripper)
                 del frame["_ee_pose"]
                 del frame["_gripper"]
                 dataset.add_frame(frame)
 
             dataset.save_episode()
+            save_episode_keypoints(dataset_path, episode, episode_keypoints)
             print(f"[OK] Episode saved with {len(recorded_frames)} frames.")
 
             if robot.config.ros2_interface.gripper_enabled:
@@ -498,6 +564,9 @@ def main() -> None:
                 print("Closing gripper after return...")
                 robot.send_action(initial_action_closed)
                 time.sleep(STAGE_DURATION)
+
+            if pause_between_episodes and episode < loops - 1:
+                input("Press Enter to start the next episode...")
 
         print(f"[OK] Dataset available at: {dataset_path}")
 
