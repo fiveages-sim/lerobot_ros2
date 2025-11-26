@@ -705,7 +705,7 @@ def main() -> None:
                 if idx < len(recorded_frames) - 1:
                     ref = recorded_frames[idx + 1]
                 else:
-                    ref = recorded_frames[idx]
+                    ref = recorded_frames[idx] 
 
                 pose = ref["_ee_pose"]
                 action_dict = {
