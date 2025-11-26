@@ -12,7 +12,7 @@ end-effector pose plus gripper state (the final frame reuses its own pose).
 
 from __future__ import annotations
 
-import json
+import pickle
 import signal
 import sys
 import threading
@@ -21,13 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MethodType
 from typing import Optional
-from types import MethodType
 
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Pose
 from rclpy.executors import SingleThreadedExecutor
+from sensor_msgs.msg import Image, CameraInfo
 from tf2_msgs.msg import TFMessage
+from cv_bridge import CvBridge
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
@@ -44,8 +45,10 @@ from lerobot_camera_ros2 import ROS2CameraConfig
 FPS = 30
 STAGE_DURATION = 2          # seconds to sample after each command 2s
 
+CAMERA_NAME = "zed"  # BridgeVLA expects zed_* naming
 CAMERA_TOPIC = "/global_camera/rgb"
 DEPTH_TOPIC = "/global_camera/depth"
+DEPTH_INFO_TOPIC = "/global_camera/camera_info"
 OBJECT_TF_TOPIC = "/isaac/tf"
 TARGET_FRAME_ID = "apple"
 USE_OBJECT_ORIENTATION = False
@@ -78,6 +81,102 @@ class PoseSample:
     qz: float
     qw: float
     timestamp: float
+
+
+class RawDepthListener:
+    """Subscribe to raw 32FC1 depth images directly from ROS2 topic."""
+
+    def __init__(self, depth_topic: str) -> None:
+        self.depth_topic = depth_topic
+        self._latest_depth: Optional[np.ndarray] = None
+        self._lock = threading.Lock()
+        self._bridge = CvBridge()
+
+        if not rclpy.ok():
+            rclpy.init()
+
+        self._node = rclpy.create_node("grasp_record_depth_listener")
+        self._sub = self._node.create_subscription(
+            Image, self.depth_topic, self._depth_callback, 10
+        )
+
+        self._executor = SingleThreadedExecutor()
+        self._executor.add_node(self._node)
+        self._thread = threading.Thread(target=self._executor.spin, daemon=True)
+        self._thread.start()
+
+        print(f"[RawDepthListener] Subscribed to {depth_topic}")
+
+    def _depth_callback(self, msg: Image) -> None:
+        """Callback to receive raw depth images (32FC1)."""
+        try:
+            # Convert ROS Image message to numpy array, preserving original encoding
+            depth_image = self._bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+            with self._lock:
+                self._latest_depth = depth_image.astype(np.float32)
+        except Exception as e:
+            print(f"[RawDepthListener] Failed to convert depth image: {e}")
+
+    def get_latest_depth(self) -> Optional[np.ndarray]:
+        """Get the most recent raw depth image."""
+        with self._lock:
+            return self._latest_depth.copy() if self._latest_depth is not None else None
+
+    def shutdown(self) -> None:
+        """Clean up resources."""
+        self._executor.shutdown()
+        self._node.destroy_node()
+
+
+class DepthCameraInfoListener:
+    """Listen to camera info to retrieve intrinsics for depth projection."""
+
+    def __init__(self, info_topic: str) -> None:
+        self.info_topic = info_topic
+        self._intrinsics: Optional[tuple[float, float, float, float]] = None
+        self._lock = threading.Lock()
+        self._ready = threading.Event()
+
+        if not rclpy.ok():
+            rclpy.init()
+
+        self._node = rclpy.create_node("grasp_record_camera_info_listener")
+        self._sub = self._node.create_subscription(
+            CameraInfo, self.info_topic, self._info_callback, 1
+        )
+        self._executor = SingleThreadedExecutor()
+        self._executor.add_node(self._node)
+        self._thread = threading.Thread(target=self._executor.spin, daemon=True)
+        self._thread.start()
+
+        print(f"[DepthCameraInfoListener] Subscribed to {info_topic}")
+
+    def _info_callback(self, msg: CameraInfo) -> None:
+        fx, fy, cx, cy = msg.k[0], msg.k[4], msg.k[2], msg.k[5]
+        with self._lock:
+            self._intrinsics = (fx, fy, cx, cy)
+            self._ready.set()
+
+    def wait_for_intrinsics(self, timeout: float) -> Optional[tuple[float, float, float, float]]:
+        """Wait for a camera info message."""
+        if not self._ready.wait(timeout):
+            return None
+        with self._lock:
+            return self._intrinsics
+
+    def shutdown(self) -> None:
+        if self._executor is not None:
+            self._executor.shutdown()
+            self._executor = None
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        if hasattr(self, "_sub") and self._sub is not None:
+            self._sub.destroy()
+            self._sub = None
+        if hasattr(self, "_node") and self._node is not None:
+            self._node.destroy_node()
+            self._node = None
 
 
 class ObjectPoseListener:
@@ -151,7 +250,7 @@ class ObjectPoseListener:
 
 def build_robot_config() -> ROS2RobotConfig:
     camera_cfg = {
-        "global_camera": ROS2CameraConfig(
+        CAMERA_NAME: ROS2CameraConfig(
             topic_name=CAMERA_TOPIC,
             node_name="lerobot_global_camera",
             width=1280,
@@ -239,19 +338,87 @@ def action_dict_to_array(action: dict[str, float], include_gripper: bool) -> np.
     return np.array(values, dtype=np.float32)
 
 
+def depth_to_pointcloud(
+    depth: np.ndarray, intrinsics: tuple[float, float, float, float]
+) -> np.ndarray:
+    """Project depth (H, W) to XYZ (H, W, 3) using pinhole intrinsics."""
+    if depth.ndim == 3:
+        depth = depth[..., 0]
+    fx, fy, cx, cy = intrinsics
+    h, w = depth.shape
+    u = np.arange(w, dtype=np.float32)
+    v = np.arange(h, dtype=np.float32)
+    uu, vv = np.meshgrid(u, v)
+    z = depth.astype(np.float32)
+    # Avoid division by zero
+    fx = fx if fx != 0 else 1.0
+    fy = fy if fy != 0 else 1.0
+    x = (uu - cx) * z / fx
+    y = (vv - cy) * z / fy
+    pcd = np.stack((x, y, z), axis=-1).astype(np.float32)
+    return pcd
+
+
+def save_pointcloud_frame(
+    dataset_dir: Path,
+    episode_index: int,
+    frame_index: int,
+    depth_image: Optional[np.ndarray],
+    intrinsics: Optional[tuple[float, float, float, float]],
+    rgb_image: Optional[np.ndarray] = None,
+    pointcloud_key: str = "observation.points.zed_pcd",
+) -> None:
+    """Save a single frame point cloud (XYZ + optional RGB) to BridgeVLA-compatible path."""
+    # Ensure base dirs exist
+    pcd_dir = dataset_dir / "points" / pointcloud_key / "chunk-000" / f"episode_{episode_index:06d}"
+    pcd_dir.mkdir(parents=True, exist_ok=True)
+
+    if depth_image is None:
+        print(f"[WARN] Depth missing for ep {episode_index} frame {frame_index}, writing zeros pcd")
+        depth_image = np.zeros((1, 1), dtype=np.float32)
+
+    if intrinsics is None:
+        print("[WARN] Camera intrinsics missing, using identity intrinsics (pcd may be inaccurate)")
+        h, w = depth_image.shape[:2]
+        intrinsics = (max(w, 1), max(h, 1), w / 2.0, h / 2.0)
+
+    pcd_xyz = depth_to_pointcloud(depth_image, intrinsics)  # (H, W, 3)
+
+    pcd = pcd_xyz
+    if rgb_image is not None:
+        rgb = np.asarray(rgb_image)
+        if rgb.ndim == 2:
+            rgb = np.repeat(rgb[:, :, None], 3, axis=2)
+        if rgb.shape[:2] != pcd_xyz.shape[:2]:
+            print(f"[WARN] RGB shape {rgb.shape} != depth shape {pcd_xyz.shape}, skipping color")
+        else:
+            rgb = rgb.astype(np.float32)
+            if rgb.max() > 1.0:
+                rgb = rgb / 255.0
+            rgb = np.clip(rgb, 0.0, 1.0)
+            pcd = np.concatenate([pcd_xyz, rgb], axis=-1).astype(np.float32)
+
+    out_path = pcd_dir / f"frame_{frame_index:06d}.pkl"
+    with open(out_path, "wb") as f:
+        pickle.dump(pcd, f)
+
+
 def build_dataset(robot: ROS2Robot) -> tuple[LeRobotDataset, Path]:
     features = {}
     features.update(hw_to_dataset_features(robot.action_features, "action"))
     features.update(hw_to_dataset_features(robot.observation_features, "observation"))
+    # Normalize camera feature keys to BridgeVLA style (observation.images.<cam>_rgb)
+    # Drop depth images from the dataset (we keep raw depth only for point clouds)
+    remapped = {}
+    for key, info in features.items():
+        new_key = key.replace(".rgb", "_rgb").replace(".depth", "_depth")
+        if new_key.endswith("_depth"):
+            continue
+        remapped[new_key] = info
+    features = remapped
     dataset_root = Path.cwd() / "dataset"
     dataset_root.mkdir(parents=True, exist_ok=True)
     dataset_dir = dataset_root / f"grasp_dataset_{int(time.time())}"
-    for key, info in features.items():
-        if key.endswith(".depth") and info.get("dtype") == "video":
-            h, w, _ = info["shape"]
-            info["dtype"] = "image"
-            info["shape"] = (h, w, 3)
-            info["names"] = ["height", "width", "channels"]
     dataset = LeRobotDataset.create(
         repo_id=str(dataset_dir),
         fps=FPS,
@@ -309,39 +476,14 @@ def extract_observation_frame(
 
     for cam_name in robot.config.cameras.keys():
         rgb_key = f"{cam_name}.rgb"
-        depth_key = f"{cam_name}.depth"
         if rgb_key in obs:
-            frame[f"observation.images.{cam_name}.rgb"] = obs[rgb_key]
+            frame[f"observation.images.{cam_name}_rgb"] = obs[rgb_key]
         elif cam_name in obs:
             frame[f"observation.images.{cam_name}"] = obs[cam_name]
-        if depth_key in obs:
-            depth_img = obs[depth_key]
-            if depth_img.ndim == 2:
-                depth_img = np.repeat(depth_img[:, :, None], 3, axis=2)
-            elif depth_img.shape[-1] == 1:
-                depth_img = np.repeat(depth_img, 3, axis=2)
-            frame[f"observation.images.{cam_name}.depth"] = depth_img
 
     return frame, ee_pose, gripper_pos
 
 
-def save_episode_keypoints(dataset_dir: Path, episode_index: int, keypoints: list[dict]) -> None:
-    if not keypoints:
-        return
-    kp_dir = dataset_dir / "keypoints"
-    kp_dir.mkdir(parents=True, exist_ok=True)
-    payload = []
-    for kp in keypoints:
-        payload.append(
-            {
-                "episode_index": episode_index,
-                "command_index": kp["command_index"],
-                "frame_index": kp["frame_index"],
-                "action": kp["action"].tolist(),
-            }
-        )
-    out_path = kp_dir / f"episode-{episode_index:06d}.json"
-    out_path.write_text(json.dumps(payload, indent=2))
 
 
 def main() -> None:
@@ -360,11 +502,15 @@ def main() -> None:
     robot_config = build_robot_config()
     robot = ROS2Robot(robot_config)
     pose_listener = ObjectPoseListener(OBJECT_TF_TOPIC, TARGET_FRAME_ID)
+    depth_listener = RawDepthListener(DEPTH_TOPIC)
+    cam_info_listener = DepthCameraInfoListener(DEPTH_INFO_TOPIC)
 
     def shutdown_handler(sig, frame) -> None:  # type: ignore[override]
         print("\nInterrupt received. Cleaning up...")
         try:
             pose_listener.shutdown()
+            depth_listener.shutdown()
+            cam_info_listener.shutdown()
             if robot.is_connected:
                 robot.disconnect()
         finally:
@@ -376,6 +522,13 @@ def main() -> None:
         print("Connecting robot...")
         robot.connect()
         print("[OK] Robot connected")
+
+        intrinsics = cam_info_listener.wait_for_intrinsics(timeout=POSE_TIMEOUT)
+        if intrinsics is None:
+            print("[WARN] No camera_info received, will fall back to default intrinsics")
+        else:
+            fx, fy, cx, cy = intrinsics
+            print(f"[OK] Camera intrinsics received: fx={fx:.2f}, fy={fy:.2f}, cx={cx:.2f}, cy={cy:.2f}")
 
         dataset, dataset_path = build_dataset(robot)
         include_gripper = robot.config.ros2_interface.gripper_enabled
@@ -484,7 +637,6 @@ def main() -> None:
             recorded_frames: list[dict] = []
 
             pending_keypoint: Optional[dict] = None
-            episode_keypoints: list[dict] = []
 
             for step_name, action in sequence:
                 print(f"[Step] {step_name}")
@@ -502,14 +654,42 @@ def main() -> None:
                     frame["_gripper"] = gripper
                     frame_idx = len(recorded_frames)
                     if pending_keypoint is not None:
-                        episode_keypoints.append(
-                            {
-                                "command_index": pending_keypoint["command_index"],
-                                "frame_index": frame_idx,
-                                "action": pending_keypoint["action_vec"].copy(),
-                            }
+                        # Get raw depth directly from ROS2 topic (32FC1, in meters)
+                        depth_raw = depth_listener.get_latest_depth()
+                        if depth_raw is None:
+                            depth_key = f"{CAMERA_NAME}.depth"
+                            if depth_key in obs:
+                                depth_raw = obs[depth_key].astype(np.float32)
+
+                        # Get RGB image from observation
+                        rgb_raw = None
+                        for cam_name in robot.config.cameras.keys():
+                            rgb_key = f"{cam_name}.rgb"
+                            if rgb_key in obs:
+                                rgb_raw = obs[rgb_key].astype(np.uint8)
+                            elif cam_name in obs:
+                                rgb_raw = obs[cam_name].astype(np.uint8)
+                            if rgb_raw is not None:
+                                break
+
+                        if depth_raw is not None:
+                            print(f"[Keypoint] Captured raw depth: shape={depth_raw.shape}, "
+                                  f"range=[{depth_raw[depth_raw > 0].min():.3f}, {depth_raw.max():.3f}] m")
+                        else:
+                            print("[WARNING] Failed to capture raw depth for keypoint")
+
+                        # Save point cloud only at keypoints
+                        save_pointcloud_frame(
+                            dataset_path,
+                            episode,
+                            frame_idx,
+                            depth_raw,
+                            intrinsics,
+                            rgb_image=rgb_raw,
+                            pointcloud_key=f"observation.points.{CAMERA_NAME}_pcd",
                         )
                         pending_keypoint = None
+
                     recorded_frames.append(frame)
                     time.sleep(max(0.0, (1.0 / FPS)))
 
@@ -546,7 +726,6 @@ def main() -> None:
                 dataset.add_frame(frame)
 
             dataset.save_episode()
-            save_episode_keypoints(dataset_path, episode, episode_keypoints)
             print(f"[OK] Episode saved with {len(recorded_frames)} frames.")
 
             if robot.config.ros2_interface.gripper_enabled:
@@ -574,6 +753,8 @@ def main() -> None:
         print(f"[ERROR] Recording failed: {exc}")
     finally:
         pose_listener.shutdown()
+        depth_listener.shutdown()
+        cam_info_listener.shutdown()
         if robot.is_connected:
             robot.disconnect()
             print("Robot disconnected")
