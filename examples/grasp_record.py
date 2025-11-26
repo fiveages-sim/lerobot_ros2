@@ -471,7 +471,7 @@ def extract_observation_frame(
         "qz": obs.get("end_effector.orientation.z", 0.0),
         "qw": obs.get("end_effector.orientation.w", 1.0),
     }
-
+  
     frame["observation.state"] = np.array(obs_state, dtype=np.float32)
 
     for cam_name in robot.config.cameras.keys():
