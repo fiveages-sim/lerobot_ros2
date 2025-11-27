@@ -577,6 +577,7 @@ def main() -> None:
         for episode in range(loops):
             print(f"=== Recording episode {episode + 1}/{loops} ===")
             command_counter = 0
+            pcd_save_idx = 0  # 点云文件按保存顺序递增命名
             print("Waiting for object pose TF...")
             sample = pose_listener.wait_for_pose(timeout=POSE_TIMEOUT)
             if sample is None:
@@ -682,12 +683,13 @@ def main() -> None:
                         save_pointcloud_frame(
                             dataset_path,
                             episode,
-                            frame_idx,
+                            pcd_save_idx,
                             depth_raw,
                             intrinsics,
                             rgb_image=rgb_raw,
                             pointcloud_key=f"observation.points.{CAMERA_NAME}_pcd",
                         )
+                        pcd_save_idx += 1
                         pending_keypoint = None
 
                     recorded_frames.append(frame)
