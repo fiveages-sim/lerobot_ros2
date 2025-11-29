@@ -14,9 +14,7 @@ from pathlib import Path
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-UPSTREAM_LEROBOT = REPO_ROOT.parent / "lerobot" / "src"
-if UPSTREAM_LEROBOT.exists():
-    sys.path.insert(0, str(UPSTREAM_LEROBOT))
+
 
 from lerobot.configs.default import DatasetConfig, WandBConfig
 from lerobot.configs.train import TrainPipelineConfig

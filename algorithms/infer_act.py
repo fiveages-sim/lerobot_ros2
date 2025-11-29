@@ -18,9 +18,7 @@ from pathlib import Path
 import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-UPSTREAM_LEROBOT = REPO_ROOT.parent / "lerobot" / "src"
-if UPSTREAM_LEROBOT.exists():
-    sys.path.insert(0, str(UPSTREAM_LEROBOT))
+
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.policies.factory import make_policy

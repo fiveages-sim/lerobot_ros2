@@ -24,11 +24,8 @@ import torch
 import torch.utils.data
 import tqdm
 
-# Ensure we can import the local lerobot package
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SYS_PATH = REPO_ROOT.parent / "lerobot" / "src"
-if SYS_PATH.exists():
-    sys.path.insert(0, str(SYS_PATH))
+
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 

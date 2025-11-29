@@ -24,8 +24,7 @@ from typing import Optional
 import numpy as np
 import torch
 
-# Add lerobot to path
-sys.path.insert(0, '/home/fiveages/PycharmProjects/lerobot/src')
+
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
