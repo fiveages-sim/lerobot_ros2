@@ -35,6 +35,8 @@ class DatasetConfig:
     episodes: list[int] | None = None
     image_transforms: ImageTransformsConfig = field(default_factory=ImageTransformsConfig)
     revision: str | None = None
+    # Timestamp tolerance in seconds for aligning video frames; if None, defaults to (1/fps - 1e-4) at load time.
+    tolerance_s: float | None = None
     use_imagenet_stats: bool = True
     video_backend: str = field(default_factory=get_safe_default_codec)
     streaming: bool = False

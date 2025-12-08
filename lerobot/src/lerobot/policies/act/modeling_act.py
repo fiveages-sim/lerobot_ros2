@@ -139,8 +139,13 @@ class ACTPolicy(PreTrainedPolicy):
 
         batch = self.normalize_inputs(batch)
         if self.config.image_features:
+            print(f"[DEBUG predict_action_chunk] config.image_features: {self.config.image_features}")
+            print(f"[DEBUG predict_action_chunk] Keys in batch before conversion: {list(batch.keys())}")
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
             batch[OBS_IMAGES] = [batch[key] for key in self.config.image_features]
+            print(f"[DEBUG predict_action_chunk] Created {OBS_IMAGES} list with {len(batch[OBS_IMAGES])} items")
+            for i, img in enumerate(batch[OBS_IMAGES]):
+                print(f"[DEBUG predict_action_chunk]   [{i}]: shape={img.shape}, dtype={img.dtype}")
 
         actions = self.model(batch)[0]
         actions = self.unnormalize_outputs({ACTION: actions})[ACTION]
@@ -409,6 +414,18 @@ class ACT(nn.Module):
             Tuple containing the latent PDF's parameters (mean, log(σ²)) both as (B, L) tensors where L is the
             latent dimension.
         """
+        # DEBUG: 打印batch的键和结构
+        print(f"[DEBUG ACT forward] Batch keys: {list(batch.keys())}")
+        print(f"[DEBUG ACT forward] config.image_features: {self.config.image_features}")
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                print(f"[DEBUG ACT forward]   {k}: shape={v.shape}, dtype={v.dtype}")
+            elif isinstance(v, list):
+                print(f"[DEBUG ACT forward]   {k}: list with {len(v)} items")
+                for i, item in enumerate(v):
+                    if isinstance(item, torch.Tensor):
+                        print(f"[DEBUG ACT forward]     [{i}]: shape={item.shape}, dtype={item.dtype}")
+
         if self.config.use_vae and self.training:
             assert "action" in batch, (
                 "actions must be provided when using the variational objective in training mode."
@@ -489,19 +506,25 @@ class ACT(nn.Module):
             # For a list of images, the H and W may vary but H*W is constant.
             # NOTE: If modifying this section, verify on MPS devices that
             # gradients remain stable (no explosions or NaNs).
-            for img in batch["observation.images"]:
-                cam_features = self.backbone(img)["feature_map"]
-                cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
-                cam_features = self.encoder_img_feat_input_proj(cam_features)
+            if "observation.images" not in batch or len(batch["observation.images"]) == 0:
+                print("[ERROR ACT] config.image_features=True but no images in batch!")
+            else:
+                print(f"[DEBUG ACT] Processing {len(batch['observation.images'])} camera images through backbone")
+                for i, img in enumerate(batch["observation.images"]):
+                    print(f"[DEBUG ACT]   Camera {i}: input shape={img.shape}, dtype={img.dtype}")
+                    cam_features = self.backbone(img)["feature_map"]
+                    print(f"[DEBUG ACT]   Camera {i}: backbone output shape={cam_features.shape}")
+                    cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
+                    cam_features = self.encoder_img_feat_input_proj(cam_features)
 
-                # Rearrange features to (sequence, batch, dim).
-                cam_features = einops.rearrange(cam_features, "b c h w -> (h w) b c")
-                cam_pos_embed = einops.rearrange(cam_pos_embed, "b c h w -> (h w) b c")
+                    # Rearrange features to (sequence, batch, dim).
+                    cam_features = einops.rearrange(cam_features, "b c h w -> (h w) b c")
+                    cam_pos_embed = einops.rearrange(cam_pos_embed, "b c h w -> (h w) b c")
 
-                # Extend immediately instead of accumulating and concatenating
-                # Convert to list to extend properly
-                encoder_in_tokens.extend(list(cam_features))
-                encoder_in_pos_embed.extend(list(cam_pos_embed))
+                    # Extend immediately instead of accumulating and concatenating
+                    # Convert to list to extend properly
+                    encoder_in_tokens.extend(list(cam_features))
+                    encoder_in_pos_embed.extend(list(cam_pos_embed))
 
         # Stack all tokens along the sequence dimension.
         encoder_in_tokens = torch.stack(encoder_in_tokens, axis=0)

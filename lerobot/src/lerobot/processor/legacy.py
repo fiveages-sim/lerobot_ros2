@@ -26,10 +26,10 @@ PolicyAction = Dict[str, Any]
 
 def _to_tensor(val: Any, device: str | torch.device | None = None) -> Tensor:
     if isinstance(val, torch.Tensor):
-        return val.to(device=device)
+        return val.to(device=device, dtype=torch.float32)
     if isinstance(val, np.ndarray):
-        return torch.from_numpy(val).to(device=device)
-    return torch.as_tensor(val, device=device)
+        return torch.from_numpy(val).to(device=device, dtype=torch.float32)
+    return torch.as_tensor(val, device=device, dtype=torch.float32)
 
 
 class AddBatchDimensionProcessorStep:
@@ -39,10 +39,10 @@ class AddBatchDimensionProcessorStep:
         out = {}
         for k, v in data.items():
             if isinstance(v, torch.Tensor):
-                out[k] = v if v.ndim > 0 else v.unsqueeze(0)
+                out[k] = (v if v.ndim > 0 else v.unsqueeze(0)).float()
             elif isinstance(v, np.ndarray):
                 t = torch.from_numpy(v)
-                out[k] = t if t.ndim > 0 else t.unsqueeze(0)
+                out[k] = (t if t.ndim > 0 else t.unsqueeze(0)).float()
             else:
                 out[k] = v
         return out
@@ -126,6 +126,7 @@ class UnnormalizerProcessorStep:
             if key not in out:
                 continue
             tensor = _to_tensor(out[key], self.cfg.device).float()
+            stats = {k: v.to(tensor.device) for k, v in stats.items()}
             if "mean" in stats and "std" in stats:
                 out[key] = tensor * (stats["std"] + self.cfg.eps) + stats["mean"]
             elif "min" in stats and "max" in stats:
@@ -215,4 +216,3 @@ class PolicyProcessorPipeline(Generic[InT, OutT]):
             # tests or custom loaders working.
             steps = overrides.get("steps", steps)
         return cls(steps=steps, name=config_filename, to_transition=to_transition, to_output=to_output)
-

@@ -2,3 +2,7 @@
 /lerobot_camera_ros2/lerobot_camera_ros2.egg-info/
 /lerobot_robot_ros2/lerobot_robot_ros2.egg-info/
 __pycache__/
+
+# Dataset directories (录制的数据集，通常很大)
+dataset/
+outputs/

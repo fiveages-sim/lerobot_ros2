@@ -30,16 +30,29 @@ from lerobot.envs.configs import EnvConfig
 from lerobot.envs.utils import env_to_policy_features
 from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
-from lerobot.policies.groot.configuration_groot import GrootConfig
 from lerobot.policies.pi0.configuration_pi0 import PI0Config
-from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.policies.sac.configuration_sac import SACConfig
 from lerobot.policies.sac.reward_model.configuration_classifier import RewardClassifierConfig
 from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
 from lerobot.policies.tdmpc.configuration_tdmpc import TDMPCConfig
-from lerobot.policies.utils import validate_visual_features_consistency
 from lerobot.policies.vqbet.configuration_vqbet import VQBeTConfig
+
+# Try to import optional policies that may not exist in all lerobot versions
+try:
+    from lerobot.policies.groot.configuration_groot import GrootConfig
+except ImportError:
+    GrootConfig = None
+
+try:
+    from lerobot.policies.pi05.configuration_pi05 import PI05Config
+except ImportError:
+    PI05Config = None
+
+try:
+    from lerobot.policies.utils import validate_visual_features_consistency
+except ImportError:
+    validate_visual_features_consistency = None
 from lerobot.processor import PolicyAction, PolicyProcessorPipeline
 from lerobot.processor.converters import (
     batch_to_transition,
@@ -141,6 +154,8 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
     elif policy_type == "pi0":
         return PI0Config(**kwargs)
     elif policy_type == "pi05":
+        if PI05Config is None:
+            raise ValueError(f"Policy type 'pi05' is not available in this lerobot version.")
         return PI05Config(**kwargs)
     elif policy_type == "sac":
         return SACConfig(**kwargs)
@@ -149,6 +164,8 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
     elif policy_type == "reward_classifier":
         return RewardClassifierConfig(**kwargs)
     elif policy_type == "groot":
+        if GrootConfig is None:
+            raise ValueError(f"Policy type 'groot' is not available in this lerobot version.")
         return GrootConfig(**kwargs)
     else:
         raise ValueError(f"Policy type '{policy_type}' is not available.")
@@ -208,7 +225,7 @@ def make_pre_post_processors(
     """
     if pretrained_path:
         # TODO(Steven): Temporary patch, implement correctly the processors for Gr00t
-        if isinstance(policy_cfg, GrootConfig):
+        if GrootConfig is not None and isinstance(policy_cfg, GrootConfig):
             # GROOT handles normalization in groot_pack_inputs_v3 step
             # Need to override both stats AND normalize_min_max since saved config might be empty
             preprocessor_overrides = {}
@@ -250,8 +267,9 @@ def make_pre_post_processors(
         )
 
     # Create a new processor based on policy type
+    # Import from algorithms.policies since processors are located there
     if isinstance(policy_cfg, TDMPCConfig):
-        from lerobot.policies.tdmpc.processor_tdmpc import make_tdmpc_pre_post_processors
+        from algorithms.policies.tdmpc.processor_tdmpc import make_tdmpc_pre_post_processors
 
         processors = make_tdmpc_pre_post_processors(
             config=policy_cfg,
@@ -259,7 +277,7 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, DiffusionConfig):
-        from lerobot.policies.diffusion.processor_diffusion import make_diffusion_pre_post_processors
+        from algorithms.policies.diffusion.processor_diffusion import make_diffusion_pre_post_processors
 
         processors = make_diffusion_pre_post_processors(
             config=policy_cfg,
@@ -267,7 +285,7 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, ACTConfig):
-        from lerobot.policies.act.processor_act import make_act_pre_post_processors
+        from algorithms.policies.act.processor_act import make_act_pre_post_processors
 
         processors = make_act_pre_post_processors(
             config=policy_cfg,
@@ -275,7 +293,7 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, VQBeTConfig):
-        from lerobot.policies.vqbet.processor_vqbet import make_vqbet_pre_post_processors
+        from algorithms.policies.vqbet.processor_vqbet import make_vqbet_pre_post_processors
 
         processors = make_vqbet_pre_post_processors(
             config=policy_cfg,
@@ -283,15 +301,15 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, PI0Config):
-        from lerobot.policies.pi0.processor_pi0 import make_pi0_pre_post_processors
+        from algorithms.policies.pi0.processor_pi0 import make_pi0_pre_post_processors
 
         processors = make_pi0_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )
 
-    elif isinstance(policy_cfg, PI05Config):
-        from lerobot.policies.pi05.processor_pi05 import make_pi05_pre_post_processors
+    elif PI05Config is not None and isinstance(policy_cfg, PI05Config):
+        from algorithms.policies.pi05.processor_pi05 import make_pi05_pre_post_processors
 
         processors = make_pi05_pre_post_processors(
             config=policy_cfg,
@@ -299,7 +317,7 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, SACConfig):
-        from lerobot.policies.sac.processor_sac import make_sac_pre_post_processors
+        from algorithms.policies.sac.processor_sac import make_sac_pre_post_processors
 
         processors = make_sac_pre_post_processors(
             config=policy_cfg,
@@ -307,7 +325,7 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, RewardClassifierConfig):
-        from lerobot.policies.sac.reward_model.processor_classifier import make_classifier_processor
+        from algorithms.policies.sac.reward_model.processor_classifier import make_classifier_processor
 
         processors = make_classifier_processor(
             config=policy_cfg,
@@ -315,15 +333,15 @@ def make_pre_post_processors(
         )
 
     elif isinstance(policy_cfg, SmolVLAConfig):
-        from lerobot.policies.smolvla.processor_smolvla import make_smolvla_pre_post_processors
+        from algorithms.policies.smolvla.processor_smolvla import make_smolvla_pre_post_processors
 
         processors = make_smolvla_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )
 
-    elif isinstance(policy_cfg, GrootConfig):
-        from lerobot.policies.groot.processor_groot import make_groot_pre_post_processors
+    elif GrootConfig is not None and isinstance(policy_cfg, GrootConfig):
+        from algorithms.policies.groot.processor_groot import make_groot_pre_post_processors
 
         processors = make_groot_pre_post_processors(
             config=policy_cfg,
@@ -420,7 +438,7 @@ def make_policy(
 
     # policy = torch.compile(policy, mode="reduce-overhead")
 
-    if not rename_map:
+    if not rename_map and validate_visual_features_consistency is not None:
         validate_visual_features_consistency(cfg, features)
         # TODO: (jadechoghari) - add a check_state(cfg, features) and check_action(cfg, features)
 

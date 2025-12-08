@@ -12,16 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .act.configuration_act import ACTConfig as ACTConfig
-from .diffusion.configuration_diffusion import DiffusionConfig as DiffusionConfig
-from .groot.configuration_groot import GrootConfig as GrootConfig
-from .pi0.configuration_pi0 import PI0Config as PI0Config
-from .pi05.configuration_pi05 import PI05Config as PI05Config
-from .smolvla.configuration_smolvla import SmolVLAConfig as SmolVLAConfig
-from .smolvla.processor_smolvla import SmolVLANewLineProcessor
-from .tdmpc.configuration_tdmpc import TDMPCConfig as TDMPCConfig
-from .vqbet.configuration_vqbet import VQBeTConfig as VQBeTConfig
-
+# Don't auto-import config classes to avoid registration conflicts with lerobot
+# Import them only when explicitly needed
 __all__ = [
     "ACTConfig",
     "DiffusionConfig",

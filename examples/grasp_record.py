@@ -19,7 +19,6 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from types import MethodType
 from typing import Optional
 
 import numpy as np
@@ -43,7 +42,13 @@ from lerobot_camera_ros2 import ROS2CameraConfig
 
 # ----------------------- Configuration --------------------------------------
 FPS = 30
-STAGE_DURATION = 2          # seconds to sample after each command 2s
+# 最长等待时间（秒），以防未到达目标位姿也不会无限等待
+MAX_STAGE_DURATION = 2.0
+# 判定"到达目标"的容差（根据实际硬件精度调整）
+POSE_TOL_POS = 0.025     # 米 (20mm，基于实际误差10-40mm设定)
+POSE_TOL_ORI = 0.08        # 弧度 (~4.6°)
+GRIPPER_TOL = 0.05         # 开合容差（0~1）
+RETURN_PAUSE = 1.0         # 回到初始位姿时的短暂停留（秒）
 
 CAMERA_NAME = "zed"  # BridgeVLA expects zed_* naming
 CAMERA_TOPIC = "/global_camera/rgb"
@@ -52,8 +57,10 @@ DEPTH_INFO_TOPIC = "/global_camera/camera_info"
 OBJECT_TF_TOPIC = "/isaac/tf"
 TARGET_FRAME_ID = "apple"
 USE_OBJECT_ORIENTATION = False
-APPROACH_CLEARANCE = 0.12
-GRASP_CLEARANCE = -0.03
+APPROACH_CLEARANCE = 0.12   # Approach 高度：目标上方 120mm
+APPROACH_OFFSET_X = 0.12    # Lift 阶段 X 偏移
+APPROACH_OFFSET_Y = 0.12    # Lift 阶段 Y 偏移
+GRASP_CLEARANCE = -0.03     # Descend 高度：目标上方 5mm（改为正值，避免负Z）
 GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
 POSE_TIMEOUT = 10.0
@@ -68,6 +75,8 @@ ACTION_KEYS = [
     "end_effector.orientation.z",
     "end_effector.orientation.w",
 ]
+# 是否在关键点采集深度并生成点云，可在开头交互式询问
+ENABLE_KEYPOINT_PCD = True
 # ----------------------------------------------------------------------------
 
 
@@ -338,6 +347,44 @@ def action_dict_to_array(action: dict[str, float], include_gripper: bool) -> np.
     return np.array(values, dtype=np.float32)
 
 
+def pose_error(
+    obs: dict[str, float],
+    target: dict[str, float],
+    pos_tol: float,
+    ori_tol: float,
+    grip_tol: float,
+) -> tuple[float, float, float]:
+    """Compute position/angle/gripper errors between observation and target action dict."""
+    dx = obs.get("end_effector.position.x", 0.0) - target.get("end_effector.position.x", 0.0)
+    dy = obs.get("end_effector.position.y", 0.0) - target.get("end_effector.position.y", 0.0)
+    dz = obs.get("end_effector.position.z", 0.0) - target.get("end_effector.position.z", 0.0)
+    pos_err = float(np.sqrt(dx * dx + dy * dy + dz * dz))
+
+    # Orientation error via quaternion dot (clipped to avoid NaNs)
+    qw1, qx1, qy1, qz1 = (
+        target.get("end_effector.orientation.w", 1.0),
+        target.get("end_effector.orientation.x", 0.0),
+        target.get("end_effector.orientation.y", 0.0),
+        target.get("end_effector.orientation.z", 0.0),
+    )
+    qw2, qx2, qy2, qz2 = (
+        obs.get("end_effector.orientation.w", 1.0),
+        obs.get("end_effector.orientation.x", 0.0),
+        obs.get("end_effector.orientation.y", 0.0),
+        obs.get("end_effector.orientation.z", 0.0),
+    )
+    dot = qw1 * qw2 + qx1 * qx2 + qy1 * qy2 + qz1 * qz2
+    dot = float(np.clip(abs(dot), -1.0, 1.0))
+    ori_err = float(2.0 * np.arccos(dot))
+
+    # Gripper observation uses "gripper_joint.pos" key from ROS2
+    obs_gripper = obs.get("gripper_joint.pos", obs.get("gripper.position", 0.0))
+    target_gripper = target.get("gripper.position", 0.0)
+    grip_err = abs(obs_gripper - target_gripper)
+
+    return pos_err, ori_err, grip_err
+
+
 def depth_to_pointcloud(
     depth: np.ndarray, intrinsics: tuple[float, float, float, float]
 ) -> np.ndarray:
@@ -408,7 +455,7 @@ def build_dataset(robot: ROS2Robot) -> tuple[LeRobotDataset, Path]:
     features.update(hw_to_dataset_features(robot.action_features, "action"))
     features.update(hw_to_dataset_features(robot.observation_features, "observation"))
     # Normalize camera feature keys to BridgeVLA style (observation.images.<cam>_rgb)
-    # Drop depth images from the dataset (we keep raw depth only for point clouds)
+    # Drop depth images from the dataset (我们保留原始深度仅用于点云)
     remapped = {}
     for key, info in features.items():
         new_key = key.replace(".rgb", "_rgb").replace(".depth", "_depth")
@@ -474,6 +521,7 @@ def extract_observation_frame(
   
     frame["observation.state"] = np.array(obs_state, dtype=np.float32)
 
+    # 保存相机 RGB（键名规范为 observation.images.<cam> 或 <cam>_rgb）
     for cam_name in robot.config.cameras.keys():
         rgb_key = f"{cam_name}.rgb"
         if rgb_key in obs:
@@ -495,6 +543,10 @@ def main() -> None:
         loops = max(1, int(input("How many grasp episodes to record? ")))
     except Exception:
         print("[info] invalid input, defaulting to 1 episode")
+
+    global ENABLE_KEYPOINT_PCD
+    use_pcd_input = input("Capture depth+pointcloud at keypoints? [y/N]: ").strip().lower()
+    ENABLE_KEYPOINT_PCD = use_pcd_input in {"y", "yes"}
 
     pause_input = input("Pause between episodes after returning to home? [y/N]: ").strip().lower()
     pause_between_episodes = pause_input in {"y", "yes"}
@@ -532,41 +584,6 @@ def main() -> None:
 
         dataset, dataset_path = build_dataset(robot)
         include_gripper = robot.config.ros2_interface.gripper_enabled
-        # # 修改视频编码方法以使用H.265编码器并保留图
-        def _encode_temporary_episode_video_h265(self, video_key: str, episode_index: int) -> Path:
-            """
-            Use the H.265 encoder (HEVC) to convert PNG frames into MP4 videos
-            and keep original images on disk for further inspection.
-            """
-            import tempfile
-            from pathlib import Path as _Path
-
-            from lerobot.datasets.video_utils import encode_video_frames
-
-            temp_dir = tempfile.mkdtemp(dir=self.root)
-            temp_path = _Path(temp_dir) / f"{video_key}_{episode_index:03d}.mp4"
-            img_dir = self._get_image_file_dir(episode_index, video_key)
-
-            encode_video_frames(
-                img_dir,
-                temp_path,
-                self.fps,
-                vcodec="hevc",
-                crf=23,
-                overwrite=True,
-            )
-        
-            # NOTE: we intentionally keep img_dir to preserve original PNG frames
-            return temp_path
-
-        dataset._encode_temporary_episode_video = _encode_temporary_episode_video_h265.__get__(
-            dataset, LeRobotDataset
-        )
-
-        def _clear_episode_buffer_keep_images(self, delete_images: bool = True) -> None:
-            return LeRobotDataset.clear_episode_buffer(self, delete_images=False)
-
-        dataset.clear_episode_buffer = MethodType(_clear_episode_buffer_keep_images, dataset)
         print(f"[OK] Dataset initialized at {dataset_path}")
 
         initial_obs = robot.get_observation()
@@ -622,17 +639,10 @@ def main() -> None:
             descend_pose.position.z = target_pose.position.z + GRASP_CLEARANCE
             descend_pose.orientation = target_pose.orientation
 
-            lift_pose = Pose()
-            lift_pose.position.x = target_pose.position.x
-            lift_pose.position.y = target_pose.position.y
-            lift_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
-            lift_pose.orientation = target_pose.orientation
-
             sequence = [
                 ("Approach", action_from_pose(approach_pose, GRIPPER_OPEN)),
                 ("Descend", action_from_pose(descend_pose, GRIPPER_OPEN)),
                 ("Close", action_from_pose(descend_pose, GRIPPER_CLOSED)),
-                ("Lift", action_from_pose(lift_pose, GRIPPER_CLOSED)),
             ]
 
             recorded_frames: list[dict] = []
@@ -642,19 +652,22 @@ def main() -> None:
             for step_name, action in sequence:
                 print(f"[Step] {step_name}")
                 robot.send_action(action)
+                cmd_gripper = action.get("gripper.position", 0.0)
                 pending_keypoint = {
                     "command_index": command_counter,
                     "action_vec": action_dict_to_array(action, include_gripper),
                 }
                 command_counter += 1
                 start = time.time()
-                while (time.time() - start) < STAGE_DURATION:
+                reached_streak = 0
+                while True:
                     obs = robot.get_observation()
                     frame, ee_pose, gripper = extract_observation_frame(robot, obs)
                     frame["_ee_pose"] = ee_pose
                     frame["_gripper"] = gripper
+                    frame["_cmd_gripper"] = cmd_gripper
                     frame_idx = len(recorded_frames)
-                    if pending_keypoint is not None:
+                    if ENABLE_KEYPOINT_PCD and pending_keypoint is not None:
                         # Get raw depth directly from ROS2 topic (32FC1, in meters)
                         depth_raw = depth_listener.get_latest_depth()
                         if depth_raw is None:
@@ -691,8 +704,30 @@ def main() -> None:
                         )
                         pcd_save_idx += 1
                         pending_keypoint = None
+                    elif pending_keypoint is not None and not ENABLE_KEYPOINT_PCD:
+                        # 不采集点云时也要清掉 pending_keypoint，避免后续报错
+                        pending_keypoint = None
 
                     recorded_frames.append(frame)
+                    # 判定是否到达目标：连续 3 帧满足容差即进入下一阶段（不考虑夹爪误差）
+                    pos_err, ori_err, grip_err = pose_error(
+                        obs, action, POSE_TOL_POS, POSE_TOL_ORI, GRIPPER_TOL
+                    )
+                    if (pos_err <= POSE_TOL_POS) and (ori_err <= POSE_TOL_ORI):
+                        reached_streak += 1
+                    else:
+                        reached_streak = 0
+
+                    if reached_streak >= 3:
+                        break
+
+                    if (time.time() - start) > MAX_STAGE_DURATION:
+                        print(
+                            f"[WARN] Stage '{step_name}' timeout "
+                            f"(pos_err={pos_err:.4f}, ori_err={ori_err:.3f}, grip_err={grip_err:.3f})"
+                        )
+                        break
+
                     time.sleep(max(0.0, (1.0 / FPS)))
 
                 if pending_keypoint is not None:
@@ -720,31 +755,40 @@ def main() -> None:
                     "end_effector.orientation.w": pose["qw"],
                 }
                 if include_gripper:
-                    action_dict["gripper.position"] = ref["_gripper"]
+                    action_dict["gripper.position"] = ref.get("_cmd_gripper", ref["_gripper"])
 
                 frame["action"] = action_dict_to_array(action_dict, include_gripper)
                 del frame["_ee_pose"]
                 del frame["_gripper"]
+                if "_cmd_gripper" in frame:
+                    del frame["_cmd_gripper"]
                 dataset.add_frame(frame)
 
             dataset.save_episode()
             print(f"[OK] Episode saved with {len(recorded_frames)} frames.")
+
+            # Remove empty images folder (all images are stored in videos/)
+            import shutil
+            images_dir = dataset_path / "images"
+            if images_dir.exists():
+                shutil.rmtree(images_dir)
+                print("[Cleanup] Removed empty images/ folder")
 
             if robot.config.ros2_interface.gripper_enabled:
                 print("Opening gripper before returning to initial pose...")
                 current_obs = robot.get_observation()
                 open_current = action_from_observation(current_obs, GRIPPER_OPEN)
                 robot.send_action(open_current)
-                time.sleep(STAGE_DURATION)
+                time.sleep(RETURN_PAUSE)
 
             print("Returning to initial pose...")
             robot.send_action(initial_action_open)
-            time.sleep(STAGE_DURATION)
+            time.sleep(RETURN_PAUSE)
 
             if robot.config.ros2_interface.gripper_enabled:
                 print("Closing gripper after return...")
                 robot.send_action(initial_action_closed)
-                time.sleep(STAGE_DURATION)
+                time.sleep(RETURN_PAUSE)
 
             if pause_between_episodes and episode < loops - 1:
                 input("Press Enter to start the next episode...")

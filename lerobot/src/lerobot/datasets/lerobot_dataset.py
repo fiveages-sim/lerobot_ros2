@@ -468,7 +468,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         episodes: list[int] | None = None,
         image_transforms: Callable | None = None,
         delta_timestamps: dict[str, list[float]] | None = None,
-        tolerance_s: float = 1e-4,
+        tolerance_s: float | None = None,
         revision: str | None = None,
         force_cache_sync: bool = False,
         download_videos: bool = True,
@@ -568,11 +568,12 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 torchvision.transforms.v2 here which will be applied to visual modalities (whether they come
                 from videos or images). Defaults to None.
             delta_timestamps (dict[list[float]] | None, optional): _description_. Defaults to None.
-            tolerance_s (float, optional): Tolerance in seconds used to ensure data timestamps are actually in
+            tolerance_s (float | None, optional): Tolerance in seconds used to ensure data timestamps are actually in
                 sync with the fps value. It is used at the init of the dataset to make sure that each
                 timestamps is separated to the next by 1/fps +/- tolerance_s. This also applies to frames
                 decoded from video files. It is also used to check that `delta_timestamps` (when provided) are
-                multiples of 1/fps. Defaults to 1e-4.
+                multiples of 1/fps. Defaults to None, which falls back to (1 / fps) - 1e-4 after reading the
+                dataset metadata.
             revision (str, optional): An optional Git revision id which can be a branch name, a tag, or a
                 commit hash. Defaults to current codebase version tag.
             force_cache_sync (bool, optional): Flag to sync and refresh local files first. If True and files
@@ -610,6 +611,10 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.meta = LeRobotDatasetMetadata(
             self.repo_id, self.root, self.revision, force_cache_sync=force_cache_sync
         )
+
+        # If no tolerance is provided, default to one frame period (minus a tiny epsilon) based on dataset FPS.
+        if self.tolerance_s is None:
+            self.tolerance_s = 1 / self.fps - 1e-4
 
         # Load actual data
         try:
