@@ -16,8 +16,9 @@ from geometry_msgs.msg import Pose
 from lerobot.robots import Robot
 from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
-from .config import ControlType, ROS2RobotConfig
-from .ros_interface import ROS2RobotInterface
+from .config import ROS2RobotConfig
+# Import from the standalone ros2_robot_interface package
+from ros2_robot_interface import ROS2RobotInterface
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,36 @@
+# IDE
 .idea
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# Package specific egg-info (explicit for clarity)
 /lerobot_camera_ros2/lerobot_camera_ros2.egg-info/
 /lerobot_robot_ros2/lerobot_robot_ros2.egg-info/
-__pycache__/
+/ros2_robot_interface/ros2_robot_interface.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ROS 2
+install/
+log/

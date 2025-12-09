@@ -2,6 +2,7 @@
 ROS 2 Robot Interface
 
 Interface class for communicating with ROS 2 robots through topics.
+This is a standalone implementation independent of LeRobot.
 """
 
 import logging
@@ -12,7 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Pose, PoseStamped, Twist
-from lerobot.errors import DeviceNotConnectedError
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.publisher import Publisher
@@ -21,6 +21,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
 
 from .config import ControlType, ROS2RobotInterfaceConfig
+from .exceptions import ROS2AlreadyConnectedError, ROS2NotConnectedError
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,34 @@ class ROS2RobotInterface:
     - Subscribing to joint states from /joint_states topic
     - Subscribing to current end-effector pose from /left_current_pose topic
     - Publishing target end-effector pose to /left_target topic
+    
+    This is a standalone implementation that does not depend on LeRobot.
+    It can be used in any ROS 2 environment.
+    
+    Example:
+        ```python
+        from ros2_robot_interface import ROS2RobotInterface, ROS2RobotInterfaceConfig
+        
+        config = ROS2RobotInterfaceConfig(
+            joint_states_topic="/joint_states",
+            end_effector_pose_topic="/left_current_pose",
+            end_effector_target_topic="/left_target"
+        )
+        
+        interface = ROS2RobotInterface(config)
+        interface.connect()
+        
+        # Get joint state
+        joint_state = interface.get_joint_state()
+        
+        # Send target pose
+        from geometry_msgs.msg import Pose
+        pose = Pose()
+        # ... set pose values ...
+        interface.send_end_effector_target(pose)
+        
+        interface.disconnect()
+        ```
     """
     
     def __init__(self, config: ROS2RobotInterfaceConfig):
@@ -79,7 +108,7 @@ class ROS2RobotInterface:
     def connect(self) -> None:
         """Connect to ROS 2 and create subscriptions/publishers."""
         if self.is_connected:
-            raise DeviceAlreadyConnectedError("ROS2RobotInterface already connected")
+            raise ROS2AlreadyConnectedError("ROS2RobotInterface already connected")
         
         try:
             # Initialize ROS 2 if not already done
@@ -88,8 +117,8 @@ class ROS2RobotInterface:
             
             # Create ROS 2 node
             self.robot_node = Node(
-                "lerobot_ros2_robot_interface",
-                namespace=self.config.namespace if hasattr(self.config, 'namespace') else ""
+                "ros2_robot_interface",
+                namespace=self.config.namespace if self.config.namespace else ""
             )
             
             # Create joint state subscription
@@ -222,7 +251,7 @@ class ROS2RobotInterface:
             When timeout is 0, returns the last received state even if stale.
         """
         if not self.is_connected:
-            raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
         
         with self.data_lock:
             # Check if joint state is recent enough (skip check if timeout is 0)
@@ -244,7 +273,7 @@ class ROS2RobotInterface:
             When timeout is 0, returns the last received pose even if stale.
         """
         if not self.is_connected:
-            raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
         
         with self.data_lock:
             # Check if end-effector pose is recent enough (skip check if timeout is 0)
@@ -264,10 +293,10 @@ class ROS2RobotInterface:
             pose: Target pose for the end-effector
         """
         if not self.is_connected:
-            raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
         
         if self.end_effector_target_pub is None:
-            raise DeviceNotConnectedError("End-effector target publisher not initialized")
+            raise ROS2NotConnectedError("End-effector target publisher not initialized")
         
         # Publish the target pose directly
         self.end_effector_target_pub.publish(pose)
@@ -280,7 +309,7 @@ class ROS2RobotInterface:
             position: Target gripper position (typically 0.0 to 1.0)
         """
         if not self.is_connected:
-            raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
         
         if not self.config.gripper_enabled:
             logger.warning("Gripper is not enabled in configuration")
@@ -311,7 +340,7 @@ class ROS2RobotInterface:
             angular: Angular velocity (rx, ry, rz) in rad/s
         """
         if not self.is_connected:
-            raise DeviceNotConnectedError("ROS2RobotInterface is not connected")
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
         
         # For cartesian velocity control, we would need a different topic
         # This is a placeholder implementation
@@ -365,3 +394,4 @@ class ROS2RobotInterface:
             logger.warning(f"Error during rclpy shutdown: {e}")
         
         logger.info("Disconnected from ROS 2 robot interface")
+
