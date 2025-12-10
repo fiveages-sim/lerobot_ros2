@@ -40,6 +40,16 @@ class ROS2RobotInterfaceConfig:
     end_effector_pose_topic: str = "/left_current_pose"
     end_effector_target_topic: str = "/left_target"
     
+    # Dual-arm configuration (optional)
+    # If provided, enables dual-arm mode with both left and right arms
+    right_end_effector_pose_topic: str | None = None  # e.g., "/right_current_pose"
+    right_end_effector_target_topic: str | None = None  # e.g., "/right_target"
+    right_gripper_command_topic: str | None = None  # e.g., "right_gripper_joint/position_command"
+    
+    # Head and body joint controller topics (optional)
+    head_joint_controller_topic: str | None = None  # e.g., "/head_joint_controller/target_joint_position"
+    body_joint_controller_topic: str | None = None  # e.g., "/body_joint_controller/target_joint_position"
+    
     # Joint names
     joint_names: list[str] = field(default_factory=lambda: [
         "joint1", "joint2", "joint3", "joint4", "joint5", "joint6"
@@ -49,7 +59,7 @@ class ROS2RobotInterfaceConfig:
     gripper_enabled: bool = True
     gripper_joint_name: str = "gripper_joint"
     gripper_state_topic: str = "/gripper_state"  # Optional: separate gripper state topic
-    gripper_command_topic: str = "gripper_joint/position_command"  # Required for gripper control
+    gripper_command_topic: str = "/gripper_joint/position_command"  # Required for gripper control
     gripper_min_position: float = 0.0  # Closed position
     gripper_max_position: float = 1.0  # Open position
     
@@ -71,4 +81,7 @@ class ROS2RobotInterfaceConfig:
     
     # ROS 2 node namespace (optional)
     namespace: str = ""
+    
+    # ROS 2 node name (optional, auto-generated if not provided)
+    node_name: str | None = None
 
