@@ -108,6 +108,11 @@ class ROS2RobotInterface:
         self._had_joint_state = False
         self._had_end_effector_pose = False
         self._had_right_end_effector_pose = False  # For dual-arm
+        
+        # Target positions for head and body joints (automatically set when sending commands)
+        self.head_target_positions: Optional[List[float]] = None
+        self.body_target_positions: Optional[List[float]] = None
+        self.position_threshold: float = 0.05  # Default threshold in radians (≈2.87 degrees)
     
     @property
     def is_connected(self) -> bool:
@@ -787,6 +792,9 @@ class ROS2RobotInterface:
         msg.data = positions
         self.head_joint_controller_pub.publish(msg)
         logger.debug(f"Published head joint positions: {positions}")
+        
+        # Automatically record target positions for arrival checking
+        self.head_target_positions = positions.copy() if positions else None
     
     def send_body_joint_positions(self, positions: List[float]) -> None:
         """Send target joint positions for body joints.
@@ -806,6 +814,95 @@ class ROS2RobotInterface:
         msg.data = positions
         self.body_joint_controller_pub.publish(msg)
         logger.debug(f"Published body joint positions: {positions}")
+        
+        # Automatically record target positions for arrival checking
+        self.body_target_positions = positions.copy() if positions else None
+    
+    def check_arrive(self, part: Optional[str] = None, position_threshold: Optional[float] = None) -> Dict[str, Any]:
+        """Check if head or body joints have arrived at target positions.
+        
+        Args:
+            part: 'head' or 'body'. If None, returns results for both.
+            position_threshold: Distance threshold in radians. If None, uses self.position_threshold.
+        
+        Returns:
+            If part is specified:
+                {'arrived': bool, 'distance': float}
+            If part is None:
+                {'head': {'arrived': bool, 'distance': float}, 
+                 'body': {'arrived': bool, 'distance': float}}
+        """
+        if not self.is_connected:
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
+        
+        threshold = position_threshold if position_threshold is not None else self.position_threshold
+        result = {}
+        
+        # Get current joint state (categorized)
+        categorized_state = self.get_joint_state(categorized=True)
+        if not categorized_state:
+            if part:
+                return {'arrived': False, 'distance': float('inf')}
+            else:
+                return {'head': {'arrived': False, 'distance': float('inf')}, 
+                       'body': {'arrived': False, 'distance': float('inf')}}
+        
+        # Calculate Euclidean distance
+        def calculate_distance(current: List[float], target: List[float]) -> float:
+            """Calculate Euclidean distance between two position vectors."""
+            if not current or not target:
+                return float('inf')
+            if len(current) != len(target):
+                return float('inf')
+            return sum((c - t) ** 2 for c, t in zip(current, target)) ** 0.5
+        
+        # Check head arrival
+        if part is None or part == 'head':
+            head_arrived = False
+            head_distance = float('inf')
+            if self.head_target_positions is not None and 'head' in categorized_state:
+                current_head = categorized_state['head']['positions']
+                if len(current_head) == len(self.head_target_positions):
+                    head_distance = calculate_distance(current_head, self.head_target_positions)
+                    head_arrived = head_distance < threshold
+                    
+                    # Output head position information
+                    print(f"  [位置检查-HEAD] 当前位置: {[f'{p:.4f}' for p in current_head]}")
+                    print(f"  [位置检查-HEAD] 目标位置: {[f'{p:.4f}' for p in self.head_target_positions]}")
+                    print(f"  [位置检查-HEAD] 距离: {head_distance:.4f} 弧度 (阈值: {threshold:.4f})")
+                    if head_arrived:
+                        print(f"  [位置检查-HEAD] ✓ 已到达目标位置")
+                    else:
+                        print(f"  [位置检查-HEAD] ✗ 未到达目标位置")
+            
+            if part == 'head':
+                return {'arrived': head_arrived, 'distance': head_distance}
+            result['head'] = {'arrived': head_arrived, 'distance': head_distance}
+        
+        # Check body arrival
+        if part is None or part == 'body':
+            body_arrived = False
+            body_distance = float('inf')
+            if self.body_target_positions is not None and 'body' in categorized_state:
+                current_body = categorized_state['body']['positions']
+                if len(current_body) == len(self.body_target_positions):
+                    body_distance = calculate_distance(current_body, self.body_target_positions)
+                    body_arrived = body_distance < threshold
+                    
+                    # Output body position information
+                    print(f"  [位置检查-BODY] 当前位置: {[f'{p:.4f}' for p in current_body]}")
+                    print(f"  [位置检查-BODY] 目标位置: {[f'{p:.4f}' for p in self.body_target_positions]}")
+                    print(f"  [位置检查-BODY] 距离: {body_distance:.4f} 弧度 (阈值: {threshold:.4f})")
+                    if body_arrived:
+                        print(f"  [位置检查-BODY] ✓ 已到达目标位置")
+                    else:
+                        print(f"  [位置检查-BODY] ✗ 未到达目标位置")
+            
+            if part == 'body':
+                return {'arrived': body_arrived, 'distance': body_distance}
+            result['body'] = {'arrived': body_arrived, 'distance': body_distance}
+        
+        return result
     
     def send_cartesian_velocity(self, linear: Tuple[float, float, float], angular: Tuple[float, float, float]) -> None:
         """Send cartesian velocity commands.

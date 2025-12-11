@@ -43,17 +43,17 @@ def main():
     time.sleep(2.0)
     print("    ✓ 数据收集已开始\n")
     
-    # 切换到HOLD状态（FSM循环的起始状态）
+    # 切换到HOME状态（FSM循环的起始状态）
     print("-" * 70)
-    print("[5] 切换到HOLD状态（起始状态）")
+    print("[5] 切换到HOME状态（起始状态）")
     print("-" * 70)
     try:
-        interface.send_fsm_command(1)  # 2 = HOLD状态
-        print("  ✓ FSM命令已发送: 切换到HOLD状态")
+        interface.send_fsm_command(1)  # 1 = HOME状态
+        print("  ✓ FSM命令已发送: 切换到HOME状态")
         time.sleep(1.0)  # 等待状态转换完成
         print("  ✓ 状态转换完成\n")
     except Exception as e:
-        print(f"  ⚠ 切换到HOLD状态失败: {e}\n")
+        print(f"  ⚠ 切换到HOME状态失败: {e}\n")
     
     # ========================================================================
     # 第二部分：测试数据获取功能
@@ -159,8 +159,8 @@ def main():
     # FSM command values: 0=REST, 1=HOME, 2=HOLD, 3=OCS2/MOVE, 4=MOVEJ
     fsm_states = [2, 1, 100, 2, 3, 2, 4]  # HOLD → HOME → REST → HOLD → OCS2 → HOLD → MOVEJ → (loop back to HOLD)
     fsm_state_names = {100: "REST", 1: "HOME", 2: "HOLD", 3: "OCS2/MOVE", 4: "MOVEJ"}
-    # Start from index 0 (HOLD state) since we just switched to it in step [5]
-    current_fsm_index = 1  # Index 0 corresponds to HOLD (state 2)
+    # Start from index 1 (HOME state) since we just switched to it in step [5]
+    current_fsm_index = 1  # Index 1 corresponds to HOME (state 1)
     print(f"  → FSM states cycle: {' → '.join([f'{s}({fsm_state_names[s]})' for s in fsm_states])} → (loop)")
     print(f"  → Switching every 5 seconds")
     print(f"  → Current state: {fsm_states[current_fsm_index]} ({fsm_state_names[fsm_states[current_fsm_index]]})")
@@ -206,7 +206,8 @@ def main():
     head_body_movement_start_time = None  # 动作开始时间
     head_initial_positions = None  # 头部关节初始位置
     body_initial_positions = None  # 身体关节初始位置
-    body_target_positions = [-0.899, -1.714, -0.865, 0.0]  # 身体关节目标位置（弧度）
+    # 注意：head_target_positions 和 body_target_positions 现在由 interface 自动管理
+    # 在调用 interface.send_head_joint_positions() 或 interface.send_body_joint_positions() 时会自动设置
     
     try:
         i = 0  # 循环计数器（秒）
@@ -348,6 +349,7 @@ def main():
                         head_target_left = head_initial_positions.copy()
                         if len(head_target_left) > 0:
                             head_target_left[0] = head_initial_positions[0] + 0.3  # 向左摆动（yaw增加）
+                        # 目标位置已由 interface.send_head_joint_positions() 自动记录
                         try:
                             interface.send_head_joint_positions(head_target_left)
                             print(f"  [MOVEJ] → 头部向左摆动...")
@@ -356,8 +358,9 @@ def main():
                 
                 # 状态机：头部向左摆动中
                 elif head_body_movement_state == "head_moving_left":
-                    # 左摆完成，开始向右摆动
-                    if current_time - head_body_movement_start_time >= movement_duration:
+                    # 检查是否到达目标位置，或超时后切换
+                    head_check = interface.check_arrive('head')
+                    if head_check['arrived'] or (current_time - head_body_movement_start_time >= movement_duration):
                         head_body_movement_state = "head_moving_right"
                         head_body_movement_start_time = current_time
                         # 头部向右摆动：head_joint1（索引0）减少0.3弧度
@@ -365,6 +368,7 @@ def main():
                             head_target_right = head_initial_positions.copy()
                             if len(head_target_right) > 0:
                                 head_target_right[0] = head_initial_positions[0] - 0.3  # 向右摆动（yaw减少）
+                            # 目标位置已由 interface.send_head_joint_positions() 自动记录
                             try:
                                 interface.send_head_joint_positions(head_target_right)
                                 print(f"  [MOVEJ] → 头部向右摆动...")
@@ -373,8 +377,9 @@ def main():
                 
                 # 状态机：头部向右摆动中
                 elif head_body_movement_state == "head_moving_right":
-                    # 右摆完成，开始向上摆动
-                    if current_time - head_body_movement_start_time >= movement_duration:
+                    # 检查是否到达目标位置，或超时后切换
+                    head_check = interface.check_arrive('head')
+                    if head_check['arrived'] or (current_time - head_body_movement_start_time >= movement_duration):
                         head_body_movement_state = "head_moving_up"
                         head_body_movement_start_time = current_time
                         # 头部向上摆动：head_joint2（索引1）控制上下（pitch），减少0.3弧度（pitch减少=向上）
@@ -382,6 +387,7 @@ def main():
                             head_target_up = head_initial_positions.copy()
                             if len(head_target_up) > 1:
                                 head_target_up[1] = head_initial_positions[1] - 0.3  # 向上摆动（pitch减少）
+                            # 目标位置已由 interface.send_head_joint_positions() 自动记录
                             try:
                                 interface.send_head_joint_positions(head_target_up)
                                 print(f"  [MOVEJ] → 头部向上摆动...")
@@ -390,8 +396,9 @@ def main():
                 
                 # 状态机：头部向上摆动中
                 elif head_body_movement_state == "head_moving_up":
-                    # 上摆完成，开始向下摆动
-                    if current_time - head_body_movement_start_time >= movement_duration:
+                    # 检查是否到达目标位置，或超时后切换
+                    head_check = interface.check_arrive('head')
+                    if head_check['arrived'] or (current_time - head_body_movement_start_time >= movement_duration):
                         head_body_movement_state = "head_moving_down"
                         head_body_movement_start_time = current_time
                         # 头部向下摆动：head_joint2（索引1）增加0.3弧度（pitch增加=向下）
@@ -399,6 +406,7 @@ def main():
                             head_target_down = head_initial_positions.copy()
                             if len(head_target_down) > 1:
                                 head_target_down[1] = head_initial_positions[1] + 0.3  # 向下摆动（pitch增加）
+                            # 目标位置已由 interface.send_head_joint_positions() 自动记录
                             try:
                                 interface.send_head_joint_positions(head_target_down)
                                 print(f"  [MOVEJ] → 头部向下摆动...")
@@ -407,12 +415,14 @@ def main():
                 
                 # 状态机：头部向下摆动中
                 elif head_body_movement_state == "head_moving_down":
-                    # 下摆完成，头部回到初始位置，然后开始身体动作
-                    if current_time - head_body_movement_start_time >= movement_duration:
+                    # 检查是否到达目标位置，或超时后切换
+                    head_check = interface.check_arrive('head')
+                    if head_check['arrived'] or (current_time - head_body_movement_start_time >= movement_duration):
                         head_body_movement_state = "body_moving_to_target"
                         head_body_movement_start_time = current_time
                         # 头部回到初始位置
                         if head_initial_positions and interface.config.head_joint_controller_topic:
+                            # 目标位置已由 interface.send_head_joint_positions() 自动记录
                             try:
                                 interface.send_head_joint_positions(head_initial_positions)
                                 print(f"  [MOVEJ] → 头部回到初始位置")
@@ -421,8 +431,11 @@ def main():
                         
                         # 开始身体动作：移动到目标位置
                         if body_initial_positions and interface.config.body_joint_controller_topic:
+                            # 身体目标位置（可以在这里手动修改目标位置值）
+                            body_target_fixed = [-0.899, -1.714, -0.865, 0.0]  # 身体关节目标位置（弧度）
+                            
                             # 确保目标位置数组长度与当前位置数组长度一致
-                            body_target = body_target_positions.copy()
+                            body_target = body_target_fixed.copy()
                             if len(body_target) < len(body_initial_positions):
                                 # 如果目标数组较短，用初始位置填充
                                 body_target.extend(body_initial_positions[len(body_target):])
@@ -430,6 +443,7 @@ def main():
                                 # 如果目标数组较长，截断到当前长度
                                 body_target = body_target[:len(body_initial_positions)]
                             
+                            # 目标位置已由 interface.send_body_joint_positions() 自动记录
                             try:
                                 interface.send_body_joint_positions(body_target)
                                 print(f"  [MOVEJ] → 身体移动到目标位置: {[f'{p:.3f}' for p in body_target]}")
@@ -438,12 +452,14 @@ def main():
                 
                 # 状态机：身体移动到目标位置中
                 elif head_body_movement_state == "body_moving_to_target":
-                    # 到达目标位置，开始返回初始位置
-                    if current_time - head_body_movement_start_time >= movement_duration:
+                    # 检查是否到达目标位置，或超时后切换
+                    body_check = interface.check_arrive('body')
+                    if body_check['arrived'] or (current_time - head_body_movement_start_time >= movement_duration):
                         head_body_movement_state = "body_moving_back"
                         head_body_movement_start_time = current_time
                         # 身体回到初始位置
                         if body_initial_positions and interface.config.body_joint_controller_topic:
+                            # 目标位置已由 interface.send_body_joint_positions() 自动记录
                             try:
                                 interface.send_body_joint_positions(body_initial_positions)
                                 print(f"  [MOVEJ] → 身体回到初始位置: {[f'{p:.3f}' for p in body_initial_positions]}")
@@ -452,12 +468,14 @@ def main():
                 
                 # 状态机：身体返回初始位置中
                 elif head_body_movement_state == "body_moving_back":
-                    # 返回完成，所有动作完成
-                    if current_time - head_body_movement_start_time >= movement_duration:
+                    # 检查是否到达目标位置，或超时后切换
+                    body_check = interface.check_arrive('body')
+                    if body_check['arrived'] or (current_time - head_body_movement_start_time >= movement_duration):
                         head_body_movement_state = "completed"  # 标记为完成，准备切换状态
                         head_body_movement_start_time = None
                         head_initial_positions = None
                         body_initial_positions = None
+                        # 目标位置由 interface 自动管理，无需手动清除
                         print(f"  [MOVEJ] → 所有动作完成（头部、身体），准备切换状态...")
             
             
@@ -571,12 +589,14 @@ def main():
             elif i % 3 == 0 and i > 0 and i != last_fsm_switch_time:
                 # 如果在OCS2状态且动作未完成，延迟切换
                 if current_fsm_state == 3 and is_dual_arm and arm_movement_state != "completed":
-                    print(f"  [8] ⏳ 等待手臂动作完成后再切换状态...")
-                    print(f"      当前动作状态: {arm_movement_state}")
+                    # print(f"  [8] ⏳ 等待手臂动作完成后再切换状态...")
+                    # print(f"      当前动作状态: {arm_movement_state}")
+                    pass
                 # 如果在MOVEJ状态且动作未完成，延迟切换
                 elif current_fsm_state == 4 and head_body_movement_state != "completed":
-                    print(f"  [8] ⏳ 等待头部/身体动作完成后再切换状态...")
-                    print(f"      当前动作状态: {head_body_movement_state}")
+                    # print(f"  [8] ⏳ 等待头部/身体动作完成后再切换状态...")
+                    # print(f"      当前动作状态: {head_body_movement_state}")
+                    pass
                 else:
                     should_switch_state = True
                     switch_reason = "5秒周期"
