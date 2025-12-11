@@ -155,10 +155,10 @@ def main():
     print("-" * 70)
     print("[8] FSM状态循环配置")
     print("-" * 70)
-    # Define FSM state cycle: HOLD → HOME → REST → HOLD → OCS2 → HOLD → MOVEJ (then loop back to HOLD)
-    # FSM command values: 0=REST, 1=HOME, 2=HOLD, 3=OCS2/MOVE, 4=MOVEJ
-    fsm_states = [2, 1, 100, 2, 3, 2, 4]  # HOLD → HOME → REST → HOLD → OCS2 → HOLD → MOVEJ → (loop back to HOLD)
-    fsm_state_names = {100: "REST", 1: "HOME", 2: "HOLD", 3: "OCS2/MOVE", 4: "MOVEJ"}
+    # Define FSM state cycle: HOLD → HOME → REST → REST → HOLD → OCS2 → HOLD → MOVEJ (then loop back to HOLD)
+    # FSM command values: 0=SWITCH, 1=HOME, 2=HOLD, 3=OCS2/MOVE, 4=MOVEJ, 100=REST
+    fsm_states = [2, 1, 100, 100, 100, 100, 2, 3, 2, 4]  # HOLD → HOME → REST → REST → HOLD → OCS2 → HOLD → MOVEJ → (loop back to HOLD)
+    fsm_state_names = {0: "SWITCH", 100: "REST", 1: "HOME", 2: "HOLD", 3: "OCS2/MOVE", 4: "MOVEJ"}
     # Start from index 1 (HOME state) since we just switched to it in step [5]
     current_fsm_index = 1  # Index 1 corresponds to HOME (state 1)
     print(f"  → FSM states cycle: {' → '.join([f'{s}({fsm_state_names[s]})' for s in fsm_states])} → (loop)")
@@ -217,6 +217,7 @@ def main():
         # 第六部分：主循环 - 持续监控和控制
         # ========================================================================
         while True:
+            
             time.sleep(1.0)  # 每秒循环一次
             i += 1
             
@@ -255,84 +256,130 @@ def main():
                     # 开始左臂伸出动作
                     arm_movement_state = "left_extending"
                     arm_movement_start_time = current_time
-                    # 发送左臂伸出命令：在 left_eef 坐标系下，X方向向前伸出 extend_distance
+                    # 发送左臂伸出命令：使用相对坐标系，X方向向前伸出 extend_distance
                     left_target = Pose()
                     left_target.position.x = extend_distance  # 相对于 left_eef 坐标系向前
                     left_target.position.y = 0.0  # 相对于 left_eef 坐标系
                     left_target.position.z = 0.0  # 相对于 left_eef 坐标系
-                    left_target.orientation = left_initial_pose.orientation  # 保持初始姿态
+                    left_target.orientation.w = 1.0  # 保持初始姿态（单位四元数）
+                    left_target.orientation.x = 0.0
+                    left_target.orientation.y = 0.0
+                    left_target.orientation.z = 0.0
                     interface.send_end_effector_target_stamped("left_eef", left_target)
-                    print(f"  [OCS2] → 左臂向前伸出（使用 left_eef 坐标系，向前 {extend_distance}m）...")
+                    # # 旧方法：使用绝对坐标系
+                    # left_target = Pose()
+                    # left_target.position.x = left_initial_pose.position.x + extend_distance  # 向前伸出
+                    # left_target.position.y = left_initial_pose.position.y
+                    # left_target.position.z = left_initial_pose.position.z
+                    # left_target.orientation = left_initial_pose.orientation  # 保持初始姿态
+                    # interface.send_end_effector_target(left_target)
+                    print(f"  [OCS2] → 左臂向前伸出（向前 {extend_distance}m）...")
                 
                 # 状态机：左臂伸出中
                 elif arm_movement_state == "left_extending":
-                    # 左臂伸出完成，等待一段时间
-                    if current_time - arm_movement_start_time >= movement_duration:
+                    # 检查左臂是否到达目标位置，或超时后切换
+                    left_arm_check = interface.check_arrive('left_arm')
+                    if left_arm_check['arrived']:
                         arm_movement_state = "left_extended"
                         arm_movement_start_time = current_time
-                        print(f"  [OCS2] → 左臂已伸出，等待中...")
+                       
                 
                 # 状态机：左臂已伸出，等待1秒后开始收回
                 elif arm_movement_state == "left_extended":
                     if current_time - arm_movement_start_time >= 1.0:  # 等待1秒
                         arm_movement_state = "left_retracting"
                         arm_movement_start_time = current_time
-                        # 发送左臂收回命令：在 left_eef 坐标系下，向后移动 extend_distance
-                        if left_initial_pose:
-                            left_retract = Pose()
-                            left_retract.position.x = -extend_distance  # 相对于 left_eef 坐标系向后
-                            left_retract.position.y = 0.0
-                            left_retract.position.z = 0.0
-                            left_retract.orientation = left_initial_pose.orientation  # 保持初始姿态
-                            interface.send_end_effector_target_stamped("left_eef", left_retract)
-                            print(f"  [OCS2] → 左臂收回中（使用 left_eef 坐标系，向后 {extend_distance}m）...")
+                        # 发送左臂收回命令：使用相对坐标系，向后移动 extend_distance
+                        left_retract = Pose()
+                        left_retract.position.x = -extend_distance  # 相对于 left_eef 坐标系向后
+                        left_retract.position.y = 0.0
+                        left_retract.position.z = 0.0
+                        left_retract.orientation.w = 1.0  # 保持初始姿态（单位四元数）
+                        left_retract.orientation.x = 0.0
+                        left_retract.orientation.y = 0.0
+                        left_retract.orientation.z = 0.0
+                        interface.send_end_effector_target_stamped("left_eef", left_retract)
+                        # # 旧方法：使用绝对坐标系
+                        # if left_initial_pose:
+                        #     left_retract = Pose()
+                        #     left_retract.position.x = left_initial_pose.position.x - extend_distance  # 向后收回
+                        #     left_retract.position.y = left_initial_pose.position.y
+                        #     left_retract.position.z = left_initial_pose.position.z
+                        #     left_retract.orientation = left_initial_pose.orientation  # 保持初始姿态
+                        #     interface.send_end_effector_target(left_retract)
+                        print(f"  [OCS2] → 左臂收回中（向后 {extend_distance}m）...")
                 
                 # 状态机：左臂收回中
                 elif arm_movement_state == "left_retracting":
-                    # 左臂收回完成，开始右臂伸出
-                    if current_time - arm_movement_start_time >= movement_duration:
+                    # 检查左臂是否到达目标位置，或超时后切换
+                    left_arm_check = interface.check_arrive('left_arm')
+                    if left_arm_check['arrived']:
+                        # 开始右臂伸出
                         arm_movement_state = "right_extending"
                         arm_movement_start_time = current_time
-                        # 发送右臂伸出命令：在 right_eef 坐标系下，X方向向前伸出 extend_distance
-                        if right_initial_pose:
-                            right_target = Pose()
-                            right_target.position.x = extend_distance  # 相对于 right_eef 坐标系向前
-                            right_target.position.y = 0.0  # 相对于 right_eef 坐标系
-                            right_target.position.z = 0.0  # 相对于 right_eef 坐标系
-                            right_target.orientation = right_initial_pose.orientation  # 保持初始姿态
-                            interface.send_right_end_effector_target_stamped("right_eef", right_target)
-                            print(f"  [OCS2] → 右臂向前伸出（使用 right_eef 坐标系，向前 {extend_distance}m）...")
+                    
+                        # 发送右臂伸出命令：使用相对坐标系，X方向向前伸出 extend_distance
+                        right_target = Pose()
+                        right_target.position.x = extend_distance  # 相对于 right_eef 坐标系向前
+                        right_target.position.y = 0.0  # 相对于 right_eef 坐标系
+                        right_target.position.z = 0.0  # 相对于 right_eef 坐标系
+                        right_target.orientation.w = 1.0  # 保持初始姿态（单位四元数）
+                        right_target.orientation.x = 0.0
+                        right_target.orientation.y = 0.0
+                        right_target.orientation.z = 0.0
+                        interface.send_right_end_effector_target_stamped("right_eef", right_target)
+                        # # 旧方法：使用绝对坐标系
+                        # if right_initial_pose:
+                        #     right_target = Pose()
+                        #     right_target.position.x = right_initial_pose.position.x + extend_distance  # 向前伸出
+                        #     right_target.position.y = right_initial_pose.position.y
+                        #     right_target.position.z = right_initial_pose.position.z
+                        #     right_target.orientation = right_initial_pose.orientation  # 保持初始姿态
+                        #     interface.send_right_end_effector_target(right_target)
+                        print(f"  [OCS2] → 右臂向前伸出（向前 {extend_distance}m）...")
                 
                 # 状态机：右臂伸出中
                 elif arm_movement_state == "right_extending":
-                    # 右臂伸出完成，等待一段时间
-                    if current_time - arm_movement_start_time >= movement_duration:
+                    # 检查右臂是否到达目标位置，或超时后切换
+                    right_arm_check = interface.check_arrive('right_arm')
+                    if right_arm_check['arrived']:
                         arm_movement_state = "right_extended"
                         arm_movement_start_time = current_time
-                        print(f"  [OCS2] → 右臂已伸出，等待中...")
+                      
                 
                 # 状态机：右臂已伸出，等待1秒后开始收回
                 elif arm_movement_state == "right_extended":
                     if current_time - arm_movement_start_time >= 1.0:  # 等待1秒
                         arm_movement_state = "right_retracting"
                         arm_movement_start_time = current_time
-                        # 发送右臂收回命令：在 right_eef 坐标系下，向后移动 extend_distance
-                        if right_initial_pose:
-                            right_retract = Pose()
-                            right_retract.position.x = -extend_distance  # 相对于 right_eef 坐标系向后
-                            right_retract.position.y = 0.0
-                            right_retract.position.z = 0.0
-                            right_retract.orientation = right_initial_pose.orientation  # 保持初始姿态
-                            interface.send_right_end_effector_target_stamped("right_eef", right_retract)
-                            print(f"  [OCS2] → 右臂收回中（使用 right_eef 坐标系，向后 {extend_distance}m）...")
+                        # 发送右臂收回命令：使用相对坐标系，向后移动 extend_distance
+                        right_retract = Pose()
+                        right_retract.position.x = -extend_distance  # 相对于 right_eef 坐标系向后
+                        right_retract.position.y = 0.0
+                        right_retract.position.z = 0.0
+                        right_retract.orientation.w = 1.0  # 保持初始姿态（单位四元数）
+                        right_retract.orientation.x = 0.0
+                        right_retract.orientation.y = 0.0
+                        right_retract.orientation.z = 0.0
+                        interface.send_right_end_effector_target_stamped("right_eef", right_retract)
+                        # # 旧方法：使用绝对坐标系
+                        # if right_initial_pose:
+                        #     right_retract = Pose()
+                        #     right_retract.position.x = right_initial_pose.position.x - extend_distance  # 向后收回
+                        #     right_retract.position.y = right_initial_pose.position.y
+                        #     right_retract.position.z = right_initial_pose.position.z
+                        #     right_retract.orientation = right_initial_pose.orientation  # 保持初始姿态
+                        #     interface.send_right_end_effector_target(right_retract)
+                        print(f"  [OCS2] → 右臂收回中（向后 {extend_distance}m）...")
                 
                 # 状态机：右臂收回中
                 elif arm_movement_state == "right_retracting":
-                    # 右臂收回完成，所有手臂动作完成
-                    if current_time - arm_movement_start_time >= movement_duration:
+                    # 检查右臂是否到达目标位置，或超时后切换
+                    right_arm_check = interface.check_arrive('right_arm')
+                    if right_arm_check['arrived']:
                         arm_movement_state = "completed"  # 标记为完成，准备切换状态
                         arm_movement_start_time = None
-                        print(f"  [OCS2] → 双臂动作循环完成，准备切换状态...")
+                       
             
             # ========================================================================
             # 第八部分：MOVEJ状态下的头部和身体关节控制
@@ -579,6 +626,7 @@ def main():
             # HOLD状态：1秒后切换
             # 其他状态：每5秒切换一次，但如果OCS2/MOVEJ状态下的动作未完成，则等待动作完成
             # 动作完成后立即切换（不等待5秒周期）
+            interface.check_arrive()
             should_switch_state = False
             switch_reason = ""
             
@@ -651,6 +699,13 @@ def main():
                 try:
                     interface.send_fsm_command(next_fsm_state)
                     print(f"  [8] ✓ FSM状态已切换到: {next_fsm_state} ({next_fsm_name})")
+                    
+                    # 特殊处理：当状态为100(REST)时，发送完100后立即发送0(SWITCH)
+                    if next_fsm_state == 100:
+                        time.sleep(0.1)  # 短暂延迟，确保100命令已处理
+                        interface.send_fsm_command(0)
+                        print(f"  [8] ✓ FSM状态已切换到: 0 (SWITCH)")
+                    
                     # 更新跟踪的FSM状态
                     current_fsm_state = next_fsm_state
                     last_fsm_switch_time = i  # 记录切换时间

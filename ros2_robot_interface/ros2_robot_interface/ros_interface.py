@@ -20,6 +20,9 @@ from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64, Float64MultiArray, Int32
+import tf2_ros
+from tf2_ros import TransformException
+from tf2_geometry_msgs import do_transform_pose
 from .config import ControlType, ROS2RobotInterfaceConfig
 from .exceptions import ROS2AlreadyConnectedError, ROS2NotConnectedError
 
@@ -115,6 +118,17 @@ class ROS2RobotInterface:
         self.head_target_positions: Optional[List[float]] = None
         self.body_target_positions: Optional[List[float]] = None
         self.position_threshold: float = 0.05  # Default threshold in radians (≈2.87 degrees)
+        
+        # Target poses for arms (automatically set when sending commands)
+        self.left_arm_target_pose: Optional[Pose] = None
+        self.right_arm_target_pose: Optional[Pose] = None
+        self.pose_position_threshold: float = 0.06  # Default threshold in meters (1cm) for position
+        self.pose_orientation_threshold: float = 0.1  # Default threshold for orientation (quaternion distance)
+        
+        # TF buffer and listener for coordinate frame transformations
+        self.tf_buffer: Optional[tf2_ros.Buffer] = None
+        self.tf_listener: Optional[tf2_ros.TransformListener] = None
+        self.base_frame: str = "arm_base"  # Default base frame for TF transformations (matches OCS2 config)
     
     @property
     def is_connected(self) -> bool:
@@ -386,6 +400,11 @@ class ROS2RobotInterface:
                     10
                 )
                 logger.info(f"Created body joint controller publisher on topic: {self.config.body_joint_controller_topic}")
+            
+            # Initialize TF buffer and listener for coordinate frame transformations
+            self.tf_buffer = tf2_ros.Buffer()
+            self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self.robot_node)
+            logger.info("Initialized TF buffer and listener for coordinate frame transformations")
             
             # Start executor in separate thread
             self.executor = SingleThreadedExecutor()
@@ -686,6 +705,15 @@ class ROS2RobotInterface:
         
         # Publish the target pose directly
         self.end_effector_target_pub.publish(pose)
+        # Record target pose for arrival checking
+        self.left_arm_target_pose = Pose()
+        self.left_arm_target_pose.position.x = pose.position.x
+        self.left_arm_target_pose.position.y = pose.position.y
+        self.left_arm_target_pose.position.z = pose.position.z
+        self.left_arm_target_pose.orientation.x = pose.orientation.x
+        self.left_arm_target_pose.orientation.y = pose.orientation.y
+        self.left_arm_target_pose.orientation.z = pose.orientation.z
+        self.left_arm_target_pose.orientation.w = pose.orientation.w
         logger.debug(f"Published end-effector target: {pose}")
     
     def send_right_end_effector_target(self, pose: Pose) -> None:
@@ -705,6 +733,15 @@ class ROS2RobotInterface:
         
         # Publish the target pose directly
         self.right_end_effector_target_pub.publish(pose)
+        # Record target pose for arrival checking
+        self.right_arm_target_pose = Pose()
+        self.right_arm_target_pose.position.x = pose.position.x
+        self.right_arm_target_pose.position.y = pose.position.y
+        self.right_arm_target_pose.position.z = pose.position.z
+        self.right_arm_target_pose.orientation.x = pose.orientation.x
+        self.right_arm_target_pose.orientation.y = pose.orientation.y
+        self.right_arm_target_pose.orientation.z = pose.orientation.z
+        self.right_arm_target_pose.orientation.w = pose.orientation.w
         logger.debug(f"Published right end-effector target: {pose}")
     
     def send_end_effector_target_stamped(self, frame_id: str, pose: Pose) -> None:
@@ -714,9 +751,12 @@ class ROS2RobotInterface:
         coordinate frame transformation using TF. The pose will be automatically
         transformed from the specified frame_id to the base frame.
         
+        Additionally, this method transforms the relative pose to absolute pose (base_link)
+        and stores it in left_arm_target_pose for arrival checking.
+        
         Args:
             frame_id: Coordinate frame name where the pose is defined
-                     (e.g., "base_link", "camera_frame", "tool_frame")
+                     (e.g., "base_link", "left_eef", "right_eef")
             pose: Target pose for the end-effector (in the specified frame)
         """
         if not self.is_connected:
@@ -734,6 +774,41 @@ class ROS2RobotInterface:
         # Publish the stamped pose
         self.end_effector_target_stamped_pub.publish(pose_stamped)
         logger.debug(f"Published end-effector target (stamped) in frame '{frame_id}': {pose}")
+        
+        # Transform relative pose to absolute pose (base_link) for arrival checking
+        if self.tf_buffer is not None:
+            try:
+                # If frame_id is already base_frame, no transformation needed
+                if frame_id == self.base_frame:
+                    self.left_arm_target_pose = Pose()
+                    self.left_arm_target_pose.position.x = pose.position.x
+                    self.left_arm_target_pose.position.y = pose.position.y
+                    self.left_arm_target_pose.position.z = pose.position.z
+                    self.left_arm_target_pose.orientation.x = pose.orientation.x
+                    self.left_arm_target_pose.orientation.y = pose.orientation.y
+                    self.left_arm_target_pose.orientation.z = pose.orientation.z
+                    self.left_arm_target_pose.orientation.w = pose.orientation.w
+                else:
+                    # Transform from frame_id to base_frame
+                    transform = self.tf_buffer.lookup_transform(
+                        self.base_frame, frame_id, rclpy.time.Time()
+                    )
+                    # Use tf2_geometry_msgs to transform the pose (do_transform_pose accepts Pose, not PoseStamped)
+                    transformed_pose = do_transform_pose(pose_stamped.pose, transform)
+                    # Store transformed pose for arrival checking
+                    self.left_arm_target_pose = Pose()
+                    self.left_arm_target_pose.position.x = transformed_pose.position.x
+                    self.left_arm_target_pose.position.y = transformed_pose.position.y
+                    self.left_arm_target_pose.position.z = transformed_pose.position.z
+                    self.left_arm_target_pose.orientation.x = transformed_pose.orientation.x
+                    self.left_arm_target_pose.orientation.y = transformed_pose.orientation.y
+                    self.left_arm_target_pose.orientation.z = transformed_pose.orientation.z
+                    self.left_arm_target_pose.orientation.w = transformed_pose.orientation.w
+                    logger.debug(f"Transformed pose from '{frame_id}' to '{self.base_frame}' for arrival checking")
+            except TransformException as ex:
+                logger.warning(f"Failed to transform pose from '{frame_id}' to '{self.base_frame}' for arrival checking: {ex}")
+                # If transformation fails, don't set target pose (arrival checking won't work)
+                self.left_arm_target_pose = None
     
     def send_right_end_effector_target_stamped(self, frame_id: str, pose: Pose) -> None:
         """Send target right end-effector pose with coordinate frame (dual-arm mode).
@@ -742,9 +817,12 @@ class ROS2RobotInterface:
         coordinate frame transformation using TF. The pose will be automatically
         transformed from the specified frame_id to the base frame.
         
+        Additionally, this method transforms the relative pose to absolute pose (base_link)
+        and stores it in right_arm_target_pose for arrival checking.
+        
         Args:
             frame_id: Coordinate frame name where the pose is defined
-                     (e.g., "base_link", "camera_frame", "tool_frame")
+                     (e.g., "base_link", "left_eef", "right_eef")
             pose: Target pose for the right end-effector (in the specified frame)
         """
         if not self.is_connected:
@@ -765,6 +843,41 @@ class ROS2RobotInterface:
         # Publish the stamped pose
         self.right_end_effector_target_stamped_pub.publish(pose_stamped)
         logger.debug(f"Published right end-effector target (stamped) in frame '{frame_id}': {pose}")
+        
+        # Transform relative pose to absolute pose (base_link) for arrival checking
+        if self.tf_buffer is not None:
+            try:
+                # If frame_id is already base_frame, no transformation needed
+                if frame_id == self.base_frame:
+                    self.right_arm_target_pose = Pose()
+                    self.right_arm_target_pose.position.x = pose.position.x
+                    self.right_arm_target_pose.position.y = pose.position.y
+                    self.right_arm_target_pose.position.z = pose.position.z
+                    self.right_arm_target_pose.orientation.x = pose.orientation.x
+                    self.right_arm_target_pose.orientation.y = pose.orientation.y
+                    self.right_arm_target_pose.orientation.z = pose.orientation.z
+                    self.right_arm_target_pose.orientation.w = pose.orientation.w
+                else:
+                    # Transform from frame_id to base_frame
+                    transform = self.tf_buffer.lookup_transform(
+                        self.base_frame, frame_id, rclpy.time.Time()
+                    )
+                    # Use tf2_geometry_msgs to transform the pose (do_transform_pose accepts Pose, not PoseStamped)
+                    transformed_pose = do_transform_pose(pose_stamped.pose, transform)
+                    # Store transformed pose for arrival checking
+                    self.right_arm_target_pose = Pose()
+                    self.right_arm_target_pose.position.x = transformed_pose.position.x
+                    self.right_arm_target_pose.position.y = transformed_pose.position.y
+                    self.right_arm_target_pose.position.z = transformed_pose.position.z
+                    self.right_arm_target_pose.orientation.x = transformed_pose.orientation.x
+                    self.right_arm_target_pose.orientation.y = transformed_pose.orientation.y
+                    self.right_arm_target_pose.orientation.z = transformed_pose.orientation.z
+                    self.right_arm_target_pose.orientation.w = transformed_pose.orientation.w
+                    logger.debug(f"Transformed right arm pose from '{frame_id}' to '{self.base_frame}' for arrival checking")
+            except TransformException as ex:
+                logger.warning(f"Failed to transform right arm pose from '{frame_id}' to '{self.base_frame}' for arrival checking: {ex}")
+                # If transformation fails, don't set target pose (arrival checking won't work)
+                self.right_arm_target_pose = None
     
     def send_gripper_command(self, position: float) -> None:
         """Send gripper position command.
@@ -897,36 +1010,44 @@ class ROS2RobotInterface:
         # Automatically record target positions for arrival checking
         self.body_target_positions = positions.copy() if positions else None
     
-    def check_arrive(self, part: Optional[str] = None, position_threshold: Optional[float] = None) -> Dict[str, Any]:
-        """Check if head or body joints have arrived at target positions.
+    def check_arrive(self, part: Optional[str] = None, position_threshold: Optional[float] = None,
+                     pose_position_threshold: Optional[float] = None) -> Dict[str, Any]:
+        """Check if head, body joints, or arm poses have arrived at target positions/poses.
         
         Args:
-            part: 'head' or 'body'. If None, returns results for both.
-            position_threshold: Distance threshold in radians. If None, uses self.position_threshold.
+            part: 'head', 'body', 'arm'/'left_arm', 'right_arm', or None. 
+                  - In single-arm mode: 'arm' or 'left_arm' both check the arm
+                  - In dual-arm mode: 'left_arm' and 'right_arm' are separate
+                  - If None, returns results for all parts
+            position_threshold: Distance threshold in radians for joints. If None, uses self.position_threshold.
+            pose_position_threshold: Distance threshold in meters for arm poses. If None, uses self.pose_position_threshold.
         
         Returns:
             If part is specified:
-                {'arrived': bool, 'distance': float}
+                {'arrived': bool, 'distance': float, 'position_distance': float, 'orientation_distance': float}
+                (for joints, only 'arrived' and 'distance' are present)
             If part is None:
-                {'head': {'arrived': bool, 'distance': float}, 
-                 'body': {'arrived': bool, 'distance': float}}
+                Single-arm mode: {'head': {...}, 'body': {...}, 'arm': {...}}
+                Dual-arm mode: {'head': {...}, 'body': {...}, 'left_arm': {...}, 'right_arm': {...}}
         """
         if not self.is_connected:
             raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
         
+        # Determine if dual-arm mode
+        is_dual_arm = self.config.right_end_effector_pose_topic is not None
+        
+        # Normalize part name: in single-arm mode, 'arm' and 'left_arm' both mean the arm
+        if part == 'arm' and not is_dual_arm:
+            part = 'left_arm'  # Use left_arm internally, but will return as 'arm'
+        
         threshold = position_threshold if position_threshold is not None else self.position_threshold
+        pose_threshold = pose_position_threshold if pose_position_threshold is not None else self.pose_position_threshold
         result = {}
         
         # Get current joint state (categorized)
         categorized_state = self.get_joint_state(categorized=True)
-        if not categorized_state:
-            if part:
-                return {'arrived': False, 'distance': float('inf')}
-            else:
-                return {'head': {'arrived': False, 'distance': float('inf')}, 
-                       'body': {'arrived': False, 'distance': float('inf')}}
         
-        # Calculate Euclidean distance
+        # Calculate Euclidean distance for joints
         def calculate_distance(current: List[float], target: List[float]) -> float:
             """Calculate Euclidean distance between two position vectors."""
             if not current or not target:
@@ -934,6 +1055,32 @@ class ROS2RobotInterface:
             if len(current) != len(target):
                 return float('inf')
             return sum((c - t) ** 2 for c, t in zip(current, target)) ** 0.5
+        
+        # Calculate pose distance
+        def calculate_pose_distance(current_pose: Pose, target_pose: Pose) -> Tuple[float, float]:
+            """Calculate position and orientation distance between two poses.
+            
+            Returns:
+                (position_distance, orientation_distance)
+                position_distance: Euclidean distance in meters
+                orientation_distance: Quaternion distance (1 - dot product)
+            """
+            # Position distance
+            pos_dist = ((current_pose.position.x - target_pose.position.x) ** 2 +
+                       (current_pose.position.y - target_pose.position.y) ** 2 +
+                       (current_pose.position.z - target_pose.position.z) ** 2) ** 0.5
+            
+            # Orientation distance (quaternion dot product)
+            dot_product = (current_pose.orientation.w * target_pose.orientation.w +
+                          current_pose.orientation.x * target_pose.orientation.x +
+                          current_pose.orientation.y * target_pose.orientation.y +
+                          current_pose.orientation.z * target_pose.orientation.z)
+            # Clamp to [-1, 1] to avoid numerical errors
+            dot_product = max(-1.0, min(1.0, dot_product))
+            # Quaternion distance: 1 - |dot_product| (smaller is better)
+            orient_dist = 1.0 - abs(dot_product)
+            
+            return pos_dist, orient_dist
         
         # Check head arrival
         if part is None or part == 'head':
@@ -953,6 +1100,8 @@ class ROS2RobotInterface:
                         print(f"  [位置检查-HEAD] ✓ 已到达目标位置")
                     else:
                         print(f"  [位置检查-HEAD] ✗ 未到达目标位置")
+
+                    print()
             
             if part == 'head':
                 return {'arrived': head_arrived, 'distance': head_distance}
@@ -976,10 +1125,107 @@ class ROS2RobotInterface:
                         print(f"  [位置检查-BODY] ✓ 已到达目标位置")
                     else:
                         print(f"  [位置检查-BODY] ✗ 未到达目标位置")
-            
+                    print()
+
             if part == 'body':
                 return {'arrived': body_arrived, 'distance': body_distance}
             result['body'] = {'arrived': body_arrived, 'distance': body_distance}
+        
+        # Check left arm arrival (or arm in single-arm mode)
+        if part is None or part == 'left_arm':
+            left_arm_arrived = False
+            left_arm_pos_dist = float('inf')
+            left_arm_orient_dist = float('inf')
+            left_arm_total_dist = float('inf')
+            status_msg = None
+            
+            if self.left_arm_target_pose is not None:
+                current_left_pose = self.get_end_effector_pose()
+                if current_left_pose:
+                    left_arm_pos_dist, left_arm_orient_dist = calculate_pose_distance(
+                        current_left_pose, self.left_arm_target_pose
+                    )
+                    # Total distance: weighted combination (position is more important)
+                    left_arm_total_dist = left_arm_pos_dist + left_arm_orient_dist * 0.1
+                    left_arm_arrived = (left_arm_pos_dist < pose_threshold and 
+                                      left_arm_orient_dist < self.pose_orientation_threshold)
+                    
+                    # Output arm position information (use 'ARM' for single-arm, 'LEFT_ARM' for dual-arm)
+                    arm_label = "ARM" if not is_dual_arm else "LEFT_ARM"
+                    print(f"  [位置检查-{arm_label}] 当前位置: ({current_left_pose.position.x:.4f}, {current_left_pose.position.y:.4f}, {current_left_pose.position.z:.4f})")
+                    print(f"  [位置检查-{arm_label}] 目标位置: ({self.left_arm_target_pose.position.x:.4f}, {self.left_arm_target_pose.position.y:.4f}, {self.left_arm_target_pose.position.z:.4f})")
+                    print(f"  [位置检查-{arm_label}] 位置距离: {left_arm_pos_dist:.4f} 米 (阈值: {pose_threshold:.4f})")
+                    print(f"  [位置检查-{arm_label}] 姿态距离: {left_arm_orient_dist:.4f} (阈值: {self.pose_orientation_threshold:.4f})")
+                    if left_arm_arrived:
+                        status_msg = "左臂已到达目标位置"
+                        print(f"  [位置检查-{arm_label}] ✓ 已到达目标位置")
+                        print(f"  [OCS2] → {status_msg}，等待中...")
+                    else:
+                        status_msg = "左臂未到达目标位置"
+                        print(f"  [位置检查-{arm_label}] ✗ 未到达目标位置")
+
+                    print()
+            arm_result = {
+                'arrived': left_arm_arrived,
+                'distance': left_arm_total_dist,
+                'position_distance': left_arm_pos_dist,
+                'orientation_distance': left_arm_orient_dist,
+                'status_message': status_msg
+            }
+            
+            if part == 'left_arm':
+                return arm_result
+            
+            # In single-arm mode, use 'arm' key; in dual-arm mode, use 'left_arm' key
+            if is_dual_arm:
+                result['left_arm'] = arm_result
+            else:
+                result['arm'] = arm_result
+        
+        # Check right arm arrival (only in dual-arm mode)
+        if is_dual_arm and (part is None or part == 'right_arm'):
+            right_arm_arrived = False
+            right_arm_pos_dist = float('inf')
+            right_arm_orient_dist = float('inf')
+            right_arm_total_dist = float('inf')
+            status_msg = None
+            
+            if self.right_arm_target_pose is not None:
+                current_right_pose = self.get_right_end_effector_pose()
+                if current_right_pose:
+                    right_arm_pos_dist, right_arm_orient_dist = calculate_pose_distance(
+                        current_right_pose, self.right_arm_target_pose
+                    )
+                    # Total distance: weighted combination (position is more important)
+                    right_arm_total_dist = right_arm_pos_dist + right_arm_orient_dist * 0.1
+                    right_arm_arrived = (right_arm_pos_dist < pose_threshold and 
+                                       right_arm_orient_dist < self.pose_orientation_threshold)
+                    
+                    # Output right arm position information
+                    print(f"  [位置检查-RIGHT_ARM] 当前位置: ({current_right_pose.position.x:.4f}, {current_right_pose.position.y:.4f}, {current_right_pose.position.z:.4f})")
+                    print(f"  [位置检查-RIGHT_ARM] 目标位置: ({self.right_arm_target_pose.position.x:.4f}, {self.right_arm_target_pose.position.y:.4f}, {self.right_arm_target_pose.position.z:.4f})")
+                    print(f"  [位置检查-RIGHT_ARM] 位置距离: {right_arm_pos_dist:.4f} 米 (阈值: {pose_threshold:.4f})")
+                    print(f"  [位置检查-RIGHT_ARM] 姿态距离: {right_arm_orient_dist:.4f} (阈值: {self.pose_orientation_threshold:.4f})")
+                    if right_arm_arrived:
+                        status_msg = "右臂已到达目标位置"
+                        print(f"  [位置检查-RIGHT_ARM] ✓ 已到达目标位置")
+                        print(f"  [OCS2] → {status_msg}，等待中...")
+                    else:
+                        status_msg = "右臂未到达目标位置"
+                        print(f"  [位置检查-RIGHT_ARM] ✗ 未到达目标位置")
+            
+                    print()
+            right_arm_result = {
+                'arrived': right_arm_arrived,
+                'distance': right_arm_total_dist,
+                'position_distance': right_arm_pos_dist,
+                'orientation_distance': right_arm_orient_dist,
+                'status_message': status_msg
+            }
+            
+            if part == 'right_arm':
+                return right_arm_result
+            result['right_arm'] = right_arm_result
         
         return result
     
@@ -999,6 +1245,11 @@ class ROS2RobotInterface:
     
     def disconnect(self) -> None:
         """Disconnect from ROS 2 and cleanup resources."""
+        # Cleanup TF buffer and listener
+        if self.tf_listener is not None:
+            self.tf_listener = None
+        if self.tf_buffer is not None:
+            self.tf_buffer = None
         self._connected = False
         
         # Stop executor
@@ -1064,6 +1315,12 @@ class ROS2RobotInterface:
         if self.robot_node:
             self.robot_node.destroy_node()
             self.robot_node = None
+        
+        # Cleanup TF buffer and listener
+        if self.tf_listener is not None:
+            self.tf_listener = None
+        if self.tf_buffer is not None:
+            self.tf_buffer = None
         
         # Clear data
         with self.data_lock:
