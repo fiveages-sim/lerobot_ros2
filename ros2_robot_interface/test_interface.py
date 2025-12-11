@@ -1,3 +1,8 @@
+"""
+ROS2机器人接口测试脚本
+支持单臂和双臂机器人的通用测试
+"""
+
 import time
 import sys
 from geometry_msgs.msg import Pose
@@ -6,64 +11,72 @@ from ros2_robot_interface import ROS2RobotInterface, ROS2RobotInterfaceConfig, C
 
 
 def main():
-    """Test ROS2 Robot Interface (supports both single-arm and dual-arm robots)."""
+    """测试ROS2机器人接口（支持单臂和双臂机器人）"""
+    
+    # ========================================================================
+    # 第一部分：初始化和连接
+    # ========================================================================
     print("\n" + "=" * 70)
     print(" " * 20 + "ROS2 Robot Interface Test")
     print("=" * 70 + "\n")
     
-    # Create configuration (mode will be auto-detected from ROS 2 topics)
-    print("[1] Creating configuration...")
-    print("    → Mode will be auto-detected from ROS 2 topics")
-    print("    → Checking for /right_target or /right_current_pose\n")
+    # 创建配置对象（模式将通过ROS 2 topic自动检测）
+    print("[1] 创建配置...")
+    print("    → 模式将通过ROS 2 topic自动检测")
+    print("    → 检查是否存在 /right_target 或 /right_current_pose\n")
     config = ROS2RobotInterfaceConfig()
     
-    # Create and connect interface
-    print("[2] Creating ROS2RobotInterface instance...")
+    # 创建并连接接口实例
+    print("[2] 创建ROS2RobotInterface实例...")
     interface = ROS2RobotInterface(config)
     
-    print("[3] Connecting to ROS 2...")
+    print("[3] 连接到ROS 2...")
     try:
         interface.connect()
-        print("    ✓ Interface connected successfully!\n")
+        print("    ✓ 接口连接成功!\n")
     except Exception as e:
-        print(f"    ✗ Failed to connect: {e}\n")
+        print(f"    ✗ 连接失败: {e}\n")
         return 1
     
-    # Wait a bit for data to arrive
-    print("[4] Waiting for data (2 seconds)...")
+    # 等待数据到达（给ROS 2一些时间进行topic发现和数据传输）
+    print("[4] 等待数据到达（2秒）...")
     time.sleep(2.0)
-    print("    ✓ Data collection started\n")
+    print("    ✓ 数据收集已开始\n")
     
-    # Switch to HOLD state (starting state for FSM cycle)
+    # 切换到HOLD状态（FSM循环的起始状态）
     print("-" * 70)
-    print("[5] Switching to HOLD state (starting state)")
+    print("[5] 切换到HOLD状态（起始状态）")
     print("-" * 70)
     try:
-        interface.send_fsm_command(2)  # 2 = HOLD state
-        print("  ✓ FSM command sent: Switching to HOLD state")
-        time.sleep(1.0)  # Wait a bit for state transition
-        print("  ✓ State transition completed\n")
+        interface.send_fsm_command(1)  # 2 = HOLD状态
+        print("  ✓ FSM命令已发送: 切换到HOLD状态")
+        time.sleep(1.0)  # 等待状态转换完成
+        print("  ✓ 状态转换完成\n")
     except Exception as e:
-        print(f"  ⚠ Failed to switch to HOLD state: {e}\n")
+        print(f"  ⚠ 切换到HOLD状态失败: {e}\n")
     
-    # Test: Get joint state (shared for both arms)
+    # ========================================================================
+    # 第二部分：测试数据获取功能
+    # ========================================================================
+    
+    # 测试：获取关节状态（原始数据，所有关节）
     print("-" * 70)
-    print("[6] Testing get_joint_state()")
+    print("[6] 测试 get_joint_state() - 获取原始关节状态")
     print("-" * 70)
     joint_state = interface.get_joint_state()
     if joint_state:
-        print(f"  ✓ Joint state received")
-        print(f"    Total joints: {len(joint_state['names'])}")
-        print(f"    Joint names: {', '.join(joint_state['names'][:5])}{'...' if len(joint_state['names']) > 5 else ''}")
-        print(f"    Positions:   {[f'{p:.3f}' for p in joint_state['positions'][:5]]}{'...' if len(joint_state['positions']) > 5 else ''}")
-        print(f"    Velocities:  {[f'{v:.3f}' for v in joint_state['velocities'][:5]]}{'...' if len(joint_state['velocities']) > 5 else ''}")
+        print(f"  ✓ 关节状态已接收")
+        print(f"    总关节数: {len(joint_state['names'])}")
+        print(f"    关节名称: {', '.join(joint_state['names'][:5])}{'...' if len(joint_state['names']) > 5 else ''}")
+        print(f"    位置:   {[f'{p:.3f}' for p in joint_state['positions'][:5]]}{'...' if len(joint_state['positions']) > 5 else ''}")
+        print(f"    速度:  {[f'{v:.3f}' for v in joint_state['velocities'][:5]]}{'...' if len(joint_state['velocities']) > 5 else ''}")
     else:
-        print("  ⚠ No joint state received yet")
+        print("  ⚠ 尚未接收到关节状态")
     print()
     
-    # Test: Get categorized joint state
+    # 测试：获取分类后的关节状态（按身体部位分类）
     print("-" * 70)
-    print("[6.5] Testing get_joint_state(categorized=True)")
+    print("[6.5] 测试 get_joint_state(categorized=True) - 获取分类关节状态")
     print("-" * 70)
     categorized_joint_state = interface.get_joint_state(categorized=True)
     if categorized_joint_state:
@@ -110,97 +123,115 @@ def main():
         print("  ⚠ No categorized joint state available")
     print()
     
-    # Test: Get end-effector poses
+    # 测试：获取末端执行器位姿（位置和方向）
     print("-" * 70)
-    print("[7] Testing get_end_effector_pose()")
+    print("[7] 测试 get_end_effector_pose() - 获取末端执行器位姿")
     print("-" * 70)
     
-    # Left/main arm pose
+    # 左臂/主臂位姿
     left_pose = interface.get_end_effector_pose()
     if left_pose:
-        print(f"  ✓ End-effector pose received")
-        print(f"    Position:    ({left_pose.position.x:7.3f}, {left_pose.position.y:7.3f}, {left_pose.position.z:7.3f})")
-        print(f"    Orientation:  ({left_pose.orientation.x:6.3f}, {left_pose.orientation.y:6.3f}, "
+        print(f"  ✓ 末端执行器位姿已接收")
+        print(f"    位置:    ({left_pose.position.x:7.3f}, {left_pose.position.y:7.3f}, {left_pose.position.z:7.3f})")
+        print(f"    方向:  ({left_pose.orientation.x:6.3f}, {left_pose.orientation.y:6.3f}, "
               f"{left_pose.orientation.z:6.3f}, {left_pose.orientation.w:6.3f})")
     else:
-        print("  ⚠ No end-effector pose received yet")
+        print("  ⚠ 尚未接收到末端执行器位姿")
     
-    # Right arm pose (only for dual-arm mode)
+    # 右臂位姿（仅双臂模式）
     right_pose = interface.get_right_end_effector_pose()
     if right_pose:
-        print(f"\n  ✓ Right arm pose received")
-        print(f"    Position:    ({right_pose.position.x:7.3f}, {right_pose.position.y:7.3f}, {right_pose.position.z:7.3f})")
-        print(f"    Orientation:  ({right_pose.orientation.x:6.3f}, {right_pose.orientation.y:6.3f}, "
+        print(f"\n  ✓ 右臂位姿已接收")
+        print(f"    位置:    ({right_pose.position.x:7.3f}, {right_pose.position.y:7.3f}, {right_pose.position.z:7.3f})")
+        print(f"    方向:  ({right_pose.orientation.x:6.3f}, {right_pose.orientation.y:6.3f}, "
               f"{right_pose.orientation.z:6.3f}, {right_pose.orientation.w:6.3f})")
     elif interface.config.right_end_effector_pose_topic:
-        print("\n  ⚠ No right arm pose received yet (dual-arm mode detected)")
+        print("\n  ⚠ 尚未接收到右臂位姿（已检测到双臂模式）")
     print()
     
-    # FSM state cycle configuration
+    # ========================================================================
+    # 第三部分：FSM状态循环配置
+    # ========================================================================
     print("-" * 70)
-    print("[8] FSM State Cycle Configuration")
+    print("[8] FSM状态循环配置")
     print("-" * 70)
     # Define FSM state cycle: HOLD → HOME → REST → HOLD → OCS2 → HOLD → MOVEJ (then loop back to HOLD)
     # FSM command values: 0=REST, 1=HOME, 2=HOLD, 3=OCS2/MOVE, 4=MOVEJ
     fsm_states = [2, 1, 100, 2, 3, 2, 4]  # HOLD → HOME → REST → HOLD → OCS2 → HOLD → MOVEJ → (loop back to HOLD)
     fsm_state_names = {100: "REST", 1: "HOME", 2: "HOLD", 3: "OCS2/MOVE", 4: "MOVEJ"}
     # Start from index 0 (HOLD state) since we just switched to it in step [5]
-    current_fsm_index = 0  # Index 0 corresponds to HOLD (state 2)
+    current_fsm_index = 1  # Index 0 corresponds to HOLD (state 2)
     print(f"  → FSM states cycle: {' → '.join([f'{s}({fsm_state_names[s]})' for s in fsm_states])} → (loop)")
     print(f"  → Switching every 5 seconds")
     print(f"  → Current state: {fsm_states[current_fsm_index]} ({fsm_state_names[fsm_states[current_fsm_index]]})")
     print(f"  → Next switch will go to: {fsm_states[(current_fsm_index + 1) % len(fsm_states)]} ({fsm_state_names[fsm_states[(current_fsm_index + 1) % len(fsm_states)]]})\n")
     
-    # Keep running continuously to monitor data updates and cycle FSM states
+    # ========================================================================
+    # 第四部分：主循环 - 持续监控数据和循环FSM状态
+    # ========================================================================
     print("=" * 70)
-    print("[9] Monitoring data continuously and cycling FSM states")
+    print("[9] 持续监控数据并循环FSM状态")
     print("=" * 70)
     is_dual_arm = interface.config.right_end_effector_pose_topic is not None
     if is_dual_arm:
-        print("  Mode: DUAL-ARM")
-        print("  → In OCS2 state: Arms will extend and retract sequentially")
-        print("  → In MOVEJ state: Head and body will move")
+        print("  模式: 双臂")
+        print("  → 在OCS2状态: 双臂将依次伸出和收回")
+        print("  → 在MOVEJ状态: 头部和身体将移动")
     else:
-        print("  Mode: SINGLE-ARM")
-    print("  → FSM state switches every 5 seconds")
-    print("  → Press Ctrl+C to stop and disconnect")
+        print("  模式: 单臂")
+    print("  → FSM状态每5秒切换一次")
+    print("  → 按Ctrl+C停止并断开连接")
     print("-" * 70 + "\n")
     
-    # Arm movement control variables (for OCS2 state)
-    # States: idle, left_extending, left_extended, left_retracting, right_extending, right_extended, right_retracting,
-    #         head_moving_up, head_moving_down, body_moving_to_target, body_moving_back, completed
-    arm_movement_state = "idle"
-    arm_movement_start_time = None
-    left_initial_pose = None
-    right_initial_pose = None
-    extend_distance = 0.15  # meters forward
-    movement_duration = 2.0  # seconds for each movement phase
-    last_fsm_switch_time = 0  # Track when we last switched FSM state
+    # ========================================================================
+    # 第五部分：动作控制变量初始化
+    # ========================================================================
     
-    # Head and body control variables (for MOVEJ state)
-    head_body_movement_state = "idle"  # idle, head_moving_up, head_moving_down, body_moving_to_target, body_moving_back, completed
-    head_body_movement_start_time = None
-    head_initial_positions = None
-    body_initial_positions = None
-    body_target_positions = [-0.899, -1.714, -0.865, 0.0]  # Target body joint positions
+    # 手臂动作控制变量（用于OCS2状态）
+    # 状态: idle, left_extending, left_extended, left_retracting, 
+    #      right_extending, right_extended, right_retracting, completed
+    arm_movement_state = "idle"  # 当前手臂动作状态
+    arm_movement_start_time = None  # 动作开始时间
+    left_initial_pose = None  # 左臂初始位姿
+    right_initial_pose = None  # 右臂初始位姿
+    extend_distance = 0.15  # 向前伸出的距离（米）
+    movement_duration = 2.0  # 每个动作阶段的持续时间（秒）
+    last_fsm_switch_time = 0  # 记录上次FSM状态切换的时间
+    hold_state_enter_time = None  # 记录进入HOLD状态的时间
+    
+    # 头部和身体动作控制变量（用于MOVEJ状态）
+    # 状态: idle, head_moving_left, head_moving_right, head_moving_up, 
+    #      head_moving_down, body_moving_to_target, body_moving_back, completed
+    head_body_movement_state = "idle"  # 当前头部/身体动作状态
+    head_body_movement_start_time = None  # 动作开始时间
+    head_initial_positions = None  # 头部关节初始位置
+    body_initial_positions = None  # 身体关节初始位置
+    body_target_positions = [-0.899, -1.714, -0.865, 0.0]  # 身体关节目标位置（弧度）
     
     try:
-        i = 0
-        current_fsm_state = fsm_states[current_fsm_index]  # Track current FSM state
+        i = 0  # 循环计数器（秒）
+        current_fsm_state = fsm_states[current_fsm_index]  # 跟踪当前FSM状态
+        
+        # ========================================================================
+        # 第六部分：主循环 - 持续监控和控制
+        # ========================================================================
         while True:
-            time.sleep(1.0)
+            time.sleep(1.0)  # 每秒循环一次
             i += 1
             
-            # Get current states
-            joint_state = interface.get_joint_state()
-            left_pose = interface.get_end_effector_pose()
-            right_pose = interface.get_right_end_effector_pose()
+            # 获取当前状态数据
+            joint_state = interface.get_joint_state()  # 获取关节状态
+            left_pose = interface.get_end_effector_pose()  # 获取左臂末端位姿
+            right_pose = interface.get_right_end_effector_pose()  # 获取右臂末端位姿（双臂模式）
             
-            # Control arm movement in OCS2 state (only for dual-arm mode)
-            if current_fsm_state == 3 and is_dual_arm:  # OCS2 state
+            # ========================================================================
+            # 第七部分：OCS2状态下的双臂协调控制
+            # ========================================================================
+            # 在OCS2状态下控制双臂依次伸出和收回（仅双臂模式）
+            if current_fsm_state == 3 and is_dual_arm:  # OCS2状态
                 current_time = time.time()
                 
-                # Initialize: save initial poses
+                # 初始化：保存初始位姿（仅在idle状态且获取到位姿时执行一次）
                 if arm_movement_state == "idle" and left_pose and right_pose:
                     left_initial_pose = Pose()
                     left_initial_pose.position.x = left_pose.position.x
@@ -220,38 +251,43 @@ def main():
                     right_initial_pose.orientation.z = right_pose.orientation.z
                     right_initial_pose.orientation.w = right_pose.orientation.w
                     
+                    # 开始左臂伸出动作
                     arm_movement_state = "left_extending"
                     arm_movement_start_time = current_time
-                    # Send left arm extend command
+                    # 发送左臂伸出命令：在X方向（前方）增加extend_distance距离
                     left_target = Pose()
                     left_target.position.x = left_initial_pose.position.x + extend_distance
                     left_target.position.y = left_initial_pose.position.y
                     left_target.position.z = left_initial_pose.position.z
                     left_target.orientation = left_initial_pose.orientation
                     interface.send_end_effector_target(left_target)
-                    print(f"  [OCS2] → Left arm extending forward...")
+                    print(f"  [OCS2] → 左臂向前伸出...")
                 
-                # State machine for arm movements
+                # 状态机：左臂伸出中
                 elif arm_movement_state == "left_extending":
+                    # 左臂伸出完成，等待一段时间
                     if current_time - arm_movement_start_time >= movement_duration:
                         arm_movement_state = "left_extended"
                         arm_movement_start_time = current_time
-                        print(f"  [OCS2] → Left arm extended, waiting...")
+                        print(f"  [OCS2] → 左臂已伸出，等待中...")
                 
+                # 状态机：左臂已伸出，等待1秒后开始收回
                 elif arm_movement_state == "left_extended":
-                    if current_time - arm_movement_start_time >= 1.0:  # Wait 1 second
+                    if current_time - arm_movement_start_time >= 1.0:  # 等待1秒
                         arm_movement_state = "left_retracting"
                         arm_movement_start_time = current_time
-                        # Send left arm retract command
+                        # 发送左臂收回命令：回到初始位姿
                         if left_initial_pose:
                             interface.send_end_effector_target(left_initial_pose)
-                            print(f"  [OCS2] → Left arm retracting...")
+                            print(f"  [OCS2] → 左臂收回中...")
                 
+                # 状态机：左臂收回中
                 elif arm_movement_state == "left_retracting":
+                    # 左臂收回完成，开始右臂伸出
                     if current_time - arm_movement_start_time >= movement_duration:
                         arm_movement_state = "right_extending"
                         arm_movement_start_time = current_time
-                        # Send right arm extend command
+                        # 发送右臂伸出命令：在X方向（前方）增加extend_distance距离
                         if right_initial_pose:
                             right_target = Pose()
                             right_target.position.x = right_initial_pose.position.x + extend_distance
@@ -259,34 +295,42 @@ def main():
                             right_target.position.z = right_initial_pose.position.z
                             right_target.orientation = right_initial_pose.orientation
                             interface.send_right_end_effector_target(right_target)
-                            print(f"  [OCS2] → Right arm extending forward...")
+                            print(f"  [OCS2] → 右臂向前伸出...")
                 
+                # 状态机：右臂伸出中
                 elif arm_movement_state == "right_extending":
+                    # 右臂伸出完成，等待一段时间
                     if current_time - arm_movement_start_time >= movement_duration:
                         arm_movement_state = "right_extended"
                         arm_movement_start_time = current_time
-                        print(f"  [OCS2] → Right arm extended, waiting...")
+                        print(f"  [OCS2] → 右臂已伸出，等待中...")
                 
+                # 状态机：右臂已伸出，等待1秒后开始收回
                 elif arm_movement_state == "right_extended":
-                    if current_time - arm_movement_start_time >= 1.0:  # Wait 1 second
+                    if current_time - arm_movement_start_time >= 1.0:  # 等待1秒
                         arm_movement_state = "right_retracting"
                         arm_movement_start_time = current_time
-                        # Send right arm retract command
+                        # 发送右臂收回命令：回到初始位姿
                         if right_initial_pose:
                             interface.send_right_end_effector_target(right_initial_pose)
-                            print(f"  [OCS2] → Right arm retracting...")
+                            print(f"  [OCS2] → 右臂收回中...")
                 
+                # 状态机：右臂收回中
                 elif arm_movement_state == "right_retracting":
+                    # 右臂收回完成，所有手臂动作完成
                     if current_time - arm_movement_start_time >= movement_duration:
-                        arm_movement_state = "completed"  # Arms completed, ready for state switch
+                        arm_movement_state = "completed"  # 标记为完成，准备切换状态
                         arm_movement_start_time = None
-                        print(f"  [OCS2] → Both arms completed cycle, ready to switch state...")
+                        print(f"  [OCS2] → 双臂动作循环完成，准备切换状态...")
             
-            # Control head and body joints in MOVEJ state
-            elif current_fsm_state == 4:  # MOVEJ state
+            # ========================================================================
+            # 第八部分：MOVEJ状态下的头部和身体关节控制
+            # ========================================================================
+            # 在MOVEJ状态下控制头部和身体关节
+            elif current_fsm_state == 4:  # MOVEJ状态
                 current_time = time.time()
                 
-                # Initialize: save initial positions
+                # 初始化：保存头部和身体关节的初始位置（仅在idle状态时执行一次）
                 if head_body_movement_state == "idle":
                     categorized_state = interface.get_joint_state(categorized=True)
                     if categorized_state:
@@ -295,240 +339,269 @@ def main():
                         if categorized_state.get('body', {}).get('positions'):
                             body_initial_positions = categorized_state['body']['positions'].copy()
                     
-                    head_body_movement_state = "head_moving_up"
+                    # 开始头部动作：先左右摆动，再上下摆动
+                    head_body_movement_state = "head_moving_left"
                     head_body_movement_start_time = current_time
                     
-                    # Start head movement: move up
+                    # 头部向左摆动：head_joint1（索引0）控制左右（yaw），增加0.3弧度
                     if head_initial_positions and interface.config.head_joint_controller_topic:
-                        head_target_up = head_initial_positions.copy()
-                        if len(head_target_up) > 0:
-                            head_target_up[0] = head_initial_positions[0] + 0.3  # Move up
+                        head_target_left = head_initial_positions.copy()
+                        if len(head_target_left) > 0:
+                            head_target_left[0] = head_initial_positions[0] + 0.3  # 向左摆动（yaw增加）
                         try:
-                            interface.send_head_joint_positions(head_target_up)
-                            print(f"  [MOVEJ] → Head moving up...")
+                            interface.send_head_joint_positions(head_target_left)
+                            print(f"  [MOVEJ] → 头部向左摆动...")
                         except Exception as e:
-                            print(f"  [MOVEJ] ✗ Failed to control head: {e}")
+                            print(f"  [MOVEJ] ✗ 控制头部失败: {e}")
                 
-                # Head movement: moving up
+                # 状态机：头部向左摆动中
+                elif head_body_movement_state == "head_moving_left":
+                    # 左摆完成，开始向右摆动
+                    if current_time - head_body_movement_start_time >= movement_duration:
+                        head_body_movement_state = "head_moving_right"
+                        head_body_movement_start_time = current_time
+                        # 头部向右摆动：head_joint1（索引0）减少0.3弧度
+                        if head_initial_positions and interface.config.head_joint_controller_topic:
+                            head_target_right = head_initial_positions.copy()
+                            if len(head_target_right) > 0:
+                                head_target_right[0] = head_initial_positions[0] - 0.3  # 向右摆动（yaw减少）
+                            try:
+                                interface.send_head_joint_positions(head_target_right)
+                                print(f"  [MOVEJ] → 头部向右摆动...")
+                            except Exception as e:
+                                print(f"  [MOVEJ] ✗ 控制头部失败: {e}")
+                
+                # 状态机：头部向右摆动中
+                elif head_body_movement_state == "head_moving_right":
+                    # 右摆完成，开始向上摆动
+                    if current_time - head_body_movement_start_time >= movement_duration:
+                        head_body_movement_state = "head_moving_up"
+                        head_body_movement_start_time = current_time
+                        # 头部向上摆动：head_joint2（索引1）控制上下（pitch），减少0.3弧度（pitch减少=向上）
+                        if head_initial_positions and interface.config.head_joint_controller_topic:
+                            head_target_up = head_initial_positions.copy()
+                            if len(head_target_up) > 1:
+                                head_target_up[1] = head_initial_positions[1] - 0.3  # 向上摆动（pitch减少）
+                            try:
+                                interface.send_head_joint_positions(head_target_up)
+                                print(f"  [MOVEJ] → 头部向上摆动...")
+                            except Exception as e:
+                                print(f"  [MOVEJ] ✗ 控制头部失败: {e}")
+                
+                # 状态机：头部向上摆动中
                 elif head_body_movement_state == "head_moving_up":
+                    # 上摆完成，开始向下摆动
                     if current_time - head_body_movement_start_time >= movement_duration:
                         head_body_movement_state = "head_moving_down"
                         head_body_movement_start_time = current_time
-                        # Move head back down
+                        # 头部向下摆动：head_joint2（索引1）增加0.3弧度（pitch增加=向下）
                         if head_initial_positions and interface.config.head_joint_controller_topic:
                             head_target_down = head_initial_positions.copy()
-                            if len(head_target_down) > 0:
-                                head_target_down[0] = head_initial_positions[0] - 0.3  # Move down
+                            if len(head_target_down) > 1:
+                                head_target_down[1] = head_initial_positions[1] + 0.3  # 向下摆动（pitch增加）
                             try:
                                 interface.send_head_joint_positions(head_target_down)
-                                print(f"  [MOVEJ] → Head moving down...")
+                                print(f"  [MOVEJ] → 头部向下摆动...")
                             except Exception as e:
-                                print(f"  [MOVEJ] ✗ Failed to control head: {e}")
+                                print(f"  [MOVEJ] ✗ 控制头部失败: {e}")
                 
-                # Head movement: moving down
+                # 状态机：头部向下摆动中
                 elif head_body_movement_state == "head_moving_down":
+                    # 下摆完成，头部回到初始位置，然后开始身体动作
                     if current_time - head_body_movement_start_time >= movement_duration:
                         head_body_movement_state = "body_moving_to_target"
                         head_body_movement_start_time = current_time
-                        # Return head to initial position
+                        # 头部回到初始位置
                         if head_initial_positions and interface.config.head_joint_controller_topic:
                             try:
                                 interface.send_head_joint_positions(head_initial_positions)
-                                print(f"  [MOVEJ] → Head returned to initial position")
+                                print(f"  [MOVEJ] → 头部回到初始位置")
                             except Exception as e:
-                                print(f"  [MOVEJ] ✗ Failed to control head: {e}")
+                                print(f"  [MOVEJ] ✗ 控制头部失败: {e}")
                         
-                        # Start body movement: move to target
+                        # 开始身体动作：移动到目标位置
                         if body_initial_positions and interface.config.body_joint_controller_topic:
-                            # Ensure target has same length as current positions
+                            # 确保目标位置数组长度与当前位置数组长度一致
                             body_target = body_target_positions.copy()
                             if len(body_target) < len(body_initial_positions):
-                                # Pad with initial positions if target is shorter
+                                # 如果目标数组较短，用初始位置填充
                                 body_target.extend(body_initial_positions[len(body_target):])
                             elif len(body_target) > len(body_initial_positions):
-                                # Truncate if target is longer
+                                # 如果目标数组较长，截断到当前长度
                                 body_target = body_target[:len(body_initial_positions)]
                             
                             try:
                                 interface.send_body_joint_positions(body_target)
-                                print(f"  [MOVEJ] → Body moving to target: {[f'{p:.3f}' for p in body_target]}")
+                                print(f"  [MOVEJ] → 身体移动到目标位置: {[f'{p:.3f}' for p in body_target]}")
                             except Exception as e:
-                                print(f"  [MOVEJ] ✗ Failed to control body: {e}")
+                                print(f"  [MOVEJ] ✗ 控制身体失败: {e}")
                 
-                # Body movement: moving to target
+                # 状态机：身体移动到目标位置中
                 elif head_body_movement_state == "body_moving_to_target":
+                    # 到达目标位置，开始返回初始位置
                     if current_time - head_body_movement_start_time >= movement_duration:
                         head_body_movement_state = "body_moving_back"
                         head_body_movement_start_time = current_time
-                        # Return body to initial position
+                        # 身体回到初始位置
                         if body_initial_positions and interface.config.body_joint_controller_topic:
                             try:
                                 interface.send_body_joint_positions(body_initial_positions)
-                                print(f"  [MOVEJ] → Body returning to initial position: {[f'{p:.3f}' for p in body_initial_positions]}")
+                                print(f"  [MOVEJ] → 身体回到初始位置: {[f'{p:.3f}' for p in body_initial_positions]}")
                             except Exception as e:
-                                print(f"  [MOVEJ] ✗ Failed to control body: {e}")
+                                print(f"  [MOVEJ] ✗ 控制身体失败: {e}")
                 
-                # Body movement: moving back
+                # 状态机：身体返回初始位置中
                 elif head_body_movement_state == "body_moving_back":
+                    # 返回完成，所有动作完成
                     if current_time - head_body_movement_start_time >= movement_duration:
-                        head_body_movement_state = "completed"  # Mark as completed, ready for state switch
+                        head_body_movement_state = "completed"  # 标记为完成，准备切换状态
                         head_body_movement_start_time = None
                         head_initial_positions = None
                         body_initial_positions = None
-                        print(f"  [MOVEJ] → All movements completed (head, body), ready to switch state...")
+                        print(f"  [MOVEJ] → 所有动作完成（头部、身体），准备切换状态...")
             
-            # Reset head/body movement when leaving MOVEJ state
-            elif current_fsm_state != 4 and head_body_movement_state not in ["idle", "completed"]:
-                head_body_movement_state = "idle"
-                head_body_movement_start_time = None
-                head_initial_positions = None
-                body_initial_positions = None
-            elif current_fsm_state != 4 and head_body_movement_state == "completed":
-                # Reset after leaving MOVEJ state
-                head_body_movement_state = "idle"
-                head_body_movement_start_time = None
-                head_initial_positions = None
-                body_initial_positions = None
             
-            # Reset arm movement when leaving OCS2 state
-            elif current_fsm_state != 3 and arm_movement_state not in ["idle", "completed"]:
-                arm_movement_state = "idle"
-                arm_movement_start_time = None
-                left_initial_pose = None
-                right_initial_pose = None
-                head_initial_positions = None
-                body_initial_positions = None
-            elif current_fsm_state != 3 and arm_movement_state == "completed":
-                # Reset after leaving OCS2 state
-                arm_movement_state = "idle"
-                arm_movement_start_time = None
-                left_initial_pose = None
-                right_initial_pose = None
-                head_initial_positions = None
-                body_initial_positions = None
+            # ========================================================================
+            # 第十部分：状态显示和监控
+            # ========================================================================
             
-            # Display status every second
-            status_line = f"[{i:3d}s] "
+            # # 每秒显示一次状态信息
+            # status_line = f"[{i:3d}s] "
             
-            # Display joint state (simplified)
-            if joint_state and len(joint_state['positions']) > 0:
-                first_joint_pos = joint_state['positions'][0] if joint_state['positions'] else 0.0
-                status_line += f"Joints: {len(joint_state['names'])} | "
+            # # 显示关节状态（简化版）
+            # if joint_state and len(joint_state['positions']) > 0:
+            #     first_joint_pos = joint_state['positions'][0] if joint_state['positions'] else 0.0
+            #     status_line += f"Joints: {len(joint_state['names'])} | "
             
-            # Display end-effector poses
-            if left_pose:
-                status_line += f"Left: ({left_pose.position.x:6.3f}, {left_pose.position.y:6.3f}, {left_pose.position.z:6.3f})"
-            if right_pose:
-                status_line += f" | Right: ({right_pose.position.x:6.3f}, {right_pose.position.y:6.3f}, {right_pose.position.z:6.3f})"
+            # # 显示末端执行器位姿
+            # if left_pose:
+            #     status_line += f"Left: ({left_pose.position.x:6.3f}, {left_pose.position.y:6.3f}, {left_pose.position.z:6.3f})"
+            # if right_pose:
+            #     status_line += f" | Right: ({right_pose.position.x:6.3f}, {right_pose.position.y:6.3f}, {right_pose.position.z:6.3f})"
             
-            print(status_line)
+            # print(status_line)
             
-            # Display categorized joint states every 5 seconds
-            if i % 5 == 0:
-                categorized_joint_state = interface.get_joint_state(categorized=True)
-                if categorized_joint_state:
-                    is_dual_arm = interface.config.right_end_effector_pose_topic is not None
-                    print()
-                    print(f"  [{i}s] Categorized Joint States:")
-                    print("-" * 70)
+            # # 每5秒显示一次详细的分类关节状态
+            # if i % 5 == 0:
+            #     categorized_joint_state = interface.get_joint_state(categorized=True)
+            #     if categorized_joint_state:
+            #         is_dual_arm = interface.config.right_end_effector_pose_topic is not None
+            #         print()
+            #         print(f"  [{i}s] Categorized Joint States:")
+            #         print("-" * 70)
                     
-                    if is_dual_arm:
-                        # Dual-arm mode
-                        if categorized_joint_state.get('left_arm', {}).get('names'):
-                            left_arm = categorized_joint_state['left_arm']
-                            print(f"  Left Arm ({len(left_arm['names'])} joints):")
-                            for j, name in enumerate(left_arm['names']):
-                                pos = left_arm['positions'][j] if j < len(left_arm['positions']) else 0.0
-                                vel = left_arm['velocities'][j] if j < len(left_arm['velocities']) else 0.0
-                                print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
+            #         if is_dual_arm:
+            #             # Dual-arm mode
+            #             if categorized_joint_state.get('left_arm', {}).get('names'):
+            #                 left_arm = categorized_joint_state['left_arm']
+            #                 print(f"  Left Arm ({len(left_arm['names'])} joints):")
+            #                 for j, name in enumerate(left_arm['names']):
+            #                     pos = left_arm['positions'][j] if j < len(left_arm['positions']) else 0.0
+            #                     vel = left_arm['velocities'][j] if j < len(left_arm['velocities']) else 0.0
+            #                     print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
                         
-                        if categorized_joint_state.get('right_arm', {}).get('names'):
-                            right_arm = categorized_joint_state['right_arm']
-                            print(f"  Right Arm ({len(right_arm['names'])} joints):")
-                            for j, name in enumerate(right_arm['names']):
-                                pos = right_arm['positions'][j] if j < len(right_arm['positions']) else 0.0
-                                vel = right_arm['velocities'][j] if j < len(right_arm['velocities']) else 0.0
-                                print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
-                    else:
-                        # Single-arm mode
-                        if categorized_joint_state.get('arm', {}).get('names'):
-                            arm = categorized_joint_state['arm']
-                            print(f"  Arm ({len(arm['names'])} joints):")
-                            for j, name in enumerate(arm['names']):
-                                pos = arm['positions'][j] if j < len(arm['positions']) else 0.0
-                                vel = arm['velocities'][j] if j < len(arm['velocities']) else 0.0
-                                print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
+            #             if categorized_joint_state.get('right_arm', {}).get('names'):
+            #                 right_arm = categorized_joint_state['right_arm']
+            #                 print(f"  Right Arm ({len(right_arm['names'])} joints):")
+            #                 for j, name in enumerate(right_arm['names']):
+            #                     pos = right_arm['positions'][j] if j < len(right_arm['positions']) else 0.0
+            #                     vel = right_arm['velocities'][j] if j < len(right_arm['velocities']) else 0.0
+            #                     print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
+            #         else:
+            #             # Single-arm mode
+            #             if categorized_joint_state.get('arm', {}).get('names'):
+            #                 arm = categorized_joint_state['arm']
+            #                 print(f"  Arm ({len(arm['names'])} joints):")
+            #                 for j, name in enumerate(arm['names']):
+            #                     pos = arm['positions'][j] if j < len(arm['positions']) else 0.0
+            #                     vel = arm['velocities'][j] if j < len(arm['velocities']) else 0.0
+            #                     print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
                     
-                    if categorized_joint_state.get('head', {}).get('names'):
-                        head = categorized_joint_state['head']
-                        print(f"  Head ({len(head['names'])} joints):")
-                        for j, name in enumerate(head['names']):
-                            pos = head['positions'][j] if j < len(head['positions']) else 0.0
-                            vel = head['velocities'][j] if j < len(head['velocities']) else 0.0
-                            print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
+            #         if categorized_joint_state.get('head', {}).get('names'):
+            #             head = categorized_joint_state['head']
+            #             print(f"  Head ({len(head['names'])} joints):")
+            #             for j, name in enumerate(head['names']):
+            #                 pos = head['positions'][j] if j < len(head['positions']) else 0.0
+            #                 vel = head['velocities'][j] if j < len(head['velocities']) else 0.0
+            #                 print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
                     
-                    if categorized_joint_state.get('body', {}).get('names'):
-                        body = categorized_joint_state['body']
-                        print(f"  Body ({len(body['names'])} joints):")
-                        for j, name in enumerate(body['names']):
-                            pos = body['positions'][j] if j < len(body['positions']) else 0.0
-                            vel = body['velocities'][j] if j < len(body['velocities']) else 0.0
-                            print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
+            #         if categorized_joint_state.get('body', {}).get('names'):
+            #             body = categorized_joint_state['body']
+            #             print(f"  Body ({len(body['names'])} joints):")
+            #             for j, name in enumerate(body['names']):
+            #                 pos = body['positions'][j] if j < len(body['positions']) else 0.0
+            #                 vel = body['velocities'][j] if j < len(body['velocities']) else 0.0
+            #                 print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
                     
-                    if categorized_joint_state.get('other', {}).get('names'):
-                        other = categorized_joint_state['other']
-                        print(f"  Other ({len(other['names'])} joints):")
-                        for j, name in enumerate(other['names']):
-                            pos = other['positions'][j] if j < len(other['positions']) else 0.0
-                            vel = other['velocities'][j] if j < len(other['velocities']) else 0.0
-                            print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
+            #         if categorized_joint_state.get('other', {}).get('names'):
+            #             other = categorized_joint_state['other']
+            #             print(f"  Other ({len(other['names'])} joints):")
+            #             for j, name in enumerate(other['names']):
+            #                 pos = other['positions'][j] if j < len(other['positions']) else 0.0
+            #                 vel = other['velocities'][j] if j < len(other['velocities']) else 0.0
+            #                 print(f"    {name:25s} | Position: {pos:8.3f} | Velocity: {vel:8.3f}")
                     
-                    print("-" * 70)
-                    print()
+            #         print("-" * 70)
+            #         print()
             
-            # Check if we should switch FSM state
-            # Switch every 5 seconds, but wait for OCS2/MOVEJ actions to complete
-            # Also switch immediately when actions complete
+            # ========================================================================
+            # 第十一部分：FSM状态切换逻辑
+            # ========================================================================
+            # 检查是否应该切换FSM状态
+            # HOLD状态：1秒后切换
+            # 其他状态：每5秒切换一次，但如果OCS2/MOVEJ状态下的动作未完成，则等待动作完成
+            # 动作完成后立即切换（不等待5秒周期）
             should_switch_state = False
             switch_reason = ""
             
-            # Check if it's time to switch (every 5 seconds)
-            if i % 5 == 0 and i > 0 and i != last_fsm_switch_time:
-                # Check if we're in OCS2 state and actions are not completed
+            # 跟踪进入HOLD状态的时间
+            if current_fsm_state == 2:  # HOLD状态
+                if hold_state_enter_time is None:
+                    hold_state_enter_time = i  # 记录进入HOLD状态的时间
+            else:
+                hold_state_enter_time = None  # 离开HOLD状态时重置
+            
+            # 检查HOLD状态是否已停留1秒
+            if current_fsm_state == 2 and hold_state_enter_time is not None:
+                if i - hold_state_enter_time >= 1 and i != last_fsm_switch_time:
+                    should_switch_state = True
+                    switch_reason = "HOLD状态1秒"
+            
+            # 检查是否到了切换时间（每5秒，非HOLD状态）
+            elif i % 3 == 0 and i > 0 and i != last_fsm_switch_time:
+                # 如果在OCS2状态且动作未完成，延迟切换
                 if current_fsm_state == 3 and is_dual_arm and arm_movement_state != "completed":
-                    # Delay state switch until actions complete
-                    print(f"  [8] ⏳ Waiting for arm movements to complete before switching state...")
-                    print(f"      Current movement state: {arm_movement_state}")
-                # Check if we're in MOVEJ state and actions are not completed
+                    print(f"  [8] ⏳ 等待手臂动作完成后再切换状态...")
+                    print(f"      当前动作状态: {arm_movement_state}")
+                # 如果在MOVEJ状态且动作未完成，延迟切换
                 elif current_fsm_state == 4 and head_body_movement_state != "completed":
-                    # Delay state switch until actions complete
-                    print(f"  [8] ⏳ Waiting for head/body movements to complete before switching state...")
-                    print(f"      Current movement state: {head_body_movement_state}")
+                    print(f"  [8] ⏳ 等待头部/身体动作完成后再切换状态...")
+                    print(f"      当前动作状态: {head_body_movement_state}")
                 else:
                     should_switch_state = True
-                    switch_reason = "5-second interval"
+                    switch_reason = "5秒周期"
             
-            # Also switch immediately when OCS2 actions complete (even if not at 5-second mark)
+            # OCS2动作完成后立即切换（即使不在5秒周期）
             if current_fsm_state == 3 and is_dual_arm and arm_movement_state == "completed" and i != last_fsm_switch_time:
                 should_switch_state = True
-                switch_reason = "actions completed"
+                switch_reason = "动作完成"
             
-            # Also switch immediately when MOVEJ actions complete (even if not at 5-second mark)
+            # MOVEJ动作完成后立即切换（即使不在5秒周期）
             if current_fsm_state == 4 and head_body_movement_state == "completed" and i != last_fsm_switch_time:
                 should_switch_state = True
-                switch_reason = "actions completed"
+                switch_reason = "动作完成"
             
-            # Perform state switch if conditions are met
+            # 执行状态切换（如果满足条件）
             if should_switch_state:
                 print()
-                if switch_reason == "actions completed":
-                    print(f"  [8] → Actions completed, switching state immediately...")
-                # Move to next FSM state
+                if switch_reason == "动作完成":
+                    print(f"  [8] → 动作完成，立即切换状态...")
+                # 移动到下一个FSM状态（循环）
                 current_fsm_index = (current_fsm_index + 1) % len(fsm_states)
                 next_fsm_state = fsm_states[current_fsm_index]
                 next_fsm_name = fsm_state_names[next_fsm_state]
                 
-                # Check if FSM state changed, reset movements if leaving OCS2 or MOVEJ
+                # 检查FSM状态是否改变，如果离开OCS2或MOVEJ状态则重置动作状态
                 if current_fsm_state == 3 and next_fsm_state != 3:
                     arm_movement_state = "idle"
                     arm_movement_start_time = None
@@ -541,28 +614,35 @@ def main():
                     head_initial_positions = None
                     body_initial_positions = None
                 
+                # 如果进入HOLD状态，重置hold_state_enter_time（会在下次循环中设置）
+                if next_fsm_state == 2:
+                    hold_state_enter_time = None
+                
                 try:
                     interface.send_fsm_command(next_fsm_state)
-                    print(f"  [8] ✓ FSM state switched to: {next_fsm_state} ({next_fsm_name})")
-                    # Update tracked FSM state
+                    print(f"  [8] ✓ FSM状态已切换到: {next_fsm_state} ({next_fsm_name})")
+                    # 更新跟踪的FSM状态
                     current_fsm_state = next_fsm_state
-                    last_fsm_switch_time = i  # Record when we switched
+                    last_fsm_switch_time = i  # 记录切换时间
                 except Exception as e:
-                    print(f"  [8] ✗ Failed to switch FSM state to {next_fsm_state}: {e}")
+                    print(f"  [8] ✗ 切换FSM状态失败: {e}")
                 print()
                 
     except KeyboardInterrupt:
+        # 用户中断（Ctrl+C）
         print("\n" + "-" * 70)
-        print("  Interrupted by user")
+        print("  用户中断")
         print("-" * 70)
     
-    # Disconnect
+    # ========================================================================
+    # 第十二部分：断开连接和清理
+    # ========================================================================
     print("\n" + "=" * 70)
-    print("[10] Disconnecting...")
+    print("[10] 断开连接...")
     interface.disconnect()
-    print("  ✓ Interface disconnected successfully!")
+    print("  ✓ 接口断开成功!")
     print("=" * 70)
-    print("\n  Test completed!\n")
+    print("\n  测试完成!\n")
     return 0
 
 
