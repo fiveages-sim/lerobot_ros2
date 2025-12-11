@@ -82,6 +82,8 @@ class ROS2RobotInterface:
         # Publishers
         self.end_effector_target_pub: Publisher | None = None
         self.right_end_effector_target_pub: Publisher | None = None  # For dual-arm
+        self.end_effector_target_stamped_pub: Publisher | None = None  # For /left_target/stamped
+        self.right_end_effector_target_stamped_pub: Publisher | None = None  # For /right_target/stamped
         self.gripper_command_pub: Publisher | None = None
         self.right_gripper_command_pub: Publisher | None = None  # For dual-arm
         self.fsm_command_pub: Publisher | None = None  # For FSM state switching
@@ -314,6 +316,15 @@ class ROS2RobotInterface:
                 10
             )
             
+            # Create end-effector target stamped publisher (left arm) - supports coordinate frame transformation
+            stamped_topic = f"{self.config.end_effector_target_topic}/stamped"
+            self.end_effector_target_stamped_pub = self.robot_node.create_publisher(
+                PoseStamped,
+                stamped_topic,
+                10
+            )
+            logger.info(f"Created left arm target stamped publisher on topic: {stamped_topic}")
+            
             # Create right arm end-effector target publisher (if dual-arm mode)
             if self.config.right_end_effector_target_topic:
                 self.right_end_effector_target_pub = self.robot_node.create_publisher(
@@ -322,6 +333,15 @@ class ROS2RobotInterface:
                     10
                 )
                 logger.info(f"Created right arm target publisher on topic: {self.config.right_end_effector_target_topic}")
+                
+                # Create right arm end-effector target stamped publisher
+                right_stamped_topic = f"{self.config.right_end_effector_target_topic}/stamped"
+                self.right_end_effector_target_stamped_pub = self.robot_node.create_publisher(
+                    PoseStamped,
+                    right_stamped_topic,
+                    10
+                )
+                logger.info(f"Created right arm target stamped publisher on topic: {right_stamped_topic}")
             
             # Create gripper command publisher (left arm, if gripper is enabled)
             if self.config.gripper_enabled and self.config.gripper_command_topic:
@@ -687,6 +707,65 @@ class ROS2RobotInterface:
         self.right_end_effector_target_pub.publish(pose)
         logger.debug(f"Published right end-effector target: {pose}")
     
+    def send_end_effector_target_stamped(self, frame_id: str, pose: Pose) -> None:
+        """Send target end-effector pose with coordinate frame (left arm).
+        
+        This method publishes to /left_target/stamped topic, which supports automatic
+        coordinate frame transformation using TF. The pose will be automatically
+        transformed from the specified frame_id to the base frame.
+        
+        Args:
+            frame_id: Coordinate frame name where the pose is defined
+                     (e.g., "base_link", "camera_frame", "tool_frame")
+            pose: Target pose for the end-effector (in the specified frame)
+        """
+        if not self.is_connected:
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
+        
+        if self.end_effector_target_stamped_pub is None:
+            raise ROS2NotConnectedError("End-effector target stamped publisher not initialized")
+        
+        # Create PoseStamped message
+        pose_stamped = PoseStamped()
+        pose_stamped.header.frame_id = frame_id
+        pose_stamped.header.stamp = self.robot_node.get_clock().now().to_msg()
+        pose_stamped.pose = pose
+        
+        # Publish the stamped pose
+        self.end_effector_target_stamped_pub.publish(pose_stamped)
+        logger.debug(f"Published end-effector target (stamped) in frame '{frame_id}': {pose}")
+    
+    def send_right_end_effector_target_stamped(self, frame_id: str, pose: Pose) -> None:
+        """Send target right end-effector pose with coordinate frame (dual-arm mode).
+        
+        This method publishes to /right_target/stamped topic, which supports automatic
+        coordinate frame transformation using TF. The pose will be automatically
+        transformed from the specified frame_id to the base frame.
+        
+        Args:
+            frame_id: Coordinate frame name where the pose is defined
+                     (e.g., "base_link", "camera_frame", "tool_frame")
+            pose: Target pose for the right end-effector (in the specified frame)
+        """
+        if not self.is_connected:
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
+        
+        if not self.config.right_end_effector_target_topic:
+            raise ROS2NotConnectedError("Right end-effector target topic not configured. Dual-arm mode not enabled.")
+        
+        if self.right_end_effector_target_stamped_pub is None:
+            raise ROS2NotConnectedError("Right end-effector target stamped publisher not initialized")
+        
+        # Create PoseStamped message
+        pose_stamped = PoseStamped()
+        pose_stamped.header.frame_id = frame_id
+        pose_stamped.header.stamp = self.robot_node.get_clock().now().to_msg()
+        pose_stamped.pose = pose
+        
+        # Publish the stamped pose
+        self.right_end_effector_target_stamped_pub.publish(pose_stamped)
+        logger.debug(f"Published right end-effector target (stamped) in frame '{frame_id}': {pose}")
+    
     def send_gripper_command(self, position: float) -> None:
         """Send gripper position command.
         
@@ -949,9 +1028,17 @@ class ROS2RobotInterface:
             self.end_effector_target_pub.destroy()
             self.end_effector_target_pub = None
         
+        if self.end_effector_target_stamped_pub:
+            self.end_effector_target_stamped_pub.destroy()
+            self.end_effector_target_stamped_pub = None
+        
         if self.right_end_effector_target_pub:
             self.right_end_effector_target_pub.destroy()
             self.right_end_effector_target_pub = None
+        
+        if self.right_end_effector_target_stamped_pub:
+            self.right_end_effector_target_stamped_pub.destroy()
+            self.right_end_effector_target_stamped_pub = None
         
         if self.gripper_command_pub:
             self.gripper_command_pub.destroy()
