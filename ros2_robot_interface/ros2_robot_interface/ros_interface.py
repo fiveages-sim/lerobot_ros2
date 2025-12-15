@@ -119,6 +119,17 @@ class ROS2RobotInterface:
         self.body_target_positions: Optional[List[float]] = None
         self.position_threshold: float = 0.05  # Default threshold in radians (≈2.87 degrees)
         
+        # Target positions for grippers (automatically set when sending commands)
+        self.left_gripper_target_position: Optional[float] = None
+        self.right_gripper_target_position: Optional[float] = None
+        self.gripper_position_threshold: float = 0.01  # Default threshold for gripper position (0.0-1.0)
+        
+        # Gripper position history for stability checking (used when gripper is closing and hits an object)
+        self.left_gripper_position_history: List[float] = []  # Store recent positions
+        self.right_gripper_position_history: List[float] = []  # Store recent positions
+        self.gripper_stability_history_size: int = 15  # Number of recent positions to track
+        self.gripper_stability_threshold: float = 0.0001  # Position change threshold for stability (0.0-1.0)
+        
         # Target poses for arms (automatically set when sending commands)
         self.left_arm_target_pose: Optional[Pose] = None
         self.right_arm_target_pose: Optional[Pose] = None
@@ -458,7 +469,10 @@ class ROS2RobotInterface:
             }
             self.last_joint_state_time = current_time
             self._had_joint_state = True
-
+            
+            # Update gripper position history automatically when joint state changes
+            # This ensures real-time updates regardless of check_arrive call frequency
+            self._update_gripper_position_history_from_joint_state(msg.name, msg.position)
             
             # Log recovery if we just started receiving data again
             if was_recovering:
@@ -517,15 +531,58 @@ class ROS2RobotInterface:
             if was_recovering:
                 logger.info("Right end-effector pose data recovery: Started receiving right end-effector pose messages again")
     
+    def _update_gripper_position_history_from_joint_state(self, joint_names: List[str], positions: List[float]) -> None:
+        """Update gripper position history from joint state (called automatically in joint state callback).
+        
+        This method extracts gripper joint positions and updates the position history for stability checking.
+        It's called automatically whenever joint state is received, ensuring real-time updates.
+        
+        Args:
+            joint_names: List of joint names from joint state message
+            positions: List of joint positions from joint state message
+        """
+        # Determine if dual-arm mode
+        is_dual_arm = self.config.right_end_effector_pose_topic is not None
+        
+        # Find and update gripper positions (process all gripper joints found)
+        for i, name in enumerate(joint_names):
+            name_lower = name.lower()
+            if 'gripper' in name_lower and i < len(positions):
+                gripper_position = positions[i]
+                
+                # Determine which gripper based on name prefix and mode
+                if is_dual_arm:
+                    if name_lower.startswith('left_'):
+                        # Left gripper in dual-arm mode
+                        self.left_gripper_position_history.append(gripper_position)
+                        if len(self.left_gripper_position_history) > self.gripper_stability_history_size:
+                            self.left_gripper_position_history.pop(0)
+                    elif name_lower.startswith('right_'):
+                        # Right gripper in dual-arm mode
+                        self.right_gripper_position_history.append(gripper_position)
+                        if len(self.right_gripper_position_history) > self.gripper_stability_history_size:
+                            self.right_gripper_position_history.pop(0)
+                    else:
+                        # No prefix, assume left gripper in dual-arm mode
+                        self.left_gripper_position_history.append(gripper_position)
+                        if len(self.left_gripper_position_history) > self.gripper_stability_history_size:
+                            self.left_gripper_position_history.pop(0)
+                else:
+                    # Single-arm mode: all grippers go to left_gripper_position_history
+                    self.left_gripper_position_history.append(gripper_position)
+                    if len(self.left_gripper_position_history) > self.gripper_stability_history_size:
+                        self.left_gripper_position_history.pop(0)
+    
     def _categorize_joints(self, joint_names: List[str], positions: List[float], 
                           velocities: List[float], efforts: List[float]) -> Dict[str, Dict[str, Any]]:
-        """Categorize joints by body part (left arm, right arm, head, body).
+        """Categorize joints by body part (left arm, right arm, head, body, grippers).
         
         Uses the dual-arm detection result from connect() to determine categorization:
         - Dual-arm: left_ → left_arm, right_ → right_arm
         - Single-arm: joint1-6 → arm
         - head → head
         - body → body
+        - gripper joints are categorized separately as 'left_gripper', 'right_gripper', or 'gripper'
         
         Args:
             joint_names: List of joint names
@@ -534,7 +591,7 @@ class ROS2RobotInterface:
             efforts: List of joint efforts
             
         Returns:
-            Dict with keys: 'arm'/'left_arm', 'right_arm', 'head', 'body', 'other',
+            Dict with keys: 'arm'/'left_arm', 'right_arm', 'head', 'body', 'gripper'/'left_gripper', 'right_gripper', 'other',
             each containing: {'names': [...], 'positions': [...], 'velocities': [...], 'efforts': [...]}
         """
         # Determine if dual-arm mode based on config (right_end_effector_pose_topic is set if dual-arm)
@@ -545,6 +602,8 @@ class ROS2RobotInterface:
             categories = {
                 'left_arm': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'right_arm': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
+                'left_gripper': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
+                'right_gripper': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'head': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'body': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'other': {'names': [], 'positions': [], 'velocities': [], 'efforts': []}
@@ -552,6 +611,7 @@ class ROS2RobotInterface:
         else:
             categories = {
                 'arm': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
+                'gripper': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'head': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'body': {'names': [], 'positions': [], 'velocities': [], 'efforts': []},
                 'other': {'names': [], 'positions': [], 'velocities': [], 'efforts': []}
@@ -564,7 +624,16 @@ class ROS2RobotInterface:
             # Categorize based on joint name prefix and dual-arm mode
             if is_dual_arm:
                 # Dual-arm mode: use left_arm and right_arm
-                if name_lower.startswith('left_'):
+                # Check for gripper first (more specific)
+                if 'gripper' in name_lower:
+                    if name_lower.startswith('left_'):
+                        category = 'left_gripper'
+                    elif name_lower.startswith('right_'):
+                        category = 'right_gripper'
+                    else:
+                        # Default to left_gripper if no prefix (assume left)
+                        category = 'left_gripper'
+                elif name_lower.startswith('left_'):
                     category = 'left_arm'
                 elif name_lower.startswith('right_'):
                     category = 'right_arm'
@@ -576,12 +645,15 @@ class ROS2RobotInterface:
                     category = 'other'
             else:
                 # Single-arm mode: use arm
-                if 'head' in name_lower:
+                # Check for gripper first (more specific)
+                if 'gripper' in name_lower:
+                    category = 'gripper'
+                elif 'head' in name_lower:
                     category = 'head'
                 elif 'body' in name_lower:
                     category = 'body'
-                elif 'joint' in name_lower or 'gripper' in name_lower:
-                    # All arm joints (including gripper) go to 'arm' in single-arm mode
+                elif 'joint' in name_lower:
+                    # Arm joints (excluding gripper) go to 'arm' in single-arm mode
                     category = 'arm'
                 else:
                     category = 'other'
@@ -902,6 +974,12 @@ class ROS2RobotInterface:
             min(position, self.config.gripper_max_position)
         )
         
+        # Record target position for arrival checking
+        self.left_gripper_target_position = clamped_position
+        
+        # Clear position history when new command is sent (new action starts)
+        self.left_gripper_position_history.clear()
+        
         # Create and publish Float64 message
         gripper_msg = Float64()
         gripper_msg.data = clamped_position
@@ -931,6 +1009,12 @@ class ROS2RobotInterface:
             self.config.gripper_min_position,
             min(position, self.config.gripper_max_position)
         )
+        
+        # Record target position for arrival checking
+        self.right_gripper_target_position = clamped_position
+        
+        # Clear position history when new command is sent (new action starts)
+        self.right_gripper_position_history.clear()
         
         # Create and publish Float64 message
         gripper_msg = Float64()
@@ -1011,24 +1095,28 @@ class ROS2RobotInterface:
         self.body_target_positions = positions.copy() if positions else None
     
     def check_arrive(self, part: Optional[str] = None, position_threshold: Optional[float] = None,
-                     pose_position_threshold: Optional[float] = None) -> Dict[str, Any]:
-        """Check if head, body joints, or arm poses have arrived at target positions/poses.
+                     pose_position_threshold: Optional[float] = None, 
+                     gripper_position_threshold: Optional[float] = None) -> Dict[str, Any]:
+        """Check if head, body joints, arm poses, or grippers have arrived at target positions/poses.
         
         Args:
-            part: 'head', 'body', 'arm'/'left_arm', 'right_arm', or None. 
+            part: 'head', 'body', 'arm'/'left_arm', 'right_arm', 'gripper'/'left_gripper', 'right_gripper', or None. 
                   - In single-arm mode: 'arm' or 'left_arm' both check the arm
                   - In dual-arm mode: 'left_arm' and 'right_arm' are separate
+                  - In single-arm mode: 'gripper' or 'left_gripper' both check the gripper
+                  - In dual-arm mode: 'left_gripper' and 'right_gripper' check gripper positions
                   - If None, returns results for all parts
             position_threshold: Distance threshold in radians for joints. If None, uses self.position_threshold.
             pose_position_threshold: Distance threshold in meters for arm poses. If None, uses self.pose_position_threshold.
+            gripper_position_threshold: Distance threshold for gripper positions (0.0-1.0). If None, uses self.gripper_position_threshold.
         
         Returns:
             If part is specified:
                 {'arrived': bool, 'distance': float, 'position_distance': float, 'orientation_distance': float}
-                (for joints, only 'arrived' and 'distance' are present)
+                (for joints/grippers, only 'arrived' and 'distance' are present)
             If part is None:
-                Single-arm mode: {'head': {...}, 'body': {...}, 'arm': {...}}
-                Dual-arm mode: {'head': {...}, 'body': {...}, 'left_arm': {...}, 'right_arm': {...}}
+                Single-arm mode: {'head': {...}, 'body': {...}, 'arm': {...}, 'gripper': {...}}
+                Dual-arm mode: {'head': {...}, 'body': {...}, 'left_arm': {...}, 'right_arm': {...}, 'left_gripper': {...}, 'right_gripper': {...}}
         """
         if not self.is_connected:
             raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
@@ -1040,8 +1128,13 @@ class ROS2RobotInterface:
         if part == 'arm' and not is_dual_arm:
             part = 'left_arm'  # Use left_arm internally, but will return as 'arm'
         
+        # Normalize gripper part name: in single-arm mode, 'gripper' and 'left_gripper' both mean the gripper
+        if part == 'gripper' and not is_dual_arm:
+            part = 'left_gripper'  # Use left_gripper internally, but will return as 'gripper'
+        
         threshold = position_threshold if position_threshold is not None else self.position_threshold
         pose_threshold = pose_position_threshold if pose_position_threshold is not None else self.pose_position_threshold
+        gripper_threshold = gripper_position_threshold if gripper_position_threshold is not None else self.gripper_position_threshold
         result = {}
         
         # Get current joint state (categorized)
@@ -1226,6 +1319,160 @@ class ROS2RobotInterface:
             if part == 'right_arm':
                 return right_arm_result
             result['right_arm'] = right_arm_result
+        
+        # Check left gripper arrival
+        if part is None or part == 'left_gripper':
+            left_gripper_arrived = False
+            left_gripper_distance = float('inf')
+            
+            if self.left_gripper_target_position is not None and categorized_state:
+                # Get gripper joint from categorized state (gripper is now a separate category)
+                gripper_joint_name = None
+                gripper_current_position = None
+                
+                if is_dual_arm and 'left_gripper' in categorized_state:
+                    # Dual-arm mode: get gripper from left_gripper category
+                    left_gripper_data = categorized_state['left_gripper']
+                    if left_gripper_data['names'] and left_gripper_data['positions']:
+                        gripper_joint_name = left_gripper_data['names'][0]
+                        gripper_current_position = left_gripper_data['positions'][0]
+                elif not is_dual_arm and 'gripper' in categorized_state:
+                    # Single-arm mode: get gripper from gripper category
+                    gripper_data = categorized_state['gripper']
+                    if gripper_data['names'] and gripper_data['positions']:
+                        gripper_joint_name = gripper_data['names'][0]
+                        gripper_current_position = gripper_data['positions'][0]
+                
+                if gripper_current_position is not None:
+                    # Position history is already updated in _joint_state_callback for real-time updates
+                    # No need to update here again
+                    
+                    # Calculate distance to target
+                    left_gripper_distance = abs(gripper_current_position - self.left_gripper_target_position)
+                    
+                    # Check if position is stable (for cases where gripper hits an object before reaching target)
+                    # After pop(0) above, length will be exactly gripper_stability_history_size (not greater)
+                    is_stable = False
+                    position_variance = float('inf')
+                    if len(self.left_gripper_position_history) == self.gripper_stability_history_size:
+                        # Check if all recent positions are within stability threshold
+                        recent_positions = self.left_gripper_position_history[-self.gripper_stability_history_size:]
+                        max_position = max(recent_positions)
+                        min_position = min(recent_positions)
+                        position_variance = max_position - min_position
+                        is_stable = position_variance < self.gripper_stability_threshold
+                    
+                    # Check if arrived: either reached target OR position is stable (gripper hit object)
+                    # For closing (target < current), stability means it's stuck/hit something
+                    # For opening (target > current), we still need to reach target
+                    is_closing = gripper_current_position > self.left_gripper_target_position
+                    if is_closing:
+                        # Closing: arrived if reached target OR position is stable (hit object)
+                        left_gripper_arrived = (left_gripper_distance < gripper_threshold) or is_stable
+                    else:
+                        # Opening: arrived only if reached target
+                        left_gripper_arrived = left_gripper_distance < gripper_threshold
+                    
+                    # Output gripper position information (use 'GRIPPER' for single-arm, 'LEFT_GRIPPER' for dual-arm)
+                    gripper_label = "GRIPPER" if not is_dual_arm else "LEFT_GRIPPER"
+                    print(f"  [位置检查-{gripper_label}] 关节名称: {gripper_joint_name}")
+                    print(f"  [位置检查-{gripper_label}] 当前位置: {gripper_current_position:.4f}")
+                    print(f"  [位置检查-{gripper_label}] 目标位置: {self.left_gripper_target_position:.4f}")
+                    print(f"  [位置检查-{gripper_label}] 距离: {left_gripper_distance:.4f} (阈值: {gripper_threshold:.4f})")
+                    # Print position history
+                    if len(self.left_gripper_position_history) > 0:
+                        history_str = ", ".join([f"{p:.4f}" for p in self.left_gripper_position_history])
+                        print(f"  [位置检查-{gripper_label}] 位置历史 ({len(self.left_gripper_position_history)}个值): [{history_str}]")
+                    if len(self.left_gripper_position_history) == self.gripper_stability_history_size:
+                        print(f"  [位置检查-{gripper_label}] 位置稳定性: {is_stable} (变化: {position_variance:.4f}, 阈值: {self.gripper_stability_threshold:.4f})")
+                    if left_gripper_arrived:
+                        if is_stable and is_closing and left_gripper_distance >= gripper_threshold:
+                            print(f"  [位置检查-{gripper_label}] ✓ 已到达关闭状态（位置稳定，可能已夹住物体）")
+                        else:
+                            print(f"  [位置检查-{gripper_label}] ✓ 已到达目标位置")
+                    else:
+                        print(f"  [位置检查-{gripper_label}] ✗ 未到达目标位置")
+                    print()
+            
+            if part == 'left_gripper':
+                return {'arrived': left_gripper_arrived, 'distance': left_gripper_distance}
+            
+            # In single-arm mode, use 'gripper' key; in dual-arm mode, use 'left_gripper' key
+            if is_dual_arm:
+                result['left_gripper'] = {'arrived': left_gripper_arrived, 'distance': left_gripper_distance}
+            else:
+                result['gripper'] = {'arrived': left_gripper_arrived, 'distance': left_gripper_distance}
+        
+        # Check right gripper arrival (only in dual-arm mode)
+        if is_dual_arm and (part is None or part == 'right_gripper'):
+            right_gripper_arrived = False
+            right_gripper_distance = float('inf')
+            
+            if self.right_gripper_target_position is not None and categorized_state:
+                # Get gripper joint from categorized state (gripper is now a separate category)
+                gripper_joint_name = None
+                gripper_current_position = None
+                
+                if 'right_gripper' in categorized_state:
+                    # Dual-arm mode: get gripper from right_gripper category
+                    right_gripper_data = categorized_state['right_gripper']
+                    if right_gripper_data['names'] and right_gripper_data['positions']:
+                        gripper_joint_name = right_gripper_data['names'][0]
+                        gripper_current_position = right_gripper_data['positions'][0]
+                
+                if gripper_current_position is not None:
+                    # Position history is already updated in _joint_state_callback for real-time updates
+                    # No need to update here again
+                    
+                    # Calculate distance to target
+                    right_gripper_distance = abs(gripper_current_position - self.right_gripper_target_position)
+                    
+                    # Check if position is stable (for cases where gripper hits an object before reaching target)
+                    # After pop(0) above, length will be exactly gripper_stability_history_size (not greater)
+                    is_stable = False
+                    position_variance = 0.0
+                    if len(self.right_gripper_position_history) == self.gripper_stability_history_size:
+                        # Check if all recent positions are within stability threshold
+                        recent_positions = self.right_gripper_position_history[-self.gripper_stability_history_size:]
+                        max_position = max(recent_positions)
+                        min_position = min(recent_positions)
+                        position_variance = max_position - min_position
+                        is_stable = position_variance < self.gripper_stability_threshold
+                    
+                    # Check if arrived: either reached target OR position is stable (gripper hit object)
+                    # For closing (target < current), stability means it's stuck/hit something
+                    # For opening (target > current), we still need to reach target
+                    is_closing = gripper_current_position > self.right_gripper_target_position
+                    if is_closing:
+                        # Closing: arrived if reached target OR position is stable (hit object)
+                        right_gripper_arrived = (right_gripper_distance < gripper_threshold) or is_stable
+                    else:
+                        # Opening: arrived only if reached target
+                        right_gripper_arrived = right_gripper_distance < gripper_threshold
+                    
+                    # Output gripper position information
+                    print(f"  [位置检查-RIGHT_GRIPPER] 关节名称: {gripper_joint_name}")
+                    print(f"  [位置检查-RIGHT_GRIPPER] 当前位置: {gripper_current_position:.4f}")
+                    print(f"  [位置检查-RIGHT_GRIPPER] 目标位置: {self.right_gripper_target_position:.4f}")
+                    print(f"  [位置检查-RIGHT_GRIPPER] 距离: {right_gripper_distance:.4f} (阈值: {gripper_threshold:.4f})")
+                    # Print position history
+                    if len(self.right_gripper_position_history) > 0:
+                        history_str = ", ".join([f"{p:.4f}" for p in self.right_gripper_position_history])
+                        print(f"  [位置检查-RIGHT_GRIPPER] 位置历史 ({len(self.right_gripper_position_history)}个值): [{history_str}]")
+                    if len(self.right_gripper_position_history) == self.gripper_stability_history_size:
+                        print(f"  [位置检查-RIGHT_GRIPPER] 位置稳定性: {is_stable} (变化: {position_variance:.4f}, 阈值: {self.gripper_stability_threshold:.4f})")
+                    if right_gripper_arrived:
+                        if is_stable and is_closing and right_gripper_distance >= gripper_threshold:
+                            print(f"  [位置检查-RIGHT_GRIPPER] ✓ 已到达关闭状态（位置稳定，可能已夹住物体）")
+                        else:
+                            print(f"  [位置检查-RIGHT_GRIPPER] ✓ 已到达目标位置")
+                    else:
+                        print(f"  [位置检查-RIGHT_GRIPPER] ✗ 未到达目标位置")
+                    print()
+            
+            if part == 'right_gripper':
+                return {'arrived': right_gripper_arrived, 'distance': right_gripper_distance}
+            result['right_gripper'] = {'arrived': right_gripper_arrived, 'distance': right_gripper_distance}
         
         return result
     

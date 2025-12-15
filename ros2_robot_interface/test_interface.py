@@ -179,7 +179,8 @@ def main():
         print("  → 在MOVEJ状态: 头部和身体将移动")
     else:
         print("  模式: 单臂")
-    print("  → FSM状态每5秒切换一次")
+    print("  → FSM状态每3秒切换一次")
+    print("  → 夹爪基于到达判断切换状态（等待到达后自动切换）")
     print("  → 按Ctrl+C停止并断开连接")
     print("-" * 70 + "\n")
     
@@ -209,6 +210,17 @@ def main():
     # 注意：head_target_positions 和 body_target_positions 现在由 interface 自动管理
     # 在调用 interface.send_head_joint_positions() 或 interface.send_body_joint_positions() 时会自动设置
     
+    # 夹爪控制变量（每个夹爪独立管理）
+    left_gripper_is_open = False  # 当前左夹爪状态：False=闭合(0.0), True=张开(1.0)
+    left_gripper_target_open = True  # 下一个目标状态
+    left_gripper_command_sent = False  # 左夹爪是否已发送命令，等待到达
+    left_gripper_arrived = False  # 左夹爪是否到达目标
+
+    right_gripper_is_open = False  # 右夹爪当前状态（双臂模式）
+    right_gripper_target_open = True  # 右夹爪下一个目标状态
+    right_gripper_command_sent = False  # 右夹爪是否已发送命令，等待到达
+    right_gripper_arrived = False  # 右夹爪是否到达目标
+    
     try:
         i = 0  # 循环计数器（秒）
         current_fsm_state = fsm_states[current_fsm_index]  # 跟踪当前FSM状态
@@ -225,6 +237,56 @@ def main():
             joint_state = interface.get_joint_state()  # 获取关节状态
             left_pose = interface.get_end_effector_pose()  # 获取左臂末端位姿
             right_pose = interface.get_right_end_effector_pose()  # 获取右臂末端位姿（双臂模式）
+            
+            # ========================================================================
+            # 第六点五部分：夹爪开合测试（基于到达判断切换，左右独立）
+            # ========================================================================
+            # 左夹爪：如果没有在等待到达，则发送下一个目标；如果在等待，则检查到达
+            if not left_gripper_command_sent:
+                left_gripper_target_open = not left_gripper_is_open
+                left_position = 1.0 if left_gripper_target_open else 0.0
+                left_status = "张开" if left_gripper_target_open else "闭合"
+                try:
+                    interface.send_gripper_command(left_position)
+                    print(f"  [夹爪] → 左臂夹爪: {left_status} (位置: {left_position:.1f})")
+                    left_gripper_command_sent = True
+                    left_gripper_arrived = False
+                except Exception as e:
+                    print(f"  [夹爪] ✗ 控制左臂夹爪失败: {e}")
+            else:
+                try:
+                    left_res = interface.check_arrive('left_gripper' if is_dual_arm else 'gripper')
+                    left_gripper_arrived = left_res.get('arrived', False)
+                except Exception:
+                    left_gripper_arrived = True
+                if left_gripper_arrived:
+                    left_gripper_is_open = left_gripper_target_open
+                    left_gripper_command_sent = False
+                    print(f"  [夹爪] ✓ 左臂夹爪已到达，下一步将切换状态")
+
+            # 右夹爪：仅双臂模式时独立处理
+            if is_dual_arm:
+                if not right_gripper_command_sent:
+                    right_gripper_target_open = not right_gripper_is_open
+                    right_position = 1.0 if right_gripper_target_open else 0.0
+                    right_status = "张开" if right_gripper_target_open else "闭合"
+                    try:
+                        interface.send_right_gripper_command(right_position)
+                        print(f"  [夹爪] → 右臂夹爪: {right_status} (位置: {right_position:.1f})")
+                        right_gripper_command_sent = True
+                        right_gripper_arrived = False
+                    except Exception as e:
+                        print(f"  [夹爪] ✗ 控制右臂夹爪失败: {e}")
+                else:
+                    try:
+                        right_res = interface.check_arrive('right_gripper')
+                        right_gripper_arrived = right_res.get('arrived', False)
+                    except Exception:
+                        right_gripper_arrived = True
+                    if right_gripper_arrived:
+                        right_gripper_is_open = right_gripper_target_open
+                        right_gripper_command_sent = False
+                        print(f"  [夹爪] ✓ 右臂夹爪已到达，下一步将切换状态")
             
             # ========================================================================
             # 第七部分：OCS2状态下的双臂协调控制

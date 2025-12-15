@@ -44,4 +44,17 @@ cd /home/fiveages/PythonProject/lerobot_ros2/ros2_robot_interface
 python test_interface.py
 ```
 
+```bash
+# 激活 conda 环境
+conda activate lerobot-ros2
+
+# 配置 ROS 2 环境
+source ~/ros2_ws/install/setup.bash
+
+# 进入测试目录
+cd /home/fiveages/PythonProject/lerobot_ros2/ros2_robot_interface
+
+# 运行通用测试脚本（自动检测单臂/双臂模式）
+python test_interface_isaac.py
+```
 

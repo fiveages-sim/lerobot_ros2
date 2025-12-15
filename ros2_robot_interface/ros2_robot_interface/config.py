@@ -61,7 +61,7 @@ class ROS2RobotInterfaceConfig:
     gripper_state_topic: str = "/gripper_state"  # Optional: separate gripper state topic
     gripper_command_topic: str = "/gripper_joint/position_command"  # Required for gripper control
     gripper_min_position: float = 0.0  # Closed position
-    gripper_max_position: float = 1.0  # Open position
+    gripper_max_position: float = 0.0384  # Open position
     
     # Control parameters
     control_type: ControlType = ControlType.CARTESIAN_POSE
