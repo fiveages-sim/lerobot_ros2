@@ -31,7 +31,9 @@ dependencies = [
     "sensor-msgs",
     "geometry-msgs",
     "std-msgs",
+    "nav-msgs",
     "numpy",
+    "pyyaml",
 ]
 
 [project.urls]

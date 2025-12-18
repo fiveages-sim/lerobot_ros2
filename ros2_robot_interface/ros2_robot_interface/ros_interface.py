@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Pose, PoseStamped, Twist
+from nav_msgs.msg import Path
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.publisher import Publisher
@@ -87,6 +88,7 @@ class ROS2RobotInterface:
         self.right_end_effector_target_pub: Publisher | None = None  # For dual-arm
         self.end_effector_target_stamped_pub: Publisher | None = None  # For /left_target/stamped
         self.right_end_effector_target_stamped_pub: Publisher | None = None  # For /right_target/stamped
+        self.target_path_pub: Publisher | None = None  # For /target_path (dual-arm only)
         self.gripper_command_pub: Publisher | None = None
         self.right_gripper_command_pub: Publisher | None = None  # For dual-arm
         self.fsm_command_pub: Publisher | None = None  # For FSM state switching
@@ -367,6 +369,14 @@ class ROS2RobotInterface:
                     10
                 )
                 logger.info(f"Created right arm target stamped publisher on topic: {right_stamped_topic}")
+                
+                # Create target path publisher (dual-arm only)
+                self.target_path_pub = self.robot_node.create_publisher(
+                    Path,
+                    "/target_path",
+                    10
+                )
+                logger.info(f"Created target path publisher on topic: /target_path")
             
             # Create gripper command publisher (left arm, if gripper is enabled)
             if self.config.gripper_enabled and self.config.gripper_command_topic:
@@ -950,6 +960,76 @@ class ROS2RobotInterface:
                 logger.warning(f"Failed to transform right arm pose from '{frame_id}' to '{self.base_frame}' for arrival checking: {ex}")
                 # If transformation fails, don't set target pose (arrival checking won't work)
                 self.right_arm_target_pose = None
+    
+    def send_target_path(self, left_poses: List[Pose | PoseStamped], right_poses: List[Pose | PoseStamped], frame_id: Optional[str] = None) -> None:
+        """Send target path for dual-arm robot.
+        
+        This method publishes a nav_msgs/Path message to /target_path topic.
+        The left arm poses are placed first, followed by right arm poses.
+        Each arm will interpolate through its assigned waypoints over 2 seconds.
+        
+        Args:
+            left_poses: List of Pose or PoseStamped messages for the left arm path waypoints.
+            right_poses: List of Pose or PoseStamped messages for the right arm path waypoints.
+            frame_id: Optional frame_id to use for all poses. If None and poses are PoseStamped,
+                     uses the frame_id from the first PoseStamped. If None and poses are Pose,
+                     defaults to "base_link".
+        
+        Raises:
+            ROS2NotConnectedError: If not connected or dual-arm mode not enabled
+            ValueError: If both poses lists are empty
+        """
+        if not self.is_connected:
+            raise ROS2NotConnectedError("ROS2RobotInterface is not connected")
+        
+        if not self.config.right_end_effector_target_topic:
+            raise ROS2NotConnectedError("Target path requires dual-arm mode. Right end-effector target topic not configured.")
+        
+        if self.target_path_pub is None:
+            raise ROS2NotConnectedError("Target path publisher not initialized")
+        
+        if not left_poses and not right_poses:
+            raise ValueError("At least one of left_poses or right_poses must not be empty")
+        
+        # Create Path message
+        path_msg = Path()
+        path_msg.header.stamp = self.robot_node.get_clock().now().to_msg()
+        
+        # Determine default frame_id
+        default_frame_id = frame_id
+        if default_frame_id is None:
+            # Try to get frame_id from left_poses first, then right_poses
+            if left_poses and isinstance(left_poses[0], PoseStamped):
+                default_frame_id = left_poses[0].header.frame_id
+            elif right_poses and isinstance(right_poses[0], PoseStamped):
+                default_frame_id = right_poses[0].header.frame_id
+            else:
+                default_frame_id = "base_link"  # Default frame for Pose messages
+        
+        path_msg.header.frame_id = default_frame_id
+        
+        # Helper function to convert pose to PoseStamped
+        def to_pose_stamped(pose: Pose | PoseStamped, default_frame: str) -> PoseStamped:
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = frame_id if frame_id is not None else (
+                pose.header.frame_id if isinstance(pose, PoseStamped) else default_frame
+            )
+            pose_stamped.header.stamp = path_msg.header.stamp
+            pose_stamped.pose = pose.pose if isinstance(pose, PoseStamped) else pose
+            return pose_stamped
+        
+        # Add left arm poses first
+        for pose in left_poses:
+            path_msg.poses.append(to_pose_stamped(pose, default_frame_id))
+        
+        # Add right arm poses after
+        for pose in right_poses:
+            path_msg.poses.append(to_pose_stamped(pose, default_frame_id))
+        
+        # Publish the path
+        self.target_path_pub.publish(path_msg)
+        logger.info(f"Published target path with {len(left_poses)} left arm waypoints and {len(right_poses)} right arm waypoints (total: {len(path_msg.poses)})")
+        logger.debug(f"Path frame_id: {path_msg.header.frame_id}")
     
     def send_gripper_command(self, position: float) -> None:
         """Send gripper position command.
@@ -1537,6 +1617,10 @@ class ROS2RobotInterface:
         if self.right_end_effector_target_stamped_pub:
             self.right_end_effector_target_stamped_pub.destroy()
             self.right_end_effector_target_stamped_pub = None
+        
+        if self.target_path_pub:
+            self.target_path_pub.destroy()
+            self.target_path_pub = None
         
         if self.gripper_command_pub:
             self.gripper_command_pub.destroy()
