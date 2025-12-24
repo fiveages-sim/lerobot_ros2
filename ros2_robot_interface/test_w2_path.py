@@ -38,6 +38,11 @@ def vectors_to_poses(vectors, frame_id="arm_base"):
 def main():
     """测试W2机器人的路径接口"""
     
+    # ========================================================================
+    # 配置参数
+    # ========================================================================
+    TRAJECTORY_EXECUTION_WAIT_TIME = 2.0  # 轨迹执行完成后的等待时间（秒）
+    
     print("\n" + "=" * 70)
     print(" " * 20 + "W2 Robot Path Test")
     print("=" * 70 + "\n")
@@ -158,7 +163,7 @@ def main():
     b_right_end = [
         [0.655319, -0.276373, 0.036224, 0.700671, -0.022995, 0.713072, 0.007775],
         [0.654674, -0.311464, -0.028880, 0.485272, -0.506258, 0.515121, -0.492814],
-        [0.407131, -0.330244, -0.003316, -0.667892, 0.224420, -0.235901, 0.669258]
+        [0.385897, -0.444166, -0.046988, 0.502312, -0.483387, 0.521046, -0.492474]
     ]
     
     print("  ✓ 轨迹数据已加载")
@@ -185,8 +190,8 @@ def main():
         
         interface.send_target_path(a_left_initial_poses, a_right_initial_poses, frame_id="arm_base")
         print("  ✓ A点initial路径已发送")
-        print("  → 等待轨迹执行完成（约2秒）...")
-        time.sleep(2.5)
+        print(f"  → 等待轨迹执行完成（约{TRAJECTORY_EXECUTION_WAIT_TIME}秒）...")
+        time.sleep(TRAJECTORY_EXECUTION_WAIT_TIME)
         print("  ✓ A点initial轨迹执行完成\n")
     except Exception as e:
         print(f"  ✗ 发送A点initial路径失败: {e}\n")
@@ -209,8 +214,8 @@ def main():
         
         interface.send_target_path(a_left_end_poses, a_right_end_poses, frame_id="arm_base")
         print("  ✓ A点end路径已发送")
-        print("  → 等待轨迹执行完成（约2秒）...")
-        time.sleep(2.5)
+        print(f"  → 等待轨迹执行完成（约{TRAJECTORY_EXECUTION_WAIT_TIME}秒）...")
+        time.sleep(TRAJECTORY_EXECUTION_WAIT_TIME)
         print("  ✓ A点end轨迹执行完成\n")
     except Exception as e:
         print(f"  ✗ 发送A点end路径失败: {e}\n")
@@ -235,8 +240,8 @@ def main():
         
         interface.send_target_path(b_left_initial_poses, b_right_initial_poses, frame_id="arm_base")
         print("  ✓ B点initial路径已发送")
-        print("  → 等待轨迹执行完成（约2秒）...")
-        time.sleep(2.5)
+        print(f"  → 等待轨迹执行完成（约{TRAJECTORY_EXECUTION_WAIT_TIME}秒）...")
+        time.sleep(TRAJECTORY_EXECUTION_WAIT_TIME)
         print("  ✓ B点initial轨迹执行完成\n")
     except Exception as e:
         print(f"  ✗ 发送B点initial路径失败: {e}\n")
@@ -259,17 +264,47 @@ def main():
         
         interface.send_target_path(b_left_end_poses, b_right_end_poses, frame_id="arm_base")
         print("  ✓ B点end路径已发送")
-        print("  → 等待轨迹执行完成（约2秒）...")
-        time.sleep(2.5)
+        print(f"  → 等待轨迹执行完成（约{TRAJECTORY_EXECUTION_WAIT_TIME}秒）...")
+        time.sleep(TRAJECTORY_EXECUTION_WAIT_TIME)
         print("  ✓ B点end轨迹执行完成\n")
     except Exception as e:
         print(f"  ✗ 发送B点end路径失败: {e}\n")
     
     # ========================================================================
-    # 第六部分：完成和清理
+    # 第六部分：测试A点initial第一个点（单点轨迹）
+    # ========================================================================
+    time.sleep(2.0)
+    
+    print("=" * 70)
+    print("[11] 测试A点initial第一个点 - 单点轨迹")
+    print("=" * 70)
+    
+    try:
+        # 取A点initial的第一个点
+        a_left_initial_first = [a_left_initial[0]]  # 只取第一个点
+        a_right_initial_first = [a_right_initial[0]]  # 只取第一个点
+        
+        # 转换为PoseStamped
+        a_left_initial_first_poses = vectors_to_poses(a_left_initial_first, frame_id="arm_base")
+        a_right_initial_first_poses = vectors_to_poses(a_right_initial_first, frame_id="arm_base")
+        
+        print(f"  → 发送A点initial第一个点路径...")
+        print(f"    左臂: {len(a_left_initial_first_poses)} 个路径点")
+        print(f"    右臂: {len(a_right_initial_first_poses)} 个路径点")
+        
+        interface.send_target_path(a_left_initial_first_poses, a_right_initial_first_poses, frame_id="arm_base")
+        print("  ✓ A点initial第一个点路径已发送")
+        print(f"  → 等待轨迹执行完成（约{TRAJECTORY_EXECUTION_WAIT_TIME}秒）...")
+        time.sleep(TRAJECTORY_EXECUTION_WAIT_TIME)
+        print("  ✓ A点initial第一个点轨迹执行完成\n")
+    except Exception as e:
+        print(f"  ✗ 发送A点initial第一个点路径失败: {e}\n")
+    
+    # ========================================================================
+    # 第七部分：完成和清理
     # ========================================================================
     print("=" * 70)
-    print("[11] 测试完成")
+    print("[12] 测试完成")
     print("=" * 70)
     print("  ✓ 所有轨迹测试已完成")
     print("  → 等待3秒后断开连接...\n")
