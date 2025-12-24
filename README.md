@@ -119,21 +119,4 @@ robot.connect()
 robot.disconnect()
 ```
 
-### 独立使用（不依赖 LeRobot）
-
-```python
-from ros2_robot_interface import ROS2RobotInterface, ROS2RobotInterfaceConfig
-
-config = ROS2RobotInterfaceConfig(
-    joint_states_topic="/joint_states",
-    end_effector_pose_topic="/left_current_pose",
-    end_effector_target_topic="/left_target"
-)
-
-interface = ROS2RobotInterface(config)
-interface.connect()
-# ... 使用接口 ...
-interface.disconnect()
-```
-
 更多使用示例请参考 [examples/](examples/) 目录。
