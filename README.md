@@ -9,6 +9,51 @@ LeRobot ROS2 集成，支持通过 ROS2 话题与机器人通信。
 1. **ros2_robot_interface** - 独立的 ROS2 机器人接口包（不依赖 LeRobot）
 2. **lerobot_robot_ros2** - LeRobot 的 ROS2 机器人集成插件
 
+## 子模块
+
+本项目使用 Git 子模块来管理 `ros2_robot_interface` 包。该子模块是一个独立的仓库，位于 `git@github.com:fiveages-sim/ros2_robot_interface.git`。
+
+### 克隆包含子模块的项目
+
+首次克隆项目时，需要同时初始化子模块：
+
+```bash
+git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
+cd lerobot_ros2
+```
+
+如果已经克隆了项目但没有包含子模块，可以运行：
+
+```bash
+git submodule update --init --recursive
+```
+
+### 更新子模块
+
+要更新子模块到最新版本：
+
+```bash
+git submodule update --remote ros2_robot_interface
+```
+
+### 子模块开发
+
+如果需要在子模块中进行开发：
+
+```bash
+cd ros2_robot_interface
+# 进行修改后，在子模块目录中提交
+git add .
+git commit -m "Your changes"
+git push
+
+# 返回父仓库，更新子模块引用
+cd ..
+git add ros2_robot_interface
+git commit -m "Update ros2_robot_interface submodule"
+git push
+```
+
 ## 安装
 
 ### 前置要求
@@ -26,15 +71,17 @@ cd lerobot
 git checkout 55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab
 pip install -e .
 
-# 2. Clone LeRobot ROS2
+# 2. Clone LeRobot ROS2（包含子模块）
 cd ..
-git clone https://github.com/fiveages-sim/lerobot_ros2
+git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
+# 或者如果使用 HTTPS:
+# git clone --recursive https://github.com/fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
 
 # 3. 激活 conda 环境（确保已配置 ROS2 和系统 OpenCV）
 conda activate lerobot-ros2
 
-# 4. 安装 ros2_robot_interface（独立包）
+# 4. 安装 ros2_robot_interface（子模块，独立包）
 cd ros2_robot_interface
 pip install -e .
 
