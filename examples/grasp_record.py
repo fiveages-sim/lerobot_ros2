@@ -63,8 +63,16 @@ APPROACH_OFFSET_Y = 0.12    # Lift 阶段 Y 偏移
 GRASP_CLEARANCE = -0.03     # Descend 高度：目标上方 5mm（改为正值，避免负Z）
 GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
+
+# 释放位置配置 (完整的抓取-移动-释放任务)
+RELEASE_POSITION_X = -0.6195530891418457
+RELEASE_POSITION_Y = 0.3092135787010193
+RELEASE_POSITION_Z = 0.2825888991355896
+LIFT_HEIGHT = 0.20          # 抬起高度（相对于抓取位置）
+TRANSPORT_HEIGHT = 0.4     # 移动时的安全高度
+RETRACT_HEIGHT = 0.20       # 释放后撤离高度
 POSE_TIMEOUT = 10.0
-TASK_NAME = "grasp_apples"
+TASK_NAME = "full_grasp_transport_release"
 # Order used for action vectors in dataset/keypoints
 ACTION_KEYS = [
     "end_effector.position.x",
@@ -639,10 +647,44 @@ def main() -> None:
             descend_pose.position.z = target_pose.position.z + GRASP_CLEARANCE
             descend_pose.orientation = target_pose.orientation
 
+            # Lift 阶段：抬起苹果
+            lift_pose = Pose()
+            lift_pose.position.x = descend_pose.position.x
+            lift_pose.position.y = descend_pose.position.y
+            lift_pose.position.z = descend_pose.position.z + LIFT_HEIGHT
+            lift_pose.orientation = descend_pose.orientation
+
+            # Transport 阶段：移动到释放位置上方
+            transport_pose = Pose()
+            transport_pose.position.x = RELEASE_POSITION_X
+            transport_pose.position.y = RELEASE_POSITION_Y
+            transport_pose.position.z = TRANSPORT_HEIGHT
+            transport_pose.orientation = descend_pose.orientation
+
+            # Lower 阶段：下降到释放高度
+            lower_pose = Pose()
+            lower_pose.position.x = RELEASE_POSITION_X
+            lower_pose.position.y = RELEASE_POSITION_Y
+            lower_pose.position.z = RELEASE_POSITION_Z
+            lower_pose.orientation = descend_pose.orientation
+
+            # Retract 阶段：释放后撤离
+            retract_pose = Pose()
+            retract_pose.position.x = RELEASE_POSITION_X
+            retract_pose.position.y = RELEASE_POSITION_Y
+            retract_pose.position.z = RELEASE_POSITION_Z + RETRACT_HEIGHT
+            retract_pose.orientation = descend_pose.orientation
+
+            # 完整的8阶段序列
             sequence = [
-                ("Approach", action_from_pose(approach_pose, GRIPPER_OPEN)),
-                ("Descend", action_from_pose(descend_pose, GRIPPER_OPEN)),
-                ("Close", action_from_pose(descend_pose, GRIPPER_CLOSED)),
+                ("1-Approach", action_from_pose(approach_pose, GRIPPER_OPEN)),
+                ("2-Descend", action_from_pose(descend_pose, GRIPPER_OPEN)),
+                ("3-Grasp", action_from_pose(descend_pose, GRIPPER_CLOSED)),
+                ("4-Lift", action_from_pose(lift_pose, GRIPPER_CLOSED)),
+                ("5-Transport", action_from_pose(transport_pose, GRIPPER_CLOSED)),
+                ("6-Lower", action_from_pose(lower_pose, GRIPPER_CLOSED)),
+                ("7-Release", action_from_pose(lower_pose, GRIPPER_OPEN)),
+                ("8-Retract", action_from_pose(retract_pose, GRIPPER_OPEN)),
             ]
 
             recorded_frames: list[dict] = []

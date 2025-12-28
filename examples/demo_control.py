@@ -15,28 +15,13 @@ import argparse
 import sys
 import time
 from pathlib import Path
+import json
+import tempfile
 from typing import Dict
 
 import numpy as np
 import torch
 
-# 允许使用本地 vendored 的 lerobot
-REPO_ROOT = Path(__file__).resolve().parents[1]
-_lerobot_candidates = [
-    REPO_ROOT / "lerobot" / "src",
-    REPO_ROOT.parent / "lerobot" / "src",
-]
-for _p in _lerobot_candidates:
-    if _p.exists() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
-        break
-# 让本地 ROS2 插件可导入（未安装情况下）
-for _p in [
-    REPO_ROOT / "lerobot_robot_ros2",
-    REPO_ROOT / "lerobot_camera_ros2",
-]:
-    if _p.exists() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
@@ -53,11 +38,11 @@ from lerobot_camera_ros2 import ROS2CameraConfig
 # 全局配置
 FPS = 30
 # 是否向策略提供 observation.state（vision-only模型设为False）
-USE_STATE_INPUT = False
+USE_STATE_INPUT =  True
 
 
 DEFAULT_DATASET = Path("/home/king/lerobot_ros2/dataset/down_dataset_30")
-DEFAULT_TRAIN_CFG = Path("/home/king/lerobot_ros2/outputs/act_ov_down30/checkpoints/last/pretrained_model/train_config.json")
+DEFAULT_TRAIN_CFG = Path("/home/king/lerobot_ros2/outputs/act_all_down30/checkpoints/last/pretrained_model/train_config.json")
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,7 +85,63 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="可选：当当前末端 z 低于该阈值(米)时自动将夹爪置为 0（仅在未设置 fixed-gripper 时生效）。",
     )
+    parser.add_argument(
+        "--no-state",
+        action="store_true",
+        help="推理时不向模型输入 observation.state（即使数据集中存在）。",
+    )
+    """
+    parser.add_argument(
+        "--drop-state-names",
+        type=str,
+        default="gripper_joint.pos,end_effector.position.x,end_effector.position.y,end_effector.position.z,end_effector.orientation.x,end_effector.orientation.y,end_effector.orientation.z,end_effector.orientation.w",
+        help="可选，逗号分隔的 state 名称列表，这些维度将在推理时丢弃（其余状态保留）。传空字符串则保留全部状态。",
+    )
+    """
     return parser.parse_args()
+
+
+SANITIZED_DROP_INDICES: list[int] = []
+
+
+def _sanitize_train_config(cfg_path: Path) -> Path:
+    """
+    draccus 解析严格，如果旧的 train_config.json 中包含当前版本未支持的字段，
+    会直接报错（如 policy.drop_state_indices）。这里在本地预处理掉已知的多余字段，
+    并将清理后的内容写到临时文件返回。
+    """
+    if not cfg_path.is_file():
+        return cfg_path
+    try:
+        data = json.loads(cfg_path.read_text())
+    except Exception:
+        return cfg_path
+
+    changed = False
+    policy = data.get("policy")
+    if isinstance(policy, dict):
+        # 记录并移除旧字段
+        if "drop_state_indices" in policy and isinstance(policy["drop_state_indices"], list):
+            try:
+                global SANITIZED_DROP_INDICES
+                SANITIZED_DROP_INDICES = [int(i) for i in policy["drop_state_indices"]]
+            except Exception:
+                SANITIZED_DROP_INDICES = []
+            policy.pop("drop_state_indices", None)
+            changed = True
+        if "drop_state_names" in policy:
+            policy.pop("drop_state_names", None)
+            changed = True
+
+    if not changed:
+        return cfg_path
+
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump(data, tmp, ensure_ascii=False, indent=2)
+    tmp.flush()
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    return tmp_path
 
 
 def build_robot() -> ROS2Robot:
@@ -157,6 +198,45 @@ def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> D
     return {name: float(action_vec[i]) for i, name in enumerate(names)}
 
 
+def _filter_state_features(meta: LeRobotDatasetMetadata, drop_set: set[str]) -> None:
+    """从 meta 中移除指定的 state 维度，并同步裁剪 stats。"""
+    if "observation.state" not in meta.features:
+        return
+    names = meta.features["observation.state"].get("names", [])
+    keep_idx = [i for i, n in enumerate(names) if n not in drop_set]
+    if not keep_idx:
+        meta.features.pop("observation.state", None)
+        meta.stats.pop("observation.state", None)
+        return
+    # 更新 names
+    meta.features["observation.state"]["names"] = [names[i] for i in keep_idx]
+
+    def _slice_stat(val):
+        try:
+            import torch
+            if isinstance(val, torch.Tensor):
+                if val.shape[-1] >= max(keep_idx) + 1:
+                    return val[..., keep_idx]
+                return val  # 维度不够时保持原样，避免越界
+        except Exception:
+            pass
+        import numpy as np
+        if isinstance(val, np.ndarray):
+            if val.shape[-1] >= max(keep_idx) + 1:
+                return val[..., keep_idx]
+            return val
+        if isinstance(val, list):
+            if len(val) >= max(keep_idx) + 1:
+                return [val[i] for i in keep_idx]
+            return val
+        return val
+
+    stats = meta.stats.get("observation.state")
+    if isinstance(stats, dict):
+        for k, v in list(stats.items()):
+            stats[k] = _slice_stat(v)
+
+
 def main() -> None:
     args = parse_args()
     dataset_root = args.dataset.expanduser().resolve()
@@ -164,7 +244,8 @@ def main() -> None:
         raise FileNotFoundError(dataset_root)
 
     # 加载训练配置
-    train_cfg = TrainPipelineConfig.from_pretrained(args.train_config)
+    sanitized_cfg_path = _sanitize_train_config(args.train_config)
+    train_cfg = TrainPipelineConfig.from_pretrained(sanitized_cfg_path)
     train_cfg.dataset.root = str(dataset_root)
     train_cfg.dataset.repo_id = dataset_root.name
     if args.tolerance_s is not None:
@@ -203,12 +284,34 @@ def main() -> None:
         print(f"[info] Applied ImageNet normalization stats to {meta.camera_keys}")
 
     # 如果选择只用图像推理,移除状态特征以匹配无状态的模型配置
-    if not USE_STATE_INPUT:
+    # 处理状态输入配置
+    drop_state_arg = getattr(args, "drop_state_names", "")
+    drop_set = set([s for s in drop_state_arg.split(",") if s.strip()]) if drop_state_arg else set()
+    # 如训练配置含有旧的 drop_state_indices，用索引也裁剪一次
+    if SANITIZED_DROP_INDICES and "observation.state" in meta.features:
+        names = meta.features["observation.state"].get("names", [])
+        # 仅当索引未覆盖全部维度时才按索引丢弃；若索引数等于或超过 state 维度，则忽略它们
+        if len(SANITIZED_DROP_INDICES) < len(names):
+            for idx in SANITIZED_DROP_INDICES:
+                if 0 <= idx < len(names):
+                    drop_set.add(names[idx])
+    if not USE_STATE_INPUT or args.no_state:
         meta.features.pop("observation.state", None)
         meta.stats.pop("observation.state", None)
-        # 关闭状态 token（部分属性为只读，直接改 config 字典）
         if "robot_state_feature" in train_cfg.policy.__dict__:
             train_cfg.policy.__dict__["robot_state_feature"] = False
+    else:
+        if drop_set:
+            _filter_state_features(meta, drop_set)
+        # 如果过滤后没有 state，关闭开关
+        if "observation.state" not in meta.features and "robot_state_feature" in train_cfg.policy.__dict__:
+            train_cfg.policy.__dict__["robot_state_feature"] = False
+        else:
+            # 同步 state 维度到策略配置，避免权重维度不一致
+            state_names = meta.features.get("observation.state", {}).get("names", [])
+            state_dim = len(state_names)
+            if hasattr(train_cfg.policy, "input_shapes") and isinstance(train_cfg.policy.input_shapes, dict):
+                train_cfg.policy.input_shapes["observation.state"] = [state_dim]
 
     # 创建策略和预后处理器，若出现 state/token 形状不匹配，自动回退为仅视觉
     def build_policy(cfg, meta_obj):
