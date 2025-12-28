@@ -12,6 +12,7 @@ robot/camera 配置。若你的话题/关节名不同，请按需修改下面的
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -21,7 +22,6 @@ from typing import Dict
 
 import numpy as np
 import torch
-
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
