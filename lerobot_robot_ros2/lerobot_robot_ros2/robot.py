@@ -16,8 +16,9 @@ from geometry_msgs.msg import Pose
 from lerobot.robots import Robot
 from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
-from .config import ControlType, ROS2RobotConfig
-from .ros_interface import ROS2RobotInterface
+from .config import ROS2RobotConfig
+# Import from the standalone ros2_robot_interface package
+from ros2_robot_interface import ROS2RobotInterface
 
 logger = logging.getLogger(__name__)
 
@@ -243,36 +244,53 @@ class ROS2Robot(Robot):
         
         # Get joint states
         joint_state = self.ros2_interface.get_joint_state()
+        
+        # When timeout is 0, use default values if joint state not available
+        # This allows the system to continue working when ROS2 nodes restart
         if joint_state is None:
-            raise RuntimeError("Joint state not available")
+            if self.config.ros2_interface.joint_state_timeout > 0:
+                raise RuntimeError("Joint state not available")
+            else:
+                # Timeout is 0, use default values for all joints
+                logger.debug("Joint state not available, using default values (timeout=0)")
+                for joint_name in self.config.ros2_interface.joint_names:
+                    obs_dict[f"{joint_name}.pos"] = 0.0
+                    obs_dict[f"{joint_name}.vel"] = 0.0
+                    obs_dict[f"{joint_name}.effort"] = 0.0
+                if self.config.ros2_interface.gripper_enabled:
+                    gripper_joint_name = self.config.ros2_interface.gripper_joint_name
+                    obs_dict[f"{gripper_joint_name}.pos"] = 0.0
+        else:
+            # Extract joint positions, velocities, and efforts
+            joint_names = joint_state["names"]
+            joint_positions = joint_state["positions"]
+            joint_velocities = joint_state["velocities"]
+            joint_efforts = joint_state["efforts"]
+            
+            for joint_name in self.config.ros2_interface.joint_names:
+                try:
+                    idx = joint_names.index(joint_name)
+                    obs_dict[f"{joint_name}.pos"] = joint_positions[idx]
+                    obs_dict[f"{joint_name}.vel"] = joint_velocities[idx]
+                    obs_dict[f"{joint_name}.effort"] = joint_efforts[idx]
+                except ValueError:
+                    logger.warning(f"Joint '{joint_name}' not found in joint state")
+                    obs_dict[f"{joint_name}.pos"] = 0.0
+                    obs_dict[f"{joint_name}.vel"] = 0.0
+                    obs_dict[f"{joint_name}.effort"] = 0.0
         
-        # Extract joint positions, velocities, and efforts
-        joint_names = joint_state["names"]
-        joint_positions = joint_state["positions"]
-        joint_velocities = joint_state["velocities"]
-        joint_efforts = joint_state["efforts"]
-        
-        for joint_name in self.config.ros2_interface.joint_names:
-            try:
-                idx = joint_names.index(joint_name)
-                obs_dict[f"{joint_name}.pos"] = joint_positions[idx]
-                obs_dict[f"{joint_name}.vel"] = joint_velocities[idx]
-                obs_dict[f"{joint_name}.effort"] = joint_efforts[idx]
-            except ValueError:
-                logger.warning(f"Joint '{joint_name}' not found in joint state")
-                obs_dict[f"{joint_name}.pos"] = 0.0
-                obs_dict[f"{joint_name}.vel"] = 0.0
-                obs_dict[f"{joint_name}.effort"] = 0.0
-        
-        # Extract gripper position (if enabled)
-        if self.config.ros2_interface.gripper_enabled:
+        # Extract gripper position (if enabled and not already set)
+        if self.config.ros2_interface.gripper_enabled and joint_state is not None:
             gripper_joint_name = self.config.ros2_interface.gripper_joint_name
-            try:
-                idx = joint_names.index(gripper_joint_name)
-                obs_dict[f"{gripper_joint_name}.pos"] = joint_positions[idx]
-            except ValueError:
-                logger.warning(f"Gripper joint '{gripper_joint_name}' not found in joint state")
-                obs_dict[f"{gripper_joint_name}.pos"] = 0.0
+            if f"{gripper_joint_name}.pos" not in obs_dict:
+                joint_names = joint_state["names"]
+                joint_positions = joint_state["positions"]
+                try:
+                    idx = joint_names.index(gripper_joint_name)
+                    obs_dict[f"{gripper_joint_name}.pos"] = joint_positions[idx]
+                except ValueError:
+                    logger.warning(f"Gripper joint '{gripper_joint_name}' not found in joint state")
+                    obs_dict[f"{gripper_joint_name}.pos"] = 0.0
         
         # Get end-effector pose
         end_effector_pose = self.ros2_interface.get_end_effector_pose()
