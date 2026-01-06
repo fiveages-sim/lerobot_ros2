@@ -1,0 +1,3 @@
+[submodule "ros2_robot_interface"]
+	path = ros2_robot_interface
+	url = git@github.com:fiveages-sim/ros2_robot_interface.git

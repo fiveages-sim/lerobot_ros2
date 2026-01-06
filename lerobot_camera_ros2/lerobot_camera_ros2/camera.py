@@ -70,18 +70,24 @@ class ROS2Camera(Camera):
         self.timeout_ms = config.timeout_ms
         self.queue_size = config.queue_size
         self.encoding = config.encoding
+        self.depth_topic_name = config.depth_topic_name
+        self.depth_encoding = config.depth_encoding
         
         # ROS 2 components
         self.ros_node: Node | None = None
         self.executor: SingleThreadedExecutor | None = None
         self.executor_thread: threading.Thread | None = None
         self.image_subscription = None
+        self.depth_subscription = None
         
         # Image processing
         self.bridge = CvBridge()
         self.latest_image: np.ndarray | None = None
+        self.latest_depth: np.ndarray | None = None
         self.image_lock = threading.Lock()
+        self.depth_lock = threading.Lock()
         self.image_received_event = threading.Event()
+        self.depth_received_event = threading.Event()
         self._dimensions_initialized = False
         
         # Connection state
@@ -177,6 +183,13 @@ class ROS2Camera(Camera):
                 self._image_callback,
                 self.queue_size
             )
+            if self.depth_topic_name:
+                self.depth_subscription = self.ros_node.create_subscription(
+                    Image,
+                    self.depth_topic_name,
+                    self._depth_callback,
+                    self.queue_size,
+                )
             
             # Start executor in separate thread
             self.executor = SingleThreadedExecutor()
@@ -254,62 +267,76 @@ class ROS2Camera(Camera):
                 # Fallback: use the image as-is
                 rgb_image = cv_image
             
-            # Update latest image
             with self.image_lock:
                 self.latest_image = rgb_image.copy()
                 self.image_received_event.set()
                 
         except Exception as e:
             logger.error(f"Error processing image: {e}")
+
+    def _depth_callback(self, msg: Image) -> None:
+        if not self.depth_topic_name:
+            return
+        if not self.depth_topic_name:
+            return
+        try:
+            cv_depth = self.bridge.imgmsg_to_cv2(msg, self.depth_encoding)
+            depth_float = np.array(cv_depth, dtype=np.float32, copy=False)
+            depth_clean = np.nan_to_num(depth_float, nan=0.0, posinf=0.0, neginf=0.0)
+
+            valid_mask = np.isfinite(depth_clean)
+            if np.any(valid_mask):
+                min_val = float(depth_clean[valid_mask].min())
+                max_val = float(depth_clean[valid_mask].max())
+            else:
+                min_val = 0.0
+                max_val = 0.0
+
+            if max_val > min_val:
+                depth_norm = (depth_clean - min_val) / (max_val - min_val)
+            else:
+                depth_norm = np.zeros_like(depth_clean, dtype=np.float32)
+
+            depth_vis = np.clip(depth_norm * 255.0, 0.0, 255.0).astype(np.uint8)
+            if depth_vis.ndim == 2:
+                depth_vis = np.repeat(depth_vis[:, :, None], 3, axis=2)
+            elif depth_vis.shape[-1] == 1:
+                depth_vis = np.repeat(depth_vis, 3, axis=2)
+
+            with self.depth_lock:
+                self.latest_depth = depth_vis.copy()
+                self.depth_received_event.set()
+        except Exception as exc:
+            logger.error(f"Failed to process depth image: {exc}")
     
-    def read(self, color_mode=None) -> np.ndarray:
-        """Synchronously read a frame from the camera.
-        
-        Args:
-            color_mode: Color mode (ignored for ROS 2 cameras, always returns RGB)
-            
-        Returns:
-            np.ndarray: Captured frame as numpy array in RGB format
-            
-        Raises:
-            DeviceNotConnectedError: If camera is not connected
-            RuntimeError: If no image is available
-        """
-        if not self.is_connected:
-            raise DeviceNotConnectedError(f"{self} is not connected")
-        
-        with self.image_lock:
-            if self.latest_image is None:
-                raise RuntimeError("No image available")
-            return self.latest_image.copy()
+    def read(self, color_mode=None):
+        return self.async_read(timeout_ms=self.timeout_ms)
     
-    def async_read(self, timeout_ms: float = None) -> np.ndarray:
-        """Asynchronously read a frame from the camera.
-        
-        Args:
-            timeout_ms: Maximum time to wait for a frame in milliseconds
-            
-        Returns:
-            np.ndarray: Captured frame as numpy array in RGB format
-            
-        Raises:
-            DeviceNotConnectedError: If camera is not connected
-            TimeoutError: If no image is received within timeout
-            RuntimeError: If no image is available
-        """
+    def async_read(self, timeout_ms: float = None):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected")
         
         timeout_ms = timeout_ms or self.timeout_ms
         
-        # Wait for new image
         if not self.image_received_event.wait(timeout=timeout_ms / 1000.0):
             raise TimeoutError(f"No image received within {timeout_ms}ms")
         
+        rgb_image = None
         with self.image_lock:
-            if self.latest_image is None:
-                raise RuntimeError("No image available")
-            return self.latest_image.copy()
+            if self.latest_image is not None:
+                rgb_image = self.latest_image.copy()
+        
+        if self.depth_topic_name:
+            depth_image = None
+            if self.depth_received_event.wait(timeout=timeout_ms / 1000.0):
+                with self.depth_lock:
+                    if self.latest_depth is not None:
+                        depth_image = self.latest_depth.copy()
+            return {"rgb": rgb_image, "depth": depth_image}
+        
+        if rgb_image is None:
+            raise RuntimeError("No image available")
+        return rgb_image
     
     def disconnect(self) -> None:
         """Disconnect from the camera and release resources."""
@@ -329,11 +356,16 @@ class ROS2Camera(Camera):
         if self.ros_node:
             self.ros_node.destroy_node()
             self.ros_node = None
+        self.image_subscription = None
+        self.depth_subscription = None
         
         # Clean up resources
         with self.image_lock:
             self.latest_image = None
             self.image_received_event.clear()
             self._dimensions_initialized = False
+        with self.depth_lock:
+            self.latest_depth = None
+            self.depth_received_event.clear()
         
         logger.info(f"Disconnected from ROS 2 camera: {self.topic_name}")

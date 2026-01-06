@@ -6,7 +6,7 @@ A simplified version of ROS2 data recording that focuses on the core functionali
 without complex visualization or keyboard handling.
 
 Usage:
-    python simple_record_ros2.py
+    python examples/demo_record.py
 
 Requirements:
     - ROS2 environment must be sourced
@@ -44,7 +44,7 @@ def main():
     # Create robot configuration
     camera_config = {
         "wrist_camera": ROS2CameraConfig(
-            topic_name="/camera/image",
+            topic_name="/global_camera/rgb",
             node_name="lerobot_wrist_camera",
             width=1280,
             height=720,
@@ -58,7 +58,14 @@ def main():
         end_effector_pose_topic="/left_current_pose",
         end_effector_target_topic="/left_target",
         control_type=ControlType.CARTESIAN_POSE,
-        joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+        joint_names=[
+                "joint1",
+                "joint2",
+                "joint3",
+                "joint4",
+                "joint5",
+                "joint6",
+            ],
         max_linear_velocity=0.1,
         max_angular_velocity=0.5
     )
@@ -96,7 +103,7 @@ def main():
     # Create dataset
     print("Creating dataset...")
     try:
-        action_features = hw_to_dataset_features(robot.action_features, "action")
+        action_features = hw_to_dataset_features(robot.action_features, "action")#schema
         obs_features = hw_to_dataset_features(robot.observation_features, "observation")
         dataset_features = {**action_features, **obs_features}
         
@@ -167,11 +174,23 @@ def main():
     print(f"\nRecording {NUM_EPISODES} episodes...")
     
     try:
+        obs = robot.get_observation()    
+        origin_x = obs.get("end_effector.position.x", 0.0)
+        origin_y = obs.get("end_effector.position.y", 0.0)
+        origin_z = obs.get("end_effector.position.z", 0.0)
+        origin_o_x = obs.get("end_effector.orientation.x", 0.0)
+        origin_o_y = obs.get("end_effector.orientation.y", 0.0)
+        origin_o_z = obs.get("end_effector.orientation.z", 0.0)
+        origin_o_w = obs.get("end_effector.orientation.z", 0.0)
         for episode in range(NUM_EPISODES):
             print(f"\nEpisode {episode + 1}/{NUM_EPISODES}")
             
             start_time = time.time()
             frame_count = 0
+            
+                    
+                # Generate simple action (small movement)
+            
             
             while (time.time() - start_time) < EPISODE_TIME_SEC:
                 try:
@@ -179,22 +198,36 @@ def main():
                     obs = robot.get_observation()
                     
                     # Generate simple action (small movement)
+                
                     current_x = obs.get("end_effector.position.x", 0.0)
                     current_y = obs.get("end_effector.position.y", 0.0)
                     current_z = obs.get("end_effector.position.z", 0.0)
                     
+                  
+                    #print(current_x,current_y,current_z)
                     # Simple sinusoidal movement
                     t = time.time() - start_time
-                    amplitude = 0.02  # 2cm
+                    amplitude = 0.1  # 2cm
                     
                     action = {
-                        "end_effector.position.x": current_x + amplitude * np.sin(t),
-                        "end_effector.position.y": current_y + amplitude * np.cos(t),
+                        "end_effector.position.x": current_x +amplitude * np.sin(t),
+                        "end_effector.position.y": current_y +amplitude * np.cos(t),
                         "end_effector.position.z": current_z,
                         "end_effector.orientation.x": obs.get("end_effector.orientation.x", 0.0),
                         "end_effector.orientation.y": obs.get("end_effector.orientation.y", 0.0),
                         "end_effector.orientation.z": obs.get("end_effector.orientation.z", 0.0),
                         "end_effector.orientation.w": obs.get("end_effector.orientation.w", 1.0)
+                
+
+                        #"end_effector.orientation.x": obs.get("end_effector.orientation.x", 0.0),
+                        #"end_effector.orientation.y": obs.get("end_effector.orientation.y", 0.0),
+                        #"end_effector.orientation.z": obs.get("end_effector.orientation.z", 0.0),
+                        #"end_effector.orientation.w": obs.get("end_effector.orientation.w", 1.0)
+                        #pose.orientation.x=0.7077044621721283
+                        #pose.orientation.y=0.7065080817531944
+                        #pose.orientation.z=0.000848011543394921
+                        #pose.orientation.w=-7.42664282289885e-05
+                
                     }
                     
                     # Send action
@@ -243,8 +276,10 @@ def main():
                         sent_action.get("end_effector.orientation.x", 0.0),
                         sent_action.get("end_effector.orientation.y", 0.0),
                         sent_action.get("end_effector.orientation.z", 0.0),
-                        sent_action.get("end_effector.orientation.w", 1.0)
+                        sent_action.get("end_effector.orientation.w", 1.0),
                     ]
+                    if robot.config.ros2_interface.gripper_enabled:
+                        action_state.append(sent_action.get("gripper.position", 0.0))
                     frame["action"] = np.array(action_state, dtype=np.float32)
                     
                     # Debug: Print frame info for first few frames
@@ -295,13 +330,13 @@ def main():
             if episode < NUM_EPISODES - 1:
                 print("Resetting...")
                 reset_action = {
-                    "end_effector.position.x": 0.0,
-                    "end_effector.position.y": 0.0,
-                    "end_effector.position.z": 0.0,
-                    "end_effector.orientation.x": 0.0,
-                    "end_effector.orientation.y": 0.0,
-                    "end_effector.orientation.z": 0.0,
-                    "end_effector.orientation.w": 1.0
+                    "end_effector.position.x": origin_x,
+                    "end_effector.position.y": origin_y,
+                    "end_effector.position.z": origin_z,
+                    "end_effector.orientation.x": origin_o_x,
+                    "end_effector.orientation.y": origin_o_y,
+                    "end_effector.orientation.z": origin_o_z,
+                    "end_effector.orientation.w": origin_o_w
                 }
                 robot.send_action(reset_action)
                 time.sleep(3)

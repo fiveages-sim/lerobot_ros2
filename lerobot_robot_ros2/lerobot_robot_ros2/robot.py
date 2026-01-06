@@ -16,8 +16,9 @@ from geometry_msgs.msg import Pose
 from lerobot.robots import Robot
 from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
-from .config import ControlType, ROS2RobotConfig
-from .ros_interface import ROS2RobotInterface
+from .config import ROS2RobotConfig
+# Import from the standalone ros2_robot_interface package
+from ros2_robot_interface import ROS2RobotInterface
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +144,13 @@ class ROS2Robot(Robot):
         
         # Camera features
         for cam_name, cam_config in self.config.cameras.items():
-            if cam_config.width and cam_config.height:
-                features[cam_name] = (cam_config.height, cam_config.width, 3)
+            height = cam_config.height or 720
+            width = cam_config.width or 1280
+            if getattr(cam_config, "depth_topic_name", None):
+                features[f"{cam_name}.rgb"] = (height, width, 3)
+                features[f"{cam_name}.depth"] = (height, width, 1)
             else:
-                features[cam_name] = (720, 1280, 3)  # Default resolution
+                features[cam_name] = (height, width, 3)
         
         return features
     
@@ -312,10 +316,24 @@ class ROS2Robot(Robot):
         for cam_key, cam in self.cameras.items():
             start = time.perf_counter()
             try:
-                obs_dict[cam_key] = cam.async_read(timeout_ms=300)
+                cam_data = cam.async_read(timeout_ms=300)
+                if isinstance(cam_data, dict):
+                    for modality, value in cam_data.items():
+                        if value is None:
+                            continue
+                        if modality == "depth":
+                            obs_dict[f"{cam_key}.{modality}"] = value[..., None] if value.ndim == 2 else value
+                        else:
+                            obs_dict[f"{cam_key}.{modality}"] = value
+                else:
+                    obs_dict[cam_key] = cam_data
             except Exception as e:
                 logger.error(f"Failed to read camera {cam_key}: {e}")
-                obs_dict[cam_key] = None
+                if getattr(cam, "depth_topic_name", None):
+                    obs_dict[f"{cam_key}.rgb"] = None
+                    obs_dict[f"{cam_key}.depth"] = None
+                else:
+                    obs_dict[cam_key] = None
             dt_ms = (time.perf_counter() - start) * 1e3
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
         
