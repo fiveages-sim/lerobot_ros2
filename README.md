@@ -89,8 +89,11 @@ pip install -e .
 # 注意：由于需要使用 ROS2 的系统级 OpenCV，安装时需要使用 --ignore-installed
 cd ../lerobot_robot_ros2
 pip install -e . --ignore-installed
-```
 
+# 6. 安装 lerobot_camera_ros2（LeRobot 插件）
+cd ../lerobot_camera_ros2
+pip install -e . 
+```
 ### 重要说明
 
 **ROS2 OpenCV 依赖：** 此项目需要使用 ROS2 的系统级 OpenCV（通过 `PYTHONPATH` 配置），而不是 conda 环境中的 OpenCV。这会导致某些系统包出现在 Python 路径中，安装时需要使用 `--ignore-installed` 选项来避免权限错误。

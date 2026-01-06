@@ -2,6 +2,8 @@
 """
 ROS2 Grasp Recording Demo using LeRobot.
 
+python examples/grasp_record.py
+
 This script combines the grasp routine from demo_grasp.py with the dataset
 capture utilities from demo_record.py. It performs the four-step grasp sequence
 (approach, descend, close gripper, lift) while recording a fine-grained dataset

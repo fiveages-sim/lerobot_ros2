@@ -12,7 +12,7 @@ of directly accessing ROS2 topics, making it compatible with the broader
 LeRobot ecosystem.
 
 Usage:
-    python simple_ros2_control.py
+    python examples/demo_move.py
 
 Requirements:
     - ROS2 environment must be sourced

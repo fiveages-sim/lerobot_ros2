@@ -6,7 +6,7 @@ A simplified version of ROS2 data recording that focuses on the core functionali
 without complex visualization or keyboard handling.
 
 Usage:
-    python simple_record_ros2.py
+    python examples/demo_record.py
 
 Requirements:
     - ROS2 environment must be sourced

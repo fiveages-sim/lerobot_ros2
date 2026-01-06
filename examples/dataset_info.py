@@ -5,14 +5,8 @@ ROS2 Dataset Information Script
 This script displays information about ROS2 datasets recorded in the examples folder.
 
 Usage:
-    python dataset_info.py [dataset_path]
-
-Examples:
-    # Show info for the latest dataset
-    python dataset_info.py
-    
-    # Show info for specific dataset
-    python dataset_info.py ./ros2_dataset_1761133403
+    python examples/dataset_info.py [dataset_path]
+    python examples/dataset_info.py /home/xxxx/lerobot_ros2/dataset/grasp_dataset_1767607004
 """
 
 import argparse

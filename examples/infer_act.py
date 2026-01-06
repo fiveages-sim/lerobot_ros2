@@ -4,11 +4,12 @@ Run offline inference with a trained ACT checkpoint on a dataset.
 
 Usage:
     # Minimal: point to checkpoint dir (or train_config.json) and dataset
-    python algorithms/infer_act.py /path/to/checkpoint_dir --dataset /path/to/dataset --num-episodes 1
-    CUDA_VISIBLE_DEVICES=1 /home/gtengliu/miniconda3/envs/lerobot_ros2_act/bin/python /home/gten
-    gliu/lerobot_ros2/algorithms/infer_act.py /home/gtengliu/outputs/act_overfit1/checkpoints/last \
+    python examples/infer_act.py /path/to/checkpoint_dir --dataset /path/to/dataset --num-episodes 1
+
+    CUDA_VISIBLE_DEVICES=1 python examples/infer_act.py /home/gtengliu/outputs/act_overfit1/checkpoints/last \
   --dataset /home/gtengliu/lerobot_ros2/dataset/grasp_dataset_1 \
   --num-episodes 1
+  
     # If dataset is omitted, we use the dataset path stored in train_config.json inside the checkpoint.
 """
 

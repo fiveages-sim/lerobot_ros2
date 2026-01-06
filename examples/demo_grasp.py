@@ -2,6 +2,8 @@
 """
 ROS2 Grasp Demo using the LeRobot standard interface.
 
+python examples/demo_grasp.py
+
 This script listens for an object pose published on /isaac/tf (relative to
 base_link), approaches the object, closes the gripper, and then lifts it.
 It demonstrates how to integrate LeRobot's ROS2 plugin with external pose

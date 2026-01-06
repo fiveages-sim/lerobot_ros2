@@ -7,6 +7,9 @@ Assumptions:
 - Files live under:
     <root>/points/<pointcloud_key>/chunk-000/episode_XXXXXX/frame_XXXXXX.pkl
 
+Usage:
+    python examples/visualize_pcd.py --root /home/king/lerobot_ros2/dataset/grasp_dataset_1 --episode 0 --frame 0 --stride 1
+ 
 It will render:
 - Open3D interactive 3D point cloud (downsampled if requested)
 - Z heatmap for quick inspection (Matplotlib)

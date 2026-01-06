@@ -6,7 +6,7 @@
 robot/camera 配置。若你的话题/关节名不同，请按需修改下面的 ROS2 配置。
 
 用法示例：
-    CUDA_VISIBLE_DEVICES=0 /home/king/miniconda3/envs/lerobot_ros2_act/bin/python examples/demo_control.py --dataset /home/king/lerobot_ros2/dataset/grasp_dataset_50_no_depth --train-config /home/king/lerobot_ros2/outputs/act_run2/checkpoints/last/pretrained_model/train_config.json --checkpoint /home/king/lerobot_ros2/outputs/act_run2/checkpoints/last --device cuda
+    CUDA_VISIBLE_DEVICES=0 python examples/demo_control.py --dataset dataset/grasp_dataset_50_no_depth --train-config outputs/act_run2/checkpoints/last/pretrained_model/train_config.json --checkpoint outputs/act_run2/checkpoints/last --device cuda
 """
 
 from __future__ import annotations

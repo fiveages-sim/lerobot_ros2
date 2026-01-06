@@ -4,11 +4,13 @@ Thin wrapper around `lerobot.scripts.train` to train ACT or Diffusion on a local
 
 Usage:
     # ACT
-    python algorithms/train_act.py /path/to/dataset --policy act --chunk-size 16 --n-action-steps 8 --steps 1000
-    CUDA_VISIBLE_DEVICES=1 /home/gtengliu/miniconda3/envs/lerobot_ros2_act/bin/python   /home/gtengliu/lerobot_ros2/algorithms/train_demo.py   /data/sylcito/grasp_dataset_50   --chunk-size 16 --n-action-steps 8   --steps 20000 --batch-size 8   --output-dir outputs/act_run1 --device cuda
+    python examples/train_demo.py /path/to/dataset --policy act --chunk-size 16 --n-action-steps 8 --steps 1000
+    CUDA_VISIBLE_DEVICES=1 python examples/train_demo.py  /data/sylcito/grasp_dataset_50  --policy act --chunk-size 16 --n-action-steps 8   --steps 20000 --batch-size 8   --output-dir outputs/act_run1 --device cuda
+    CUDA_VISIBLE_DEVICES=1 python examples/train_demo.py /path/to/dataset --policy act --chunk-size 16 --n-action-steps 8 --steps 1000 --batch-size 8 --num-workers 4 --device cuda --images-only --drop-ee-state --act-disable-vae
+
     #diffusion_policy
-    CUDA_VISIBLE_DEVICES=4 /home/gtengliu/miniconda3/envs/lerobot_ros2_act/bin/python   /home/gtengliu/lerobot_ros2/algorithms/train_demo.py  /data/sylcito/grasp_dataset_50  --policy diffusion --diffusion-horizon 16 --diffusion-n-action-steps 8 --diffusion-n-obs-steps 2 --steps 2100   --output-dir outputs/diffusion_run1 --device cuda
-    python algorithms/train_act.py /path/to/dataset --policy diffusion --diffusion-horizon 16 \
+    CUDA_VISIBLE_DEVICES=4 python   examples/train_demo.py  /data/sylcito/grasp_dataset_50  --policy diffusion --diffusion-horizon 16 --diffusion-n-action-steps 8 --diffusion-n-obs-steps 2 --steps 2100   --output-dir outputs/diffusion_run1 --device cuda
+    python examples/train_demo.py /path/to/dataset --policy diffusion --diffusion-horizon 16 \
         --diffusion-n-action-steps 8 --diffusion-n-obs-steps 2 --steps 1000
 """
 
@@ -55,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         "--images-only",
         action="store_true",
         help="Use only image inputs (drop observation.state/environment_state) to mimic vision-only ACT.",
+    )
+    parser.add_argument(
+        "--drop-ee-state",
+        action="store_true",
+        help="For ACT, drop end-effector/ gripper state dims (last 8 dims) from observation.state.",
     )
     parser.add_argument(
         "--act-disable-vae",
@@ -142,6 +149,9 @@ def main() -> None:
             optimizer_lr_backbone=lr_backbone if lr_backbone is not None else ACTConfig().optimizer_lr_backbone,
         )
         policy_cfg.images_only = args.images_only
+        if args.drop_ee_state:
+            # Drop last 8 dims of observation.state (gripper + end-effector pose).
+            policy_cfg.drop_state_indices = list(range(18))
         policy_desc = f"ACT (chunk_size={args.chunk_size}, n_action_steps={args.n_action_steps})"
     elif args.policy == "diffusion":
         policy_cfg = DiffusionConfig(
