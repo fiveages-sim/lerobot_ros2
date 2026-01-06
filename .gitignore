@@ -1,7 +1,7 @@
 # IDE
-.idea/
-.vscode/
 .cache/
+.vscode/
+.idea/
 
 # Python
 __pycache__/
