@@ -12,11 +12,9 @@ robot/camera 配置。若你的话题/关节名不同，请按需修改下面的
 from __future__ import annotations
 
 import argparse
-import os
-import sys
+import json
 import time
 from pathlib import Path
-import json
 import tempfile
 from typing import Dict
 
@@ -38,7 +36,7 @@ from lerobot_camera_ros2 import ROS2CameraConfig
 # 全局配置
 FPS = 30
 # 是否向策略提供 observation.state（vision-only模型设为False）
-USE_STATE_INPUT =  True
+USE_STATE_INPUT = True
 
 
 DEFAULT_DATASET = Path("/home/king/lerobot_ros2/dataset/down_dataset_30")
@@ -46,6 +44,7 @@ DEFAULT_TRAIN_CFG = Path("/home/king/lerobot_ros2/outputs/act_all_down30/checkpo
 
 
 def parse_args() -> argparse.Namespace:
+    """解析 CLI 参数：数据集/模型路径与控制选项。"""
     parser = argparse.ArgumentParser(description="Online control with ROS2 robot (ACT or Diffusion Policy).")
     parser.add_argument(
         "--dataset",
@@ -68,6 +67,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="cuda", help="cuda|cpu|mps")
     parser.add_argument("--tolerance-s", type=float, default=0.5, help="覆盖时间容差（秒），默认按 fps 计算")
     parser.add_argument("--hz", type=float, default=30.0, help="控制频率")
+    parser.add_argument("--debug", action="store_true", help="打印调试信息")
     parser.add_argument(
         "--relative",
         action="store_true",
@@ -90,14 +90,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="推理时不向模型输入 observation.state（即使数据集中存在）。",
     )
-    """
-    parser.add_argument(
-        "--drop-state-names",
-        type=str,
-        default="gripper_joint.pos,end_effector.position.x,end_effector.position.y,end_effector.position.z,end_effector.orientation.x,end_effector.orientation.y,end_effector.orientation.z,end_effector.orientation.w",
-        help="可选，逗号分隔的 state 名称列表，这些维度将在推理时丢弃（其余状态保留）。传空字符串则保留全部状态。",
-    )
-    """
     return parser.parse_args()
 
 
@@ -189,11 +181,13 @@ def build_robot() -> ROS2Robot:
 
 
 def build_state_vector(meta: LeRobotDatasetMetadata, obs: Dict[str, float]) -> np.ndarray:
+    """根据数据集元信息的顺序构建 state 向量。"""
     names = meta.features.get("observation.state", {}).get("names", [])
     return np.array([obs.get(name, 0.0) for name in names], dtype=np.float32)
 
 
 def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> Dict[str, float]:
+    """将动作向量按元信息顺序映射为命名字典。"""
     names = meta.features.get("action", {}).get("names", [])
     return {name: float(action_vec[i]) for i, name in enumerate(names)}
 
@@ -237,13 +231,12 @@ def _filter_state_features(meta: LeRobotDatasetMetadata, drop_set: set[str]) -> 
             stats[k] = _slice_stat(v)
 
 
-def main() -> None:
-    args = parse_args()
+def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, torch.nn.Module, list[str], int | None]:
+    """加载训练配置/数据集元信息/策略模型，用于在线推理。"""
     dataset_root = args.dataset.expanduser().resolve()
     if not dataset_root.exists():
         raise FileNotFoundError(dataset_root)
 
-    # 加载训练配置
     sanitized_cfg_path = _sanitize_train_config(args.train_config)
     train_cfg = TrainPipelineConfig.from_pretrained(sanitized_cfg_path)
     train_cfg.dataset.root = str(dataset_root)
@@ -251,17 +244,14 @@ def main() -> None:
     if args.tolerance_s is not None:
         train_cfg.dataset.tolerance_s = args.tolerance_s
 
-    # 设置权重路径：优先使用显式 checkpoint，其次使用 train_config 所在的 pretrained_model 目录。
     if args.checkpoint:
         ckpt_path = args.checkpoint
         if (ckpt_path / "pretrained_model").is_dir():
             ckpt_path = ckpt_path / "pretrained_model"
     else:
-        # 如果传入的是 train_config.json，使用其父目录；若是目录，直接用。
         ckpt_path = args.train_config
         if ckpt_path.is_file():
             ckpt_path = ckpt_path.parent
-        # 若 train_config 不在 pretrained_model 内，尝试查找 last 软链
         if ckpt_path.name != "pretrained_model":
             last_dir = ckpt_path.parent / "last" / "pretrained_model"
             if last_dir.exists():
@@ -269,10 +259,8 @@ def main() -> None:
 
     train_cfg.policy.pretrained_path = str(ckpt_path)
 
-    # 仅加载元信息（含 stats 用于归一化）
     meta = LeRobotDatasetMetadata(train_cfg.dataset.repo_id, root=train_cfg.dataset.root)
 
-    # 应用ImageNet标准化（与训练时一致）
     if train_cfg.dataset.use_imagenet_stats:
         IMAGENET_STATS = {
             "mean": [[[0.485]], [[0.456]], [[0.406]]],
@@ -283,18 +271,15 @@ def main() -> None:
                 meta.stats[cam_key][stats_type] = torch.tensor(stats, dtype=torch.float32)
         print(f"[info] Applied ImageNet normalization stats to {meta.camera_keys}")
 
-    # 如果选择只用图像推理,移除状态特征以匹配无状态的模型配置
-    # 处理状态输入配置
     drop_state_arg = getattr(args, "drop_state_names", "")
     drop_set = set([s for s in drop_state_arg.split(",") if s.strip()]) if drop_state_arg else set()
-    # 如训练配置含有旧的 drop_state_indices，用索引也裁剪一次
     if SANITIZED_DROP_INDICES and "observation.state" in meta.features:
         names = meta.features["observation.state"].get("names", [])
-        # 仅当索引未覆盖全部维度时才按索引丢弃；若索引数等于或超过 state 维度，则忽略它们
         if len(SANITIZED_DROP_INDICES) < len(names):
             for idx in SANITIZED_DROP_INDICES:
                 if 0 <= idx < len(names):
                     drop_set.add(names[idx])
+
     if not USE_STATE_INPUT or args.no_state:
         meta.features.pop("observation.state", None)
         meta.stats.pop("observation.state", None)
@@ -303,23 +288,19 @@ def main() -> None:
     else:
         if drop_set:
             _filter_state_features(meta, drop_set)
-        # 如果过滤后没有 state，关闭开关
         if "observation.state" not in meta.features and "robot_state_feature" in train_cfg.policy.__dict__:
             train_cfg.policy.__dict__["robot_state_feature"] = False
         else:
-            # 同步 state 维度到策略配置，避免权重维度不一致
             state_names = meta.features.get("observation.state", {}).get("names", [])
             state_dim = len(state_names)
             if hasattr(train_cfg.policy, "input_shapes") and isinstance(train_cfg.policy.input_shapes, dict):
                 train_cfg.policy.input_shapes["observation.state"] = [state_dim]
 
-    # 创建策略和预后处理器，若出现 state/token 形状不匹配，自动回退为仅视觉
     def build_policy(cfg, meta_obj):
         return make_policy(cfg.policy, ds_meta=meta_obj)
 
     try:
         policy = build_policy(train_cfg, meta)
-        state_disabled = False
     except RuntimeError as e:
         msg = str(e)
         maybe_state_mismatch = (
@@ -333,30 +314,159 @@ def main() -> None:
             meta.stats.pop("observation.state", None)
             if "robot_state_feature" in train_cfg.policy.__dict__:
                 train_cfg.policy.__dict__["robot_state_feature"] = False
-            state_disabled = True
             policy = build_policy(train_cfg, meta)
         else:
             raise
 
-    # 获取策略实际使用的图像特征
-    policy_image_feats = list(policy.config.image_features.keys()) if hasattr(policy.config, 'image_features') else []
+    policy_image_feats = list(policy.config.image_features.keys()) if hasattr(policy.config, "image_features") else []
     print(f"[info] Policy image features: {policy_image_feats}")
     print(f"[info] Dataset features: {list(meta.features.keys())}")
 
-    # 不使用 preproc/postproc，policy.select_action 内部会处理标准化和反标准化
     policy.to(args.device)
     policy.eval()
-
-    # 重置策略状态（初始化 action queue）
     policy.reset()
-    print(f"[info] Policy reset, action queue initialized")
+    print("[info] Policy reset, action queue initialized")
+
+    action_names = meta.features.get("action", {}).get("names", [])
+    gripper_idx = action_names.index("gripper.position") if "gripper.position" in action_names else None
+
+    return train_cfg, meta, policy, policy_image_feats, gripper_idx
+
+
+def infer_action_vec(
+    policy,
+    meta: LeRobotDatasetMetadata,
+    policy_image_feats: list[str],
+    raw_obs: Dict[str, float],
+    device: str,
+    hz: float,
+) -> np.ndarray | None:
+    """执行一次策略推理并返回原始动作向量。"""
+    batch = {}
+    if USE_STATE_INPUT and "observation.state" in meta.features:
+        state = torch.from_numpy(build_state_vector(meta, raw_obs)).unsqueeze(0)
+        batch["observation.state"] = state
+
+    for cam_key in policy_image_feats:
+        cam_name = cam_key.replace("observation.images.", "")
+        cam_name_with_dot = cam_name.replace("_rgb", ".rgb")
+        candidates = [
+            raw_obs.get(cam_name_with_dot),
+            raw_obs.get(cam_name),
+            raw_obs.get(cam_key),
+        ]
+        img = None
+        for cand in candidates:
+            if cand is None:
+                continue
+            if isinstance(cand, dict):
+                img = cand.get("rgb") or cand.get("color") or cand.get("image")
+            else:
+                img = cand
+            if img is not None:
+                break
+
+        if img is None:
+            base_name = cam_name.replace("_rgb", "").replace(".rgb", "")
+            for key in raw_obs.keys():
+                if base_name in key:
+                    cand = raw_obs[key]
+                    if isinstance(cand, dict):
+                        img = cand.get("rgb") or cand.get("color") or cand.get("image")
+                    else:
+                        img = cand
+                    if img is not None:
+                        break
+
+        if img is None:
+            print(f"[ERROR] Could not find image for {cam_key}")
+            print(f"[DEBUG] Available obs keys: {list(raw_obs.keys())}")
+            time.sleep(1.0 / hz)
+            return None
+
+        if img.dtype != np.uint8:
+            img = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
+        chw = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+        batch[cam_key] = chw.unsqueeze(0)
+
+    if (not USE_STATE_INPUT or "observation.state" not in meta.features) and "observation.state" not in batch:
+        batch["observation.state"] = torch.zeros(1, 1, dtype=torch.float32)
+
+    required_imgs = policy_image_feats or meta.camera_keys
+    if required_imgs:
+        missing = [k for k in required_imgs if k not in batch]
+        if missing:
+            print(f"[warn] Missing images: {missing}")
+            time.sleep(1.0 / hz)
+            return None
+
+    for k, v in list(batch.items()):
+        if isinstance(v, torch.Tensor):
+            if v.dtype != torch.float32:
+                v = v.float()
+            if v.device.type != device:
+                v = v.to(device)
+            batch[k] = v
+
+    action = policy.select_action(batch)
+    action_vec = action.squeeze(0).cpu().numpy()
+    return action_vec
+
+
+def build_cmd_from_action_vec(
+    meta: LeRobotDatasetMetadata,
+    action_vec: np.ndarray,
+    raw_obs: Dict[str, float],
+    args,
+    gripper_idx: int | None,
+) -> Dict[str, float]:
+    """将动作向量转换为机器人命令字典，并应用可选覆盖。"""
+    cmd = build_action_dict(meta, action_vec)
+
+    if args.relative:
+        cmd["end_effector.position.x"] += raw_obs.get("end_effector.position.x", 0.0)
+        cmd["end_effector.position.y"] += raw_obs.get("end_effector.position.y", 0.0)
+        cmd["end_effector.position.z"] += raw_obs.get("end_effector.position.z", 0.0)
+
+    if gripper_idx is not None:
+        action_vec[gripper_idx] = np.clip(action_vec[gripper_idx], 0.0, 1.0)
+        if args.fixed_gripper is not None:
+            action_vec[gripper_idx] = np.clip(args.fixed_gripper, 0.0, 1.0)
+        elif args.auto_close_z is not None:
+            curr_z = raw_obs.get("end_effector.position.z")
+            if curr_z is not None and curr_z <= args.auto_close_z:
+                action_vec[gripper_idx] = 0.0
+        cmd["gripper.position"] = float(action_vec[gripper_idx])
+
+    return cmd
+
+
+def _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, distance) -> None:
+    """打印动作与位姿差分调试信息（仅在 --debug 时生效）。"""
+    if not args.debug:
+        return
+    print(f"[DEBUG] Raw action vector: {action_vec}")
+    print(f"  Z-axis (idx 2): {action_vec[2]:.6f}")
+    if gripper_idx is not None:
+        print(f"  Gripper (idx {gripper_idx}): {action_vec[gripper_idx]:.6f}")
+    if curr_xyz is not None:
+        curr_x, curr_y, curr_z = curr_xyz
+        target_x, target_y, target_z = target_xyz
+        delta_x, delta_y, delta_z = delta_xyz
+        print(f"Current XYZ: ({curr_x:.4f}, {curr_y:.4f}, {curr_z:.4f})")
+        print(f"Target  XYZ: ({target_x:.4f}, {target_y:.4f}, {target_z:.4f})")
+        print(f"Delta   XYZ: ({delta_x:.4f}, {delta_y:.4f}, {delta_z:.4f}), Distance: {distance:.4f}m")
+
+
+
+def main() -> None:
+    """在线控制主循环。"""
+    args = parse_args()
+    _train_cfg, meta, policy, policy_image_feats, gripper_idx = init_inference(args)
 
     robot = build_robot()
     robot.connect()
     print("✓ Robot connected, starting control loop...")
-
-    action_names = meta.features.get("action", {}).get("names", [])
-    gripper_idx = action_names.index("gripper.position") if "gripper.position" in action_names else None
 
     period = 1.0 / args.hz
     try:
@@ -364,152 +474,45 @@ def main() -> None:
             t0 = time.time()
             raw_obs = robot.get_observation()
 
-            # 组装 batch，包含 state 和相机
-            batch = {}
-            if USE_STATE_INPUT and "observation.state" in meta.features:
-                state = torch.from_numpy(build_state_vector(meta, raw_obs)).unsqueeze(0)
-                # 先保留在 CPU，预处理后统一搬到 device
-                batch["observation.state"] = state
-            # 加载相机图像
-            for cam_key in policy_image_feats:
-                # 从数据集键名提取相机名称
-                # "observation.images.zed_rgb" -> "zed_rgb" -> "zed.rgb"
-                # "observation.images.global_camera.rgb" -> "global_camera.rgb" -> "global_camera.rgb"
-                cam_name = cam_key.replace("observation.images.", "")
-                # 将 "_rgb" 转回 ".rgb" 以匹配 ROS2 观测键名
-                cam_name_with_dot = cam_name.replace("_rgb", ".rgb")
+            action_vec = infer_action_vec(
+                policy=policy,
+                meta=meta,
+                policy_image_feats=policy_image_feats,
+                raw_obs=raw_obs,
+                device=args.device,
+                hz=args.hz,
+            )
+            if action_vec is None:
+                continue
 
-                # 尝试获取图像（按优先级尝试不同键名），兼容 dict 结构
-                candidates = [
-                    raw_obs.get(cam_name_with_dot),  # 如 "zed.rgb"
-                    raw_obs.get(cam_name),           # 如 "zed_rgb"
-                    raw_obs.get(cam_key),            # 完整键名
-                ]
-                img = None
-                for cand in candidates:
-                    if cand is None:
-                        continue
-                    if isinstance(cand, dict):  # 例如 {"rgb":..., "depth":...}
-                        img = cand.get("rgb") or cand.get("color") or cand.get("image")
-                    else:
-                        img = cand
-                    if img is not None:
-                        break
-                if img is None:
-                    # 模糊匹配
-                    base_name = cam_name.replace("_rgb", "").replace(".rgb", "")
-                    for key in raw_obs.keys():
-                        if base_name in key:
-                            cand = raw_obs[key]
-                            if isinstance(cand, dict):
-                                img = cand.get("rgb") or cand.get("color") or cand.get("image")
-                            else:
-                                img = cand
-                            if img is not None:
-                                break
+            cmd = build_cmd_from_action_vec(meta, action_vec, raw_obs, args, gripper_idx)
 
-                if img is None:
-                    print(f"[ERROR] Could not find image for {cam_key}")
-                    print(f"[DEBUG] Available obs keys: {list(raw_obs.keys())}")
-                    continue
-
-                # 处理 RGB 图像：HWC BGR/uint8 -> CHW float32 [0, 1]
-                if img.dtype != np.uint8:
-                    img = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
-                chw = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
-                batch[cam_key] = chw.unsqueeze(0)  # 先保留在 CPU
-
-            # 如果关闭状态输入或元信息中没有 state，为模型提供占位 state（用于形状对齐）
-            if (not USE_STATE_INPUT or "observation.state" not in meta.features) and "observation.state" not in batch:
-                batch["observation.state"] = torch.zeros(1, 1, dtype=torch.float32)
-
-            # 检查必需的图像是否都已加载
-            required_imgs = policy_image_feats or meta.camera_keys
-            if required_imgs:
-                missing = [k for k in required_imgs if k not in batch]
-                if missing:
-                    print(f"[warn] Missing images: {missing}")
-                    time.sleep(period)
-                    continue
-
-            # DEBUG: 验证图像张量是否存在
-            for cam_key in policy_image_feats:
-                if cam_key in batch:
-                    img_tensor = batch[cam_key]
-                    print(f"[DEBUG] Image tensor '{cam_key}' shape: {img_tensor.shape}, dtype: {img_tensor.dtype}")
-                    print(f"[DEBUG] Image value range: [{img_tensor.min():.4f}, {img_tensor.max():.4f}]")
-                else:
-                    print(f"[ERROR] Image tensor '{cam_key}' NOT in batch!")
-
-            # 确保所有张量都是 float32 并在正确的设备上
-            for k, v in list(batch.items()):
-                if isinstance(v, torch.Tensor):
-                    if v.dtype != torch.float32:
-                        v = v.float()
-                    if v.device.type != args.device:
-                        v = v.to(args.device)
-                    batch[k] = v
-
-            # 直接调用 policy.select_action (内部会进行标准化)
-            # 注意: 不要使用 preproc/postproc, 否则会双重标准化!
-            action = policy.select_action(batch)
-
-            # 检查 action queue 状态
-            if hasattr(policy, '_action_queue'):
-                print(f"[DEBUG] Action queue length: {len(policy._action_queue)}")
-
-            # select_action 返回的是物理空间的动作，直接使用
-            action_vec = action.squeeze(0).cpu().numpy()
-
-            # 打印原始动作向量以调试
-            print(f"[DEBUG] Raw action vector: {action_vec}")
-            print(f"  Z-axis (idx 2): {action_vec[2]:.6f}")
-            if gripper_idx is not None:
-                print(f"  Gripper (idx {gripper_idx}): {action_vec[gripper_idx]:.6f}")
-
-            # 构建动作指令
-            cmd = build_action_dict(meta, action_vec)
-
-            # 相对模式：将目标位置加到当前位置上
-            if args.relative:
-                cmd["end_effector.position.x"] += raw_obs.get("end_effector.position.x", 0.0)
-                cmd["end_effector.position.y"] += raw_obs.get("end_effector.position.y", 0.0)
-                cmd["end_effector.position.z"] += raw_obs.get("end_effector.position.z", 0.0)
-
-            # 打印调试信息
             curr_x = raw_obs.get("end_effector.position.x")
             curr_y = raw_obs.get("end_effector.position.y")
             curr_z = raw_obs.get("end_effector.position.z")
 
-            target_x = cmd.get("end_effector.position.x", 0)
-            target_y = cmd.get("end_effector.position.y", 0)
-            target_z = cmd.get("end_effector.position.z", 0)
+            target_x = cmd.get("end_effector.position.x", 0.0)
+            target_y = cmd.get("end_effector.position.y", 0.0)
+            target_z = cmd.get("end_effector.position.z", 0.0)
 
+            curr_xyz = None
+            target_xyz = None
+            delta_xyz = None
+            distance = None
             if curr_x is not None:
                 delta_x = target_x - curr_x
                 delta_y = target_y - curr_y
                 delta_z = target_z - curr_z
                 distance = np.linalg.norm([delta_x, delta_y, delta_z])
-                print(f"Current XYZ: ({curr_x:.4f}, {curr_y:.4f}, {curr_z:.4f})")
-                print(f"Target  XYZ: ({target_x:.4f}, {target_y:.4f}, {target_z:.4f})")
-                print(f"Delta   XYZ: ({delta_x:.4f}, {delta_y:.4f}, {delta_z:.4f}), Distance: {distance:.4f}m")
-            # 将末端夹抓输出限制/覆盖
-            if gripper_idx is not None:
-                action_vec[gripper_idx] = np.clip(action_vec[gripper_idx], 0.0, 1.0)
-                if args.fixed_gripper is not None:
-                    action_vec[gripper_idx] = np.clip(args.fixed_gripper, 0.0, 1.0)
-                elif args.auto_close_z is not None:
-                    curr_z = raw_obs.get("end_effector.position.z")
-                    if curr_z is not None and curr_z <= args.auto_close_z:
-                        action_vec[gripper_idx] = 0.0
-                # 更新 cmd
-                cmd["gripper.position"] = float(action_vec[gripper_idx])
+                curr_xyz = (curr_x, curr_y, curr_z)
+                target_xyz = (target_x, target_y, target_z)
+                delta_xyz = (delta_x, delta_y, delta_z)
 
-            print(f"Gripper cmd: {cmd.get('gripper.position', 'N/A')}")
-
+            _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, distance)
+            if args.debug:
+                print(f"Gripper cmd: {cmd.get('gripper.position', 'N/A')}")
             robot.send_action(cmd)
 
-            # 维持频率
             elapsed = time.time() - t0
             sleep_t = period - elapsed
             if sleep_t > 0:
