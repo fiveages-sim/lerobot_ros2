@@ -33,7 +33,7 @@ from lerobot_robot_ros2 import (
 # ---------------------------------------------------------------------------
 # Configuration parameters
 # ---------------------------------------------------------------------------
-OBJECT_TF_TOPIC = "/isaac/tf"   # TF topic carrying the object transform
+OBJECT_TF_TOPIC = "/isaac/appletf"   # TF topic carrying the object transform
 TARGET_FRAME_ID = "apple"      # Child frame name for the object pose
 
 APPROACH_CLEARANCE = 0.12       # Meters above object before descending
