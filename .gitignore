@@ -40,3 +40,4 @@ log/
 # Dataset directories (录制的数据集，通常很大)
 dataset/
 outputs/
+raw_dataset/

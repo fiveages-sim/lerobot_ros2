@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from pathlib import Path
 import sys
@@ -117,6 +118,16 @@ def _parse_episode_list(ep_str: str | None) -> list[int] | None:
     return [int(ep_str)]
 
 
+def _load_state_names(dataset_root: Path) -> list[str] | None:
+    info_path = dataset_root / "meta" / "info.json"
+    if not info_path.is_file():
+        return None
+    info = json.loads(info_path.read_text())
+    state = info.get("features", {}).get("observation.state", {})
+    names = state.get("names")
+    return list(names) if isinstance(names, list) else None
+
+
 def main() -> None:
     init_logging()
     args = parse_args()
@@ -150,8 +161,29 @@ def main() -> None:
         )
         policy_cfg.images_only = args.images_only
         if args.drop_ee_state:
-            # Drop last 8 dims of observation.state (gripper + end-effector pose).
-            policy_cfg.drop_state_indices = list(range(18))
+            # Drop gripper + end-effector pose/rotation dims based on dataset meta.
+            state_names = _load_state_names(dataset_path)
+            if state_names:
+                drop_names = [
+                    "gripper_joint.pos",
+                    "end_effector.position.x",
+                    "end_effector.position.y",
+                    "end_effector.position.z",
+                    "end_effector.orientation.x",
+                    "end_effector.orientation.y",
+                    "end_effector.orientation.z",
+                    "end_effector.orientation.w",
+                    "end_effector.rot6d_0",
+                    "end_effector.rot6d_1",
+                    "end_effector.rot6d_2",
+                    "end_effector.rot6d_3",
+                    "end_effector.rot6d_4",
+                    "end_effector.rot6d_5",
+                ]
+                policy_cfg.drop_state_indices = [i for i, n in enumerate(state_names) if n in drop_names]
+            else:
+                # Fallback to dropping the tail if meta is missing.
+                policy_cfg.drop_state_indices = list(range(12, 22))
         policy_desc = f"ACT (chunk_size={args.chunk_size}, n_action_steps={args.n_action_steps})"
     elif args.policy == "diffusion":
         policy_cfg = DiffusionConfig(

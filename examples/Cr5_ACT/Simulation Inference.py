@@ -6,7 +6,13 @@
 robot/camera 配置。若你的话题/关节名不同，请按需修改下面的 ROS2 配置。
 
 用法示例：
-    CUDA_VISIBLE_DEVICES=0 python examples/demo_control.py --dataset dataset/grasp_dataset_50_no_depth --train-config outputs/act_run2/checkpoints/last/pretrained_model/train_config.json --checkpoint outputs/act_run2/checkpoints/last --device cuda
+    python "examples/Cr5_ACT/Simulation Inference.py" \
+  --dataset dataset/grasp_raw_1769487425_lerobot_v2 \
+  --train-config outputs/2026-01-27/08-26-17_act/checkpoints/last/pretrained_model/train_config.json \
+  --checkpoint outputs/2026-01-27/08-26-17_act/checkpoints/last \
+  --device cuda \
+  --hz 30
+
 """
 
 from __future__ import annotations
@@ -20,6 +26,8 @@ from typing import Dict
 
 import numpy as np
 import torch
+
+from pytorch3d.transforms import matrix_to_quaternion, matrix_to_rotation_6d, quaternion_to_matrix, rotation_6d_to_matrix
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
@@ -113,16 +121,25 @@ def _sanitize_train_config(cfg_path: Path) -> Path:
     policy = data.get("policy")
     if isinstance(policy, dict):
         # 记录并移除旧字段
-        if "drop_state_indices" in policy and isinstance(policy["drop_state_indices"], list):
+        if "drop_state_indices" in policy:
             try:
                 global SANITIZED_DROP_INDICES
-                SANITIZED_DROP_INDICES = [int(i) for i in policy["drop_state_indices"]]
+                if isinstance(policy.get("drop_state_indices"), list):
+                    SANITIZED_DROP_INDICES = [int(i) for i in policy["drop_state_indices"]]
+                else:
+                    SANITIZED_DROP_INDICES = []
             except Exception:
                 SANITIZED_DROP_INDICES = []
             policy.pop("drop_state_indices", None)
             changed = True
         if "drop_state_names" in policy:
             policy.pop("drop_state_names", None)
+            changed = True
+
+    dataset = data.get("dataset")
+    if isinstance(dataset, dict):
+        if "tolerance_s" in dataset:
+            dataset.pop("tolerance_s", None)
             changed = True
 
     if not changed:
@@ -140,16 +157,25 @@ def build_robot() -> ROS2Robot:
     """
     按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
     """
-    CAMERA_NAME = "zed"  # 改为与新数据集一致
+    GLOBAL_CAMERA_NAME = "global"  # 改为与新数据集一致
+    WRIST_CAMERA_NAME = "wrist"
     camera_config = {
-        CAMERA_NAME: ROS2CameraConfig(
+        GLOBAL_CAMERA_NAME: ROS2CameraConfig(
             topic_name="/global_camera/rgb",  # 话题未变
-            node_name="lerobot_zed_camera",
+            node_name="lerobot_global_camera",
             width=1280,
             height=720,
             fps=FPS,
             encoding="bgr8",
-        )
+        ),
+        WRIST_CAMERA_NAME: ROS2CameraConfig(
+            topic_name="/wrist_camera/rgb",
+            node_name="lerobot_wrist_camera",
+            width=1280,
+            height=720,
+            fps=FPS,
+            encoding="bgr8",
+        ),
     }
     ros2_interface_config = ROS2RobotInterfaceConfig(
         joint_states_topic="/joint_states",
@@ -190,6 +216,64 @@ def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> D
     """将动作向量按元信息顺序映射为命名字典。"""
     names = meta.features.get("action", {}).get("names", [])
     return {name: float(action_vec[i]) for i, name in enumerate(names)}
+
+
+def _quat_xyzw_to_rot6d(quat_xyzw: np.ndarray) -> np.ndarray:
+    quat = np.asarray(quat_xyzw, dtype=np.float32)
+    if quat.shape[-1] != 4:
+        raise ValueError(f"Expected quaternion with 4 elements, got shape {quat.shape}")
+    quat = np.atleast_2d(quat)
+    # pytorch3d expects (w, x, y, z)
+    quat_wxyz = np.stack([quat[..., 3], quat[..., 0], quat[..., 1], quat[..., 2]], axis=-1)
+    rot_mats = quaternion_to_matrix(torch.as_tensor(quat_wxyz, dtype=torch.float32))
+    rot6d = matrix_to_rotation_6d(rot_mats).detach().cpu().numpy().astype(np.float32)
+    return np.atleast_2d(rot6d)
+
+
+def _rot6d_to_quat_xyzw(rot6d: np.ndarray) -> np.ndarray:
+    rot = np.asarray(rot6d, dtype=np.float32)
+    if rot.shape[-1] != 6:
+        raise ValueError(f"Expected rot6d with 6 elements, got shape {rot.shape}")
+    rot = np.atleast_2d(rot)
+    rot_mats = rotation_6d_to_matrix(torch.as_tensor(rot, dtype=torch.float32))
+    quat_wxyz = matrix_to_quaternion(rot_mats)
+    quat_wxyz = quat_wxyz.detach().cpu().numpy().astype(np.float32)
+    quat_xyzw = np.stack([quat_wxyz[..., 1], quat_wxyz[..., 2], quat_wxyz[..., 3], quat_wxyz[..., 0]], axis=-1)
+    return np.atleast_2d(quat_xyzw)
+
+
+def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMetadata) -> None:
+    names = meta.features.get("observation.state", {}).get("names", [])
+    if not any(n.startswith("end_effector.rot6d_") for n in names):
+        return
+    quat_vals = [
+        raw_obs.get("end_effector.orientation.x"),
+        raw_obs.get("end_effector.orientation.y"),
+        raw_obs.get("end_effector.orientation.z"),
+        raw_obs.get("end_effector.orientation.w"),
+    ]
+    if any(v is None for v in quat_vals):
+        return
+    quat = np.asarray(quat_vals, dtype=np.float32)
+    if np.any(np.isnan(quat)):
+        return
+    rot6d = _quat_xyzw_to_rot6d(quat)[0]
+    for i in range(6):
+        raw_obs[f"end_effector.rot6d_{i}"] = float(rot6d[i])
+
+
+def _maybe_convert_rot6d_action(cmd: Dict[str, float]) -> None:
+    rot6d_keys = [f"end_effector.rot6d_{i}" for i in range(6)]
+    if not all(k in cmd for k in rot6d_keys):
+        return
+    rot6d = np.array([cmd[k] for k in rot6d_keys], dtype=np.float32)
+    quat_xyzw = _rot6d_to_quat_xyzw(rot6d)[0]
+    cmd["end_effector.orientation.x"] = float(quat_xyzw[0])
+    cmd["end_effector.orientation.y"] = float(quat_xyzw[1])
+    cmd["end_effector.orientation.z"] = float(quat_xyzw[2])
+    cmd["end_effector.orientation.w"] = float(quat_xyzw[3])
+    for k in rot6d_keys:
+        cmd.pop(k, None)
 
 
 def _filter_state_features(meta: LeRobotDatasetMetadata, drop_set: set[str]) -> None:
@@ -470,9 +554,17 @@ def main() -> None:
 
     period = 1.0 / args.hz
     try:
+        missing_warned = False
         while True:
             t0 = time.time()
             raw_obs = robot.get_observation()
+            _maybe_inject_rot6d_in_obs(raw_obs, meta)
+            if not missing_warned and USE_STATE_INPUT and "observation.state" in meta.features:
+                expected = meta.features.get("observation.state", {}).get("names", [])
+                missing = [name for name in expected if name not in raw_obs]
+                if missing:
+                    print(f"[WARN] Missing observation.state keys: {missing}")
+                missing_warned = True
 
             action_vec = infer_action_vec(
                 policy=policy,
@@ -486,6 +578,7 @@ def main() -> None:
                 continue
 
             cmd = build_cmd_from_action_vec(meta, action_vec, raw_obs, args, gripper_idx)
+            _maybe_convert_rot6d_action(cmd)
 
             curr_x = raw_obs.get("end_effector.position.x")
             curr_y = raw_obs.get("end_effector.position.y")

@@ -2,19 +2,20 @@
 """
 ROS2 Grasp Recording Demo using LeRobot.
 
-python examples/grasp_record.py
+python examples/Cr5_ACT/auto_grasp_record.py
 
-This script combines the grasp routine from demo_grasp.py with the dataset
-capture utilities from demo_record.py. It performs the four-step grasp sequence
-(approach, descend, close gripper, lift) while recording a fine-grained dataset
-that follows the LeRobot format. Each recorded frame stores the current
-observation (state + images) and an action defined as the NEXT frame's
-end-effector pose plus gripper state (the final frame reuses its own pose).
+
+This script combines the grasp routine from demo_grasp.py with dataset capture.
+It performs a multi-step grasp sequence while recording raw frames (state +
+images + pose metadata) to disk. The raw data can later be converted offline
+into the LeRobot format by `convert_raw_to_lerobot.py`.
 """
 
 from __future__ import annotations
 
+import json
 import pickle
+import shutil
 import signal
 import sys
 import threading
@@ -31,8 +32,6 @@ from sensor_msgs.msg import Image, CameraInfo
 from tf2_msgs.msg import TFMessage
 from cv_bridge import CvBridge
 
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot_robot_ros2 import (
     ControlType,
     ROS2Robot,
@@ -52,11 +51,13 @@ POSE_TOL_ORI = 0.08        # 弧度 (~4.6°)
 GRIPPER_TOL = 0.05         # 开合容差（0~1）
 RETURN_PAUSE = 1.0         # 回到初始位姿时的短暂停留（秒）
 
-CAMERA_NAME = "zed"  # BridgeVLA expects zed_* naming
+CAMERA_NAME = "global"  # BridgeVLA expects zed_* naming
 CAMERA_TOPIC = "/global_camera/rgb"
 DEPTH_TOPIC = "/global_camera/depth"
 DEPTH_INFO_TOPIC = "/global_camera/camera_info"
-OBJECT_TF_TOPIC = "/isaac/tf"
+WRIST_CAMERA_NAME = "wrist"
+WRIST_CAMERA_TOPIC = "/wrist_camera/rgb"
+OBJECT_TF_TOPIC = "/isaac/appletf"
 TARGET_FRAME_ID = "apple"
 USE_OBJECT_ORIENTATION = False
 APPROACH_CLEARANCE = 0.12   # Approach 高度：目标上方 120mm
@@ -67,9 +68,9 @@ GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
 
 # 释放位置配置 (完整的抓取-移动-释放任务)
-RELEASE_POSITION_X = -0.6195530891418457
-RELEASE_POSITION_Y = 0.3092135787010193
-RELEASE_POSITION_Z = 0.2825888991355896
+RELEASE_POSITION_X = -0.5011657941743888
+RELEASE_POSITION_Y = 0.36339369774887115
+RELEASE_POSITION_Z = 0.37857743925383547
 LIFT_HEIGHT = 0.20          # 抬起高度（相对于抓取位置）
 TRANSPORT_HEIGHT = 0.4     # 移动时的安全高度
 RETRACT_HEIGHT = 0.20       # 释放后撤离高度
@@ -278,7 +279,15 @@ def build_robot_config() -> ROS2RobotConfig:
             encoding="bgr8",
             depth_topic_name=DEPTH_TOPIC,
             depth_encoding="32FC1",
-        )
+        ),
+        WRIST_CAMERA_NAME: ROS2CameraConfig(
+            topic_name=WRIST_CAMERA_TOPIC,
+            node_name="lerobot_wrist_camera",
+            width=1280,
+            height=720,
+            fps=FPS,
+            encoding="bgr8",
+        ),
     }
     ros2_interface = ROS2RobotInterfaceConfig(
         joint_states_topic="/joint_states",
@@ -348,13 +357,6 @@ def pose_from_observation(obs: dict[str, float]) -> Pose:
 def action_from_observation(obs: dict[str, float], gripper: float) -> dict[str, float]:
     pose = pose_from_observation(obs)
     return action_from_pose(pose, gripper)
-
-
-def action_dict_to_array(action: dict[str, float], include_gripper: bool) -> np.ndarray:
-    values = [action.get(key, 0.0) for key in ACTION_KEYS]
-    if include_gripper:
-        values.append(action.get("gripper.position", 0.0))
-    return np.array(values, dtype=np.float32)
 
 
 def pose_error(
@@ -460,30 +462,72 @@ def save_pointcloud_frame(
         pickle.dump(pcd, f)
 
 
-def build_dataset(robot: ROS2Robot) -> tuple[LeRobotDataset, Path]:
-    features = {}
-    features.update(hw_to_dataset_features(robot.action_features, "action"))
-    features.update(hw_to_dataset_features(robot.observation_features, "observation"))
-    # Normalize camera feature keys to BridgeVLA style (observation.images.<cam>_rgb)
-    # Drop depth images from the dataset (我们保留原始深度仅用于点云)
-    remapped = {}
-    for key, info in features.items():
-        new_key = key.replace(".rgb", "_rgb").replace(".depth", "_depth")
-        if new_key.endswith("_depth"):
-            continue
-        remapped[new_key] = info
-    features = remapped
-    dataset_root = Path.cwd() / "dataset"
-    dataset_root.mkdir(parents=True, exist_ok=True)
-    dataset_dir = dataset_root / f"grasp_dataset_{int(time.time())}"
-    dataset = LeRobotDataset.create(
-        repo_id=str(dataset_dir),
-        fps=FPS,
-        features=features,
-        robot_type=robot.name,
-        use_videos=True,
+def build_state_names(robot: ROS2Robot) -> list[str]:
+    """Return observation.state names aligned with extract_observation_frame()."""
+    names = []
+    cfg = robot.config.ros2_interface
+    for joint in cfg.joint_names:
+        names.append(f"{joint}.pos")
+    for joint in cfg.joint_names:
+        names.append(f"{joint}.vel")
+    if cfg.gripper_enabled:
+        names.append(f"{cfg.gripper_joint_name}.pos")
+    names.extend(
+        [
+            "end_effector.position.x",
+            "end_effector.position.y",
+            "end_effector.position.z",
+            "end_effector.orientation.x",
+            "end_effector.orientation.y",
+            "end_effector.orientation.z",
+            "end_effector.orientation.w",
+        ]
     )
-    return dataset, dataset_dir
+    return names
+
+
+def build_raw_output(robot: ROS2Robot, initial_obs: dict[str, float]) -> Path:
+    raw_root = Path.cwd() / "raw_dataset" / f"grasp_raw_{int(time.time())}"
+    raw_root.mkdir(parents=True, exist_ok=True)
+    (raw_root / "episodes").mkdir(parents=True, exist_ok=True)
+
+    camera_shapes = {}
+    for cam_name in robot.config.cameras.keys():
+        rgb_key = f"{cam_name}.rgb"
+        img = None
+        if rgb_key in initial_obs:
+            img = initial_obs[rgb_key]
+        elif cam_name in initial_obs:
+            img = initial_obs[cam_name]
+        if isinstance(img, np.ndarray):
+            camera_shapes[cam_name] = list(img.shape)
+
+    meta = {
+        "fps": FPS,
+        "robot_type": robot.name,
+        "task_name": TASK_NAME,
+        "action_keys": ACTION_KEYS,
+        "include_gripper": robot.config.ros2_interface.gripper_enabled,
+        "state_names": build_state_names(robot),
+        "camera_shapes": camera_shapes,
+        "camera_names": list(robot.config.cameras.keys()),
+    }
+    (raw_root / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    return raw_root
+
+
+def cleanup_episode(raw_root: Path, episode_index: int) -> None:
+    """Remove episode data (frames/images) and any keypoint pointclouds."""
+    episode_dir = raw_root / "episodes" / f"episode_{episode_index:06d}"
+    if episode_dir.exists():
+        shutil.rmtree(episode_dir, ignore_errors=True)
+
+    points_root = raw_root / "points"
+    if points_root.exists():
+        target_suffix = f"episode_{episode_index:06d}"
+        for path in points_root.rglob(target_suffix):
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
 
 
 def extract_observation_frame(
@@ -499,9 +543,6 @@ def extract_observation_frame(
         obs_state.append(obs.get(f"{joint}.pos", 0.0))
     for joint in cfg.joint_names:
         obs_state.append(obs.get(f"{joint}.vel", 0.0))
-    for joint in cfg.joint_names:
-        obs_state.append(obs.get(f"{joint}.effort", 0.0))
-
     gripper_pos = 0.0
     if cfg.gripper_enabled:
         gripper_pos = obs.get(f"{cfg.gripper_joint_name}.pos", 0.0)
@@ -592,17 +633,20 @@ def main() -> None:
             fx, fy, cx, cy = intrinsics
             print(f"[OK] Camera intrinsics received: fx={fx:.2f}, fy={fy:.2f}, cx={cx:.2f}, cy={cy:.2f}")
 
-        dataset, dataset_path = build_dataset(robot)
-        include_gripper = robot.config.ros2_interface.gripper_enabled
-        print(f"[OK] Dataset initialized at {dataset_path}")
-
         initial_obs = robot.get_observation()
+        raw_root = build_raw_output(robot, initial_obs)
+        print(f"[OK] Raw data will be saved to {raw_root}")
+
         initial_pose = pose_from_observation(initial_obs)
         initial_action_open = action_from_pose(initial_pose, GRIPPER_OPEN)
         initial_action_closed = action_from_pose(initial_pose, GRIPPER_CLOSED)
 
-        for episode in range(loops):
-            print(f"=== Recording episode {episode + 1}/{loops} ===")
+        kept_episode = 0
+        attempt = 0
+        while kept_episode < loops:
+            episode_index = kept_episode
+            attempt += 1
+            print(f"=== Recording episode {kept_episode + 1}/{loops} (attempt {attempt}) ===")
             command_counter = 0
             pcd_save_idx = 0  # 点云文件按保存顺序递增命名
             print("Waiting for object pose TF...")
@@ -689,7 +733,15 @@ def main() -> None:
                 ("8-Retract", action_from_pose(retract_pose, GRIPPER_OPEN)),
             ]
 
-            recorded_frames: list[dict] = []
+            episode_dir = raw_root / "episodes" / f"episode_{episode_index:06d}"
+            frames_dir = episode_dir / "frames"
+            images_dir = episode_dir / "images"
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            images_dir.mkdir(parents=True, exist_ok=True)
+            frame_meta_path = episode_dir / "frames.jsonl"
+            frame_meta_file = frame_meta_path.open("w", encoding="utf-8")
+
+            recorded_count = 0
 
             pending_keypoint: Optional[dict] = None
 
@@ -699,7 +751,6 @@ def main() -> None:
                 cmd_gripper = action.get("gripper.position", 0.0)
                 pending_keypoint = {
                     "command_index": command_counter,
-                    "action_vec": action_dict_to_array(action, include_gripper),
                 }
                 command_counter += 1
                 start = time.time()
@@ -707,10 +758,7 @@ def main() -> None:
                 while True:
                     obs = robot.get_observation()
                     frame, ee_pose, gripper = extract_observation_frame(robot, obs)
-                    frame["_ee_pose"] = ee_pose
-                    frame["_gripper"] = gripper
-                    frame["_cmd_gripper"] = cmd_gripper
-                    frame_idx = len(recorded_frames)
+                    frame_idx = recorded_count
                     if ENABLE_KEYPOINT_PCD and pending_keypoint is not None:
                         # Get raw depth directly from ROS2 topic (32FC1, in meters)
                         depth_raw = depth_listener.get_latest_depth()
@@ -738,8 +786,8 @@ def main() -> None:
 
                         # Save point cloud only at keypoints
                         save_pointcloud_frame(
-                            dataset_path,
-                            episode,
+                            raw_root,
+                            episode_index,
                             pcd_save_idx,
                             depth_raw,
                             intrinsics,
@@ -752,7 +800,51 @@ def main() -> None:
                         # 不采集点云时也要清掉 pending_keypoint，避免后续报错
                         pending_keypoint = None
 
-                    recorded_frames.append(frame)
+                    # Save raw frame data (state + pose + gripper + timestamp)
+                    ee_pose_arr = np.array(
+                        [
+                            ee_pose["x"],
+                            ee_pose["y"],
+                            ee_pose["z"],
+                            ee_pose["qx"],
+                            ee_pose["qy"],
+                            ee_pose["qz"],
+                            ee_pose["qw"],
+                        ],
+                        dtype=np.float32,
+                    )
+                    frame_file = frames_dir / f"frame_{frame_idx:06d}.npz"
+                    np.savez_compressed(
+                        frame_file,
+                        observation_state=frame["observation.state"],
+                        ee_pose=ee_pose_arr,
+                        gripper=np.array([gripper], dtype=np.float32),
+                        cmd_gripper=np.array([cmd_gripper], dtype=np.float32),
+                        timestamp=np.array([time.time()], dtype=np.float64),
+                    )
+
+                    # Save RGB images per camera (as .npy to avoid extra dependencies)
+                    image_records = {}
+                    for cam_name in robot.config.cameras.keys():
+                        img = frame.get(f"observation.images.{cam_name}_rgb")
+                        if img is None:
+                            img = frame.get(f"observation.images.{cam_name}")
+                        if isinstance(img, np.ndarray):
+                            cam_dir = images_dir / cam_name
+                            cam_dir.mkdir(parents=True, exist_ok=True)
+                            img_path = cam_dir / f"frame_{frame_idx:06d}.npy"
+                            np.save(img_path, img)
+                            image_records[cam_name] = str(
+                                Path("images") / cam_name / f"frame_{frame_idx:06d}.npy"
+                            )
+
+                    frame_meta = {
+                        "frame_index": frame_idx,
+                        "state_path": str(Path("frames") / f"frame_{frame_idx:06d}.npz"),
+                        "images": image_records,
+                    }
+                    frame_meta_file.write(json.dumps(frame_meta, ensure_ascii=False) + "\n")
+                    recorded_count += 1
                     # 判定是否到达目标：连续 3 帧满足容差即进入下一阶段（不考虑夹爪误差）
                     pos_err, ori_err, grip_err = pose_error(
                         obs, action, POSE_TOL_POS, POSE_TOL_ORI, GRIPPER_TOL
@@ -779,44 +871,17 @@ def main() -> None:
                         f"No frame captured after sending action index {pending_keypoint['command_index']}"
                     )
 
-            if not recorded_frames:
+            frame_meta_file.close()
+
+            if recorded_count == 0:
                 raise RuntimeError("No frames captured during grasp sequence.")
 
-            for idx, frame in enumerate(recorded_frames):
-                if idx < len(recorded_frames) - 1:
-                    ref = recorded_frames[idx + 1]
-                else:
-                    ref = recorded_frames[idx] 
-
-                pose = ref["_ee_pose"]
-                action_dict = {
-                    "end_effector.position.x": pose["x"],
-                    "end_effector.position.y": pose["y"],
-                    "end_effector.position.z": pose["z"],
-                    "end_effector.orientation.x": pose["qx"],
-                    "end_effector.orientation.y": pose["qy"],
-                    "end_effector.orientation.z": pose["qz"],
-                    "end_effector.orientation.w": pose["qw"],
-                }
-                if include_gripper:
-                    action_dict["gripper.position"] = ref.get("_cmd_gripper", ref["_gripper"])
-
-                frame["action"] = action_dict_to_array(action_dict, include_gripper)
-                del frame["_ee_pose"]
-                del frame["_gripper"]
-                if "_cmd_gripper" in frame:
-                    del frame["_cmd_gripper"]
-                dataset.add_frame(frame)
-
-            dataset.save_episode()
-            print(f"[OK] Episode saved with {len(recorded_frames)} frames.")
-
-            # Remove empty images folder (all images are stored in videos/)
-            import shutil
-            images_dir = dataset_path / "images"
-            if images_dir.exists():
-                shutil.rmtree(images_dir)
-                print("[Cleanup] Removed empty images/ folder")
+            print(f"[OK] Episode raw saved with {recorded_count} frames.")
+            delete_input = input("Delete this episode data? [y/N]: ").strip().lower()
+            keep_episode = delete_input not in {"y", "yes"}
+            if not keep_episode:
+                cleanup_episode(raw_root, episode_index)
+                print(f"[Cleanup] Episode {kept_episode + 1} removed.")
 
             if robot.config.ros2_interface.gripper_enabled:
                 print("Opening gripper before returning to initial pose...")
@@ -834,10 +899,13 @@ def main() -> None:
                 robot.send_action(initial_action_closed)
                 time.sleep(RETURN_PAUSE)
 
-            if pause_between_episodes and episode < loops - 1:
+            if keep_episode:
+                kept_episode += 1
+
+            if pause_between_episodes and kept_episode < loops:
                 input("Press Enter to start the next episode...")
 
-        print(f"[OK] Dataset available at: {dataset_path}")
+        print(f"[OK] Raw dataset available at: {raw_root}")
 
     except Exception as exc:
         print(f"[ERROR] Recording failed: {exc}")

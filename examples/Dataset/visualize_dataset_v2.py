@@ -8,7 +8,7 @@ scalars are logged per-dimension, and camera frames are displayed as RGB images.
 
 Usage:
     python examples/visualize_dataset_v2.py /path/to/dataset --episode-index 0 --batch-size 8
-    python examples/visualize_dataset_v2.py dataset/all_dataset_grasp100 --episode-index 0 --batch-size 8
+    python examples/Dataset/visualize_dataset_v2.py dataset/all_dataset_grasp100 --episode-index 0 --batch-size 8
 """
 
 from __future__ import annotations
