@@ -11,6 +11,7 @@ estimators without using a higher-level motion planner.
 """
 
 import signal
+import random
 import subprocess
 import sys
 import threading
@@ -73,6 +74,9 @@ SIM_STATE_RESET = 0
 SIM_SERVICE_CALL_TIMEOUT = 8.0
 ENTITY_STATE_SERVICE_TIMEOUT = 8.0
 BASE_LINK_ENTITY_PATH = "/World/DobotCR5_ROS2/DobotCR5/base_link"
+PRIM_ATTR_SERVICE_TIMEOUT = 8.0
+ENABLE_OBJECT_XY_RANDOMIZATION = True
+OBJECT_XY_RANDOM_OFFSET = 0.04
 ROS_WAIT_POLL_PERIOD = 0.01
 ROS_TIME_STALL_TIMEOUT = 2.0
 # ---------------------------------------------------------------------------
@@ -212,6 +216,86 @@ def set_simulation_state(state: int) -> None:
         raise RuntimeError(
             f"set_simulation_state({state}) unsuccessful: {err_match.group(1)}"
         )
+
+
+def get_prim_translate_local(path: str) -> tuple[float, float, float]:
+    """Get prim local translate via /get_prim_attribute."""
+    request = f'{{path: "{path}", attribute: "xformOp:translate"}}'
+    command = [
+        "ros2",
+        "service",
+        "call",
+        "/get_prim_attribute",
+        "isaac_ros2_messages/srv/GetPrimAttribute",
+        request,
+    ]
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=PRIM_ATTR_SERVICE_TIMEOUT,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+        raise RuntimeError(
+            f"get_prim_attribute failed for '{path}': {stderr or stdout or 'unknown error'}"
+        )
+    text = result.stdout
+    if "success=True" not in text:
+        raise RuntimeError(f"get_prim_attribute unsuccessful for '{path}': {text.strip()}")
+    match = re.search(r"value='(\[[^']+\])'", text)
+    if match is None:
+        raise RuntimeError(f"Cannot parse xformOp:translate for '{path}': {text.strip()}")
+    vec = np.fromstring(match.group(1).strip("[]"), sep=",")
+    if vec.shape[0] != 3:
+        raise RuntimeError(f"Invalid translate vector for '{path}': {match.group(1)}")
+    return float(vec[0]), float(vec[1]), float(vec[2])
+
+
+def set_prim_translate_local(path: str, xyz: tuple[float, float, float]) -> None:
+    """Set prim local translate via /set_prim_attribute."""
+    x, y, z = xyz
+    request = f'{{path: "{path}", attribute: "xformOp:translate", value: [{x}, {y}, {z}]}}'
+    command = [
+        "ros2",
+        "service",
+        "call",
+        "/set_prim_attribute",
+        "isaac_ros2_messages/srv/SetPrimAttribute",
+        request,
+    ]
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=PRIM_ATTR_SERVICE_TIMEOUT,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+        raise RuntimeError(
+            f"set_prim_attribute failed for '{path}': {stderr or stdout or 'unknown error'}"
+        )
+    text = result.stdout
+    if "success=True" not in text:
+        raise RuntimeError(f"set_prim_attribute unsuccessful for '{path}': {text.strip()}")
+
+
+def randomize_object_xy_after_reset() -> None:
+    """Randomize object x/y in local prim translate; keep z unchanged."""
+    if not ENABLE_OBJECT_XY_RANDOMIZATION:
+        return
+    cur_x, cur_y, cur_z = get_prim_translate_local(OBJECT_ENTITY_PATH)
+    new_x = cur_x + random.uniform(-OBJECT_XY_RANDOM_OFFSET, OBJECT_XY_RANDOM_OFFSET)
+    new_y = cur_y + random.uniform(-OBJECT_XY_RANDOM_OFFSET, OBJECT_XY_RANDOM_OFFSET)
+    set_prim_translate_local(OBJECT_ENTITY_PATH, (new_x, new_y, cur_z))
+    print(
+        f"[OK] Randomized object local x/y: "
+        f"({cur_x:.3f}, {cur_y:.3f}) -> ({new_x:.3f}, {new_y:.3f})"
+    )
 
 
 def get_entity_pose_world_service(
@@ -405,6 +489,7 @@ def main() -> None:
         set_simulation_state(SIM_STATE_RESET)
         set_simulation_state(SIM_STATE_PLAYING)
         print("[OK] Simulation reset completed")
+        randomize_object_xy_after_reset()
         sim_time.sleep(POST_RESET_WAIT)
 
         print("Switching FSM: HOLD -> OCS2 ...")
