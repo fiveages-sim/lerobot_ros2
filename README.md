@@ -1,108 +1,92 @@
 # LeRobot ROS2
 
-LeRobot ROS2 集成，支持通过 ROS2 话题与机器人通信。
+LeRobot 与 ROS2 的集成工程，支持通过 ROS2 话题与机器人通信。
 
 ## 项目结构
 
-本项目包含两个包：
+本项目主要包含：
 
-1. **ros2_robot_interface** - 独立的 ROS2 机器人接口包（不依赖 LeRobot）
-2. **lerobot_robot_ros2** - LeRobot 的 ROS2 机器人集成插件
+1. `submodules/ros2_robot_interface`：独立 ROS2 机器人接口包
+2. `lerobot_robot_ros2`：LeRobot 的 ROS2 机器人插件
+3. `lerobot_camera_ros2`：LeRobot 的 ROS2 相机插件
+4. `submodules/lerobot`：固定提交版本的 LeRobot 子模块
 
-## 子模块
+## 前置要求
 
-本项目使用 Git 子模块来管理 `ros2_robot_interface` 包。该子模块是一个独立的仓库，位于 `git@github.com:fiveages-sim/ros2_robot_interface.git`。
-
-### 克隆包含子模块的项目
-
-首次克隆项目时，需要同时初始化子模块：
-
-```bash
-git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
-cd lerobot_ros2
-```
-
-如果已经克隆了项目但没有包含子模块，可以运行：
-
-```bash
-git submodule update --init --recursive
-```
-
-### 更新子模块
-
-要更新子模块到最新版本：
-
-```bash
-git submodule update --remote ros2_robot_interface
-```
-
-### 子模块开发
-
-如果需要在子模块中进行开发：
-
-```bash
-cd ros2_robot_interface
-# 进行修改后，在子模块目录中提交
-git add .
-git commit -m "Your changes"
-git push
-
-# 返回父仓库，更新子模块引用
-cd ..
-git add ros2_robot_interface
-git commit -m "Update ros2_robot_interface submodule"
-git push
-```
+- ROS2（测试版本：Jazzy）
+- Python >= 3.12
+- Conda（推荐）
 
 ## 安装
 
-### 前置要求
-
-- ROS2 (测试版本: Jazzy)
-- Python >= 3.10
-- Conda 环境（推荐）
-
-### 安装步骤
+<details>
+<summary>方式一：脚本安装（推荐）</summary>
 
 ```bash
-# 1. Clone and install LeRobot
-git clone https://github.com/huggingface/lerobot
-cd lerobot
-git checkout 55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab
-pip install -e .
-
-# 2. Clone LeRobot ROS2（包含子模块）
-cd ..
+# 1) 克隆项目
 git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
-# 或者如果使用 HTTPS:
-# git clone --recursive https://github.com/fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
 
-# 3. 激活 conda 环境（确保已配置 ROS2 和系统 OpenCV）
+# 2) 按需执行初始化脚本
+./init.sh
+```
+
+脚本菜单中建议顺序：
+
+1. 初始化子模块
+2. 初始化 lerobot（固定提交）
+3. 创建 conda 环境
+4. 安装 interface
+5. 安装 lerobot 插件（会安装 CUDA/PyTorch/ffmpeg/evdev，并安装 lerobot 与插件）
+
+</details>
+
+<details>
+<summary>方式二：手动安装（默认参考）</summary>
+
+```bash
+# 1) 克隆项目与子模块
+git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
+cd lerobot_ros2
+
+# 2) 初始化/更新子模块
+git submodule update --init --recursive
+
+# 3) 固定 lerobot 到指定提交
+cd submodules/lerobot
+git fetch --all --tags
+git checkout 55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab
+cd ../..
+
+# 4) 创建并激活 conda 环境
+conda create -n lerobot-ros2 python=3.12 -y
 conda activate lerobot-ros2
 
-# 4. 安装 ros2_robot_interface（子模块，独立包）
-cd ros2_robot_interface
-pip install -e .
+# 5) 安装运行依赖
+conda install -y -c nvidia cuda-toolkit=12.8
+pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
+conda install -y ffmpeg -c conda-forge
+conda install -y evdev -c conda-forge
+pip install "numpy<2"
 
-# 5. 安装 lerobot_robot_ros2（LeRobot 插件）
-# 注意：由于需要使用 ROS2 的系统级 OpenCV，安装时需要使用 --ignore-installed
-cd ../lerobot_robot_ros2
-pip install -e . --ignore-installed
+# 6) 安装本地包
+pip install -e submodules/ros2_robot_interface
+pip install -e submodules/lerobot
+pip install -e lerobot_robot_ros2 --no-deps
+pip install -e lerobot_camera_ros2
 
-# 6. 安装 lerobot_camera_ros2（LeRobot 插件）
-cd ../lerobot_camera_ros2
-pip install -e . 
+# 7) 再次固定 numpy，避免被依赖升级到 2.x
+pip install "numpy<2"
 ```
-### 重要说明
 
-**ROS2 OpenCV 依赖：** 此项目需要使用 ROS2 的系统级 OpenCV（通过 `PYTHONPATH` 配置），而不是 conda 环境中的 OpenCV。这会导致某些系统包出现在 Python 路径中，安装时需要使用 `--ignore-installed` 选项来避免权限错误。
+</details>
 
-详细安装说明和常见问题请参考 [DEVELOPMENT.md](DEVELOPMENT.md)。
+## 说明
+
+- 本项目依赖 ROS2 的系统 OpenCV，当前建议固定 `numpy<2`，避免 `cv_bridge` 与 NumPy 2.x 的 ABI 冲突。
+- `lerobot_robot_ros2` 依赖本地 `ros2-robot-interface`，请先安装 `submodules/ros2_robot_interface`。
 
 ## 使用
-
-### 使用 LeRobot 集成
 
 ```python
 from lerobot_robot_ros2 import ROS2Robot, ROS2RobotConfig, ROS2RobotInterfaceConfig
@@ -112,14 +96,14 @@ config = ROS2RobotConfig(
     ros2_interface=ROS2RobotInterfaceConfig(
         joint_states_topic="/joint_states",
         end_effector_pose_topic="/left_current_pose",
-        end_effector_target_topic="/left_target"
-    )
+        end_effector_target_topic="/left_target",
+    ),
 )
 
 robot = ROS2Robot(config)
 robot.connect()
-# ... 使用机器人 ...
+# ...
 robot.disconnect()
 ```
 
-更多使用示例请参考 [examples/](examples/) 目录。
+更多示例见 `examples/`。
