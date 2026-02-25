@@ -64,27 +64,29 @@ RIGHT_WRIST_CAMERA_TOPIC = "/right_wrist_camera/rgb"
 OBJECT_TF_TOPIC = "/isaac/medicinetf"
 TARGET_FRAME_ID = "yaohe"
 USE_OBJECT_ORIENTATION = True
-APPROACH_CLEARANCE = 0.1   # Approach 高度：目标上方 100mm
-APPROACH_OFFSET_X = 0.06    # Lift 阶段 X 偏移
-APPROACH_OFFSET_Y = 0.12    # Lift 阶段 Y 偏移
+APPROACH_CLEARANCE = 0.05   # Approach 高度：目标上方 50mm
+APPROACH_OFFSET_X = -0.02    # Lift 阶段 X 偏移（负值让抓取位置向x负方向偏移）
+APPROACH_OFFSET_Y = 0.06    # Lift 阶段 Y 偏移
 GRASP_CLEARANCE = -0.01      
 GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
 
 # 右手换手位置配置
-HANDOVER_POSITION_X = 0.4047056485
-HANDOVER_POSITION_Y = 0.0
-HANDOVER_POSITION_Z = 0.3837605620
-HANDOVER_ORIENTATION_QX = 0.5559808299968932
-HANDOVER_ORIENTATION_QY = 0.46058770605132965
-HANDOVER_ORIENTATION_QZ = 0.4923023574960081
-HANDOVER_ORIENTATION_QW = -0.4861920099242813
+HANDOVER_POSITION_X = 0.396690552561732
+HANDOVER_POSITION_Y = -0.02282794401272727
+HANDOVER_POSITION_Z = 0.3910536913261088
+HANDOVER_ORIENTATION_QX = 0.5259496034887217
+HANDOVER_ORIENTATION_QY = 0.4977646286125966
+HANDOVER_ORIENTATION_QZ = 0.49207819248623463
+HANDOVER_ORIENTATION_QW = -0.4831836520120486
 
 # 释放位置配置 (完整的抓取-移动-释放任务)
 LEFT_RELEASE_POSITION_X = 0.4560101318359375
 LEFT_RELEASE_POSITION_Y = 0.3267540919780731
 LEFT_RELEASE_POSITION_Z = 0.17857743925383547
-LIFT_HEIGHT = 0.20          # 抬起高度（相对于抓取位置）
+LIFT_HEIGHT = 0.06          # 抬起高度（相对于抓取位置）
+HANDOVER_OFFSET_X = -0.045
+HANDOVER_OFFSET_Y = 0.08    
 TRANSPORT_HEIGHT = 0.4     # 移动时的安全高度
 RETRACT_HEIGHT = 0.20       # 释放后撤离高度
 POSE_TIMEOUT = 10.0
@@ -334,6 +336,7 @@ def build_dual_robot_configs() -> tuple[ROS2RobotConfig, ROS2RobotConfig]:
         gripper_min_position=0.0,
         gripper_max_position=1.0,
         gripper_command_topic="/right_gripper_joint/position_command",
+        right_gripper_controller_name="right_hand_controller",  # For target_command mode
     )
 
     # Left-arm interface
@@ -358,6 +361,7 @@ def build_dual_robot_configs() -> tuple[ROS2RobotConfig, ROS2RobotConfig]:
         gripper_min_position=0.0,
         gripper_max_position=1.0,
         gripper_command_topic="/left_gripper_joint/position_command",
+        left_gripper_controller_name="left_hand_controller",  # For target_command mode
     )
 
     right_cfg = ROS2RobotConfig(id="ros2_right_arm", cameras=camera_cfg, ros2_interface=right_iface)
@@ -483,15 +487,24 @@ def send_action_with_actor_gripper(robot: ROS2Robot, actor: str, action: dict[st
     gripper_position = float(action["gripper.position"])
     iface = robot.ros2_interface
 
-    if actor == "right":
-        # Prefer right gripper publisher when available (dual-arm topic layout).
-        if getattr(iface, "right_gripper_handler", None) is not None:
-            iface.send_right_gripper_command(gripper_position)
-        else:
-            # Fallback for setups where right side is configured as the primary gripper.
-            iface.send_gripper_command(gripper_position)
+    # Choose handler based on actor
+    handler = iface.right_gripper_handler if actor == "right" else iface.left_gripper_handler
+
+    if handler and hasattr(handler, 'target_command_pub') and handler.target_command_pub is not None:
+        # Use target command (force feedback mode)
+        target_value = 1 if gripper_position > 0.5 else 0
+        handler.send_target_command(target_value)
     else:
-        iface.send_gripper_command(gripper_position)
+        # Use position command (fallback)
+        if actor == "right":
+            # Prefer right gripper publisher when available (dual-arm topic layout).
+            if getattr(iface, "right_gripper_handler", None) is not None:
+                iface.send_right_gripper_command(gripper_position)
+            else:
+                # Fallback for setups where right side is configured as the primary gripper.
+                iface.send_gripper_command(gripper_position)
+        else:
+            iface.send_gripper_command(gripper_position)
 
 
 def pose_error(
@@ -907,7 +920,7 @@ def main() -> None:
             approach_pose_r.orientation = target_pose.orientation
 
             descend_pose_r = Pose()
-            descend_pose_r.position.x = target_pose.position.x
+            descend_pose_r.position.x = target_pose.position.x + APPROACH_OFFSET_X
             descend_pose_r.position.y = target_pose.position.y
             descend_pose_r.position.z = target_pose.position.z + GRASP_CLEARANCE
             descend_pose_r.orientation = target_pose.orientation
@@ -930,18 +943,18 @@ def main() -> None:
 
             # Left arm pick/handover approach (above the handover position)
             handover_approach_l = Pose()
-            handover_approach_l.position.x = HANDOVER_POSITION_X
-            handover_approach_l.position.y = -HANDOVER_POSITION_Y
-            handover_approach_l.position.z = HANDOVER_POSITION_Z + APPROACH_CLEARANCE
+            handover_approach_l.position.x = HANDOVER_POSITION_X + HANDOVER_OFFSET_X
+            handover_approach_l.position.y = -HANDOVER_POSITION_Y + HANDOVER_OFFSET_Y
+            handover_approach_l.position.z = HANDOVER_POSITION_Z + LIFT_HEIGHT
             handover_approach_l.orientation.x = HANDOVER_ORIENTATION_QX
             handover_approach_l.orientation.y = -HANDOVER_ORIENTATION_QY
             handover_approach_l.orientation.z = HANDOVER_ORIENTATION_QZ
             handover_approach_l.orientation.w = -HANDOVER_ORIENTATION_QW
 
             handover_descend_l = Pose()
-            handover_descend_l.position.x = HANDOVER_POSITION_X
-            handover_descend_l.position.y = -HANDOVER_POSITION_Y + GRASP_CLEARANCE
-            handover_descend_l.position.z = HANDOVER_POSITION_Z + APPROACH_CLEARANCE
+            handover_descend_l.position.x = HANDOVER_POSITION_X + HANDOVER_OFFSET_X
+            handover_descend_l.position.y = -HANDOVER_POSITION_Y - HANDOVER_OFFSET_Y
+            handover_descend_l.position.z = HANDOVER_POSITION_Z + LIFT_HEIGHT
             handover_descend_l.orientation.x = HANDOVER_ORIENTATION_QX
             handover_descend_l.orientation.y = -HANDOVER_ORIENTATION_QY
             handover_descend_l.orientation.z = HANDOVER_ORIENTATION_QZ
@@ -951,7 +964,7 @@ def main() -> None:
             place_approach_l = Pose()
             place_approach_l.position.x = LEFT_RELEASE_POSITION_X
             place_approach_l.position.y = LEFT_RELEASE_POSITION_Y
-            place_approach_l.position.z = LEFT_RELEASE_POSITION_Z + APPROACH_CLEARANCE
+            place_approach_l.position.z = LEFT_RELEASE_POSITION_Z + LIFT_HEIGHT
             place_approach_l.orientation.x = HANDOVER_ORIENTATION_QX
             place_approach_l.orientation.y = -HANDOVER_ORIENTATION_QY
             place_approach_l.orientation.z = HANDOVER_ORIENTATION_QZ
