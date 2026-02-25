@@ -44,3 +44,16 @@ python scripts/data_convert_to_lerobot.py
 ```
 默认转换编码为AV1,需要将VLC升级到4.0版本，或者使用cursor可以查看
 
+### 训练模型
+```bash
+python scripts/train.py
+```
+或
+```bash
+python scripts/train.py --policy act --chunk-size 16 --n-action-steps 8   --steps 20000 --batch-size 8  --device cuda
+```
+
+### 推理模型
+```bash
+python scripts/inference.py
+```

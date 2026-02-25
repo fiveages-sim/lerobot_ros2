@@ -55,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--policy", choices=["act", "diffusion"], default="act", help="Which policy to train.")
     # ACT-specific knobs.
-    parser.add_argument("--chunk-size", type=int, default=50, help="ACT chunk size")
-    parser.add_argument("--n-action-steps", type=int, default=50, help="ACT: action steps executed per chunk")
+    parser.add_argument("--chunk-size", type=int, default=16, help="ACT chunk size")
+    parser.add_argument("--n-action-steps", type=int, default=8, help="ACT: action steps executed per chunk")
     parser.add_argument(
         "--images-only",
         action="store_true",
@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--diffusion-n-obs-steps", type=int, default=2, help="Diffusion: number of observation timesteps as context"
     )
-    parser.add_argument("--steps", type=int, default=10000, help="Number of optimizer steps")
+    parser.add_argument("--steps", type=int, default=20000, help="Number of optimizer steps")
     parser.add_argument("--batch-size", type=int, default=8, help="Training batch size")
     parser.add_argument("--num-workers", type=int, default=4, help="PyTorch DataLoader workers")
     parser.add_argument("--device", type=str, default="cuda", help="Training device (cuda|cpu|mps)")
