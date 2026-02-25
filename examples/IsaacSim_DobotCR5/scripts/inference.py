@@ -53,8 +53,8 @@ FPS = 30
 USE_STATE_INPUT = True
 
 
-DEFAULT_DATASET = Path("/home/king/lerobot_ros2/dataset/down_dataset_30")
-DEFAULT_TRAIN_CFG = Path("/home/king/lerobot_ros2/outputs/act_all_down30/checkpoints/last/pretrained_model/train_config.json")
+DEFAULT_DATASET = None
+DEFAULT_TRAIN_CFG = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,19 +64,28 @@ def parse_args() -> argparse.Namespace:
         "--dataset",
         type=Path,
         default=DEFAULT_DATASET,
-        help=f"Path to dataset root (contains meta/data/videos). Default: {DEFAULT_DATASET}",
+        help=(
+            "Path to dataset root (contains meta/data/videos). "
+            "If omitted, auto-detect latest dataset under ./dataset or ./lerobot_dataset."
+        ),
     )
     parser.add_argument(
         "--train-config",
         type=Path,
         default=DEFAULT_TRAIN_CFG,
-        help=f"Path to train_config.json 或其所在目录. Default: {DEFAULT_TRAIN_CFG}",
+        help=(
+            "Path to train_config.json or its parent dir (e.g. .../pretrained_model). "
+            "If omitted, auto-detect latest train_config.json under ./outputs."
+        ),
     )
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default="/home/king/lerobot_ros2/outputs/act_run2/checkpoints/last",
-        help="可选：显式指定 checkpoint 目录（包含 pretrained_model），如 .../last 或 .../000500。",
+        default=None,
+        help=(
+            "Optional explicit checkpoint dir (contains pretrained_model), e.g. .../last or .../000500. "
+            "If omitted, infer from --train-config."
+        ),
     )
     parser.add_argument("--device", type=str, default="cuda", help="cuda|cpu|mps")
     parser.add_argument("--tolerance-s", type=float, default=0.5, help="覆盖时间容差（秒），默认按 fps 计算")
@@ -108,6 +117,92 @@ def parse_args() -> argparse.Namespace:
 
 
 SANITIZED_DROP_INDICES: list[int] = []
+
+
+def _find_latest_dataset_dir() -> Path:
+    candidates: list[Path] = []
+    for parent in (Path.cwd() / "dataset", Path.cwd() / "lerobot_dataset"):
+        if not parent.is_dir():
+            continue
+        for child in parent.iterdir():
+            if child.is_dir() and (child / "meta" / "info.json").is_file():
+                candidates.append(child)
+
+    if not candidates:
+        raise FileNotFoundError(
+            "Cannot auto-detect dataset. Please pass --dataset, "
+            "or create ./dataset/<name>/meta/info.json (or ./lerobot_dataset/<name>/meta/info.json)."
+        )
+    latest = max(candidates, key=lambda p: p.stat().st_mtime).resolve()
+    print(f"[info] Auto-selected dataset: {latest}")
+    return latest
+
+
+def _resolve_dataset_path(dataset_arg: Path | None) -> Path:
+    if dataset_arg is None:
+        return _find_latest_dataset_dir()
+    dataset_root = dataset_arg.expanduser().resolve()
+    if not dataset_root.exists():
+        raise FileNotFoundError(dataset_root)
+    return dataset_root
+
+
+def _find_latest_train_config() -> Path:
+    outputs_dir = Path.cwd() / "outputs"
+    if not outputs_dir.is_dir():
+        raise FileNotFoundError("Cannot auto-detect train config: ./outputs does not exist. Please pass --train-config.")
+
+    candidates = list(outputs_dir.glob("**/checkpoints/last/pretrained_model/train_config.json"))
+    if not candidates:
+        candidates = list(outputs_dir.glob("**/pretrained_model/train_config.json"))
+    if not candidates:
+        raise FileNotFoundError(
+            "Cannot auto-detect train config under ./outputs. Please pass --train-config explicitly."
+        )
+
+    latest = max(candidates, key=lambda p: p.stat().st_mtime).resolve()
+    print(f"[info] Auto-selected train config: {latest}")
+    return latest
+
+
+def _resolve_train_config_path(train_config_arg: Path | None) -> Path:
+    cfg_path = _find_latest_train_config() if train_config_arg is None else train_config_arg.expanduser().resolve()
+    if cfg_path.is_dir():
+        cfg_path = cfg_path / "train_config.json"
+    if not cfg_path.is_file():
+        raise FileNotFoundError(cfg_path)
+    return cfg_path
+
+
+def _resolve_checkpoint_path(checkpoint_arg: Path | None, train_config_path: Path) -> Path:
+    if checkpoint_arg is not None:
+        ckpt_path = checkpoint_arg.expanduser().resolve()
+        if ckpt_path.name != "pretrained_model" and (ckpt_path / "pretrained_model").is_dir():
+            ckpt_path = ckpt_path / "pretrained_model"
+        if not ckpt_path.is_dir():
+            raise FileNotFoundError(ckpt_path)
+        return ckpt_path
+
+    # Infer from train_config.json location first.
+    if train_config_path.parent.name == "pretrained_model":
+        inferred = train_config_path.parent
+    else:
+        inferred = train_config_path.parent / "pretrained_model"
+
+    if inferred.is_dir():
+        print(f"[info] Auto-selected checkpoint: {inferred.resolve()}")
+        return inferred.resolve()
+
+    # Fallback: try sibling last/pretrained_model from config dir.
+    fallback = train_config_path.parent.parent / "last" / "pretrained_model"
+    if fallback.is_dir():
+        print(f"[info] Auto-selected checkpoint: {fallback.resolve()}")
+        return fallback.resolve()
+
+    raise FileNotFoundError(
+        f"Cannot infer checkpoint from train config: {train_config_path}. "
+        "Please pass --checkpoint explicitly."
+    )
 
 
 def _sanitize_train_config(cfg_path: Path) -> Path:
@@ -299,29 +394,17 @@ def _filter_state_features(meta: LeRobotDatasetMetadata, drop_set: set[str]) -> 
 
 def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, torch.nn.Module, list[str], int | None]:
     """加载训练配置/数据集元信息/策略模型，用于在线推理。"""
-    dataset_root = args.dataset.expanduser().resolve()
-    if not dataset_root.exists():
-        raise FileNotFoundError(dataset_root)
+    dataset_root = _resolve_dataset_path(args.dataset)
+    train_config_path = _resolve_train_config_path(args.train_config)
 
-    sanitized_cfg_path = _sanitize_train_config(args.train_config)
+    sanitized_cfg_path = _sanitize_train_config(train_config_path)
     train_cfg = TrainPipelineConfig.from_pretrained(sanitized_cfg_path)
     train_cfg.dataset.root = str(dataset_root)
     train_cfg.dataset.repo_id = dataset_root.name
     if args.tolerance_s is not None:
         train_cfg.dataset.tolerance_s = args.tolerance_s
 
-    if args.checkpoint:
-        ckpt_path = args.checkpoint
-        if (ckpt_path / "pretrained_model").is_dir():
-            ckpt_path = ckpt_path / "pretrained_model"
-    else:
-        ckpt_path = args.train_config
-        if ckpt_path.is_file():
-            ckpt_path = ckpt_path.parent
-        if ckpt_path.name != "pretrained_model":
-            last_dir = ckpt_path.parent / "last" / "pretrained_model"
-            if last_dir.exists():
-                ckpt_path = last_dir
+    ckpt_path = _resolve_checkpoint_path(args.checkpoint, train_config_path)
 
     train_cfg.policy.pretrained_path = str(ckpt_path)
 
