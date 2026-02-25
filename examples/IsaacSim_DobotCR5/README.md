@@ -71,6 +71,7 @@ ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationS
 - 确认可通过 OCS2 arm controller 控制仿真机器人。
 
 演示视频：  
+
 https://github.com/user-attachments/assets/78cad128-95e7-475b-828f-d12a9ff4b84e
 
 ## 4. 功能脚本
@@ -82,6 +83,7 @@ python scripts/grasp_single_demo.py
 ```
 
 演示视频：  
+
 https://github.com/user-attachments/assets/d75b44b9-e6a4-4131-bd86-3ea269ea96aa
 
 ### 4.2 录制数据集
@@ -113,6 +115,7 @@ python scripts/inference.py
 ```
 
 演示视频：  
+
 https://github.com/user-attachments/assets/87a48b3b-db63-41e1-9e7b-be89aa801782
 
 
