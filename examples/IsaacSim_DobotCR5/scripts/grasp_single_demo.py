@@ -2,33 +2,32 @@
 """
 ROS2 Grasp Demo using the LeRobot standard interface.
 
-python examples/demo_grasp.py
+python examples/IsaacSim_DobotCR5/scripts/grasp_single_demo.py
 
-This script listens for an object pose published on /isaac/tf (relative to
-base_link), approaches the object, closes the gripper, and then lifts it.
-It demonstrates how to integrate LeRobot's ROS2 plugin with external pose
-estimators without using a higher-level motion planner.
+This script resets simulation, optionally randomizes object x/y, queries object
+and base_link world poses from ROS2 services, converts object pose into the
+base frame, then executes a grasp-transport-release-return sequence.
 """
 
 import signal
-import random
-import subprocess
 import sys
-import threading
 import time
-import re
 
 import numpy as np
-import rclpy
 from geometry_msgs.msg import Pose
-from rclpy.executors import SingleThreadedExecutor
-from rclpy.parameter import Parameter
 
 from lerobot_robot_ros2 import (
     ControlType,
     ROS2Robot,
     ROS2RobotConfig,
     ROS2RobotInterfaceConfig,
+)
+from isaac_ros2_sim_common import (
+    SimTimeHelper,
+    action_from_pose,
+    get_entity_pose_world_service,
+    get_object_pose_from_service,
+    reset_simulation_and_randomize_object,
 )
 
 # ---------------------------------------------------------------------------
@@ -78,65 +77,7 @@ PRIM_ATTR_SERVICE_TIMEOUT = 8.0
 ENABLE_OBJECT_XY_RANDOMIZATION = True
 OBJECT_XY_RANDOM_OFFSET = 0.5
 ROS_WAIT_POLL_PERIOD = 0.01
-ROS_TIME_STALL_TIMEOUT = 2.0
 # ---------------------------------------------------------------------------
-
-
-class SimTimeHelper:
-    """Provide ROS(sim) time utilities without TF dependency."""
-
-    def __init__(self) -> None:
-        if not rclpy.ok():
-            rclpy.init()
-
-        self._node = rclpy.create_node(
-            "lerobot_sim_time_helper",
-            parameter_overrides=[Parameter("use_sim_time", value=True)],
-            automatically_declare_parameters_from_overrides=True,
-        )
-        self._executor = SingleThreadedExecutor()
-        self._executor.add_node(self._node)
-        self._thread = threading.Thread(target=self._executor.spin, daemon=True)
-        self._thread.start()
-        use_sim_time = self._node.get_parameter("use_sim_time").value
-        print(f"[Clock] use_sim_time={use_sim_time}")
-
-    def now_seconds(self) -> float:
-        """Return current ROS time in seconds."""
-        return self._node.get_clock().now().nanoseconds * 1e-9
-
-    def sleep(self, duration: float) -> None:
-        """Sleep using ROS time progression."""
-        if duration <= 0.0:
-            return
-        start_time = self.now_seconds()
-        last_ros_time = start_time
-        wall_start = time.monotonic()
-        while (self.now_seconds() - start_time) < duration:
-            current_ros_time = self.now_seconds()
-            if current_ros_time > last_ros_time:
-                last_ros_time = current_ros_time
-                wall_start = time.monotonic()
-            elif (time.monotonic() - wall_start) > ROS_TIME_STALL_TIMEOUT:
-                print(
-                    f"[WARN] ROS clock stalled for >{ROS_TIME_STALL_TIMEOUT:.1f}s; "
-                    "fallback to wall-time sleep."
-                )
-                time.sleep(duration)
-                return
-            time.sleep(ROS_WAIT_POLL_PERIOD)
-
-    def shutdown(self) -> None:
-        """Destroy ROS2 node resources."""
-        if self._executor is not None:
-            self._executor.shutdown()
-            self._executor = None
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
-        if self._node is not None:
-            self._node.destroy_node()
-            self._node = None
 
 
 def build_robot_config() -> ROS2RobotConfig:
@@ -169,262 +110,6 @@ def build_robot_config() -> ROS2RobotConfig:
             gripper_command_topic="gripper_joint/position_command",
         ),
     )
-
-
-def action_from_pose(pose: Pose, gripper: float) -> dict[str, float]:
-    """Convert a pose and gripper command into a LeRobot action dictionary."""
-    action = {
-        "end_effector.position.x": pose.position.x,
-        "end_effector.position.y": pose.position.y,
-        "end_effector.position.z": pose.position.z,
-        "end_effector.orientation.x": pose.orientation.x,
-        "end_effector.orientation.y": pose.orientation.y,
-        "end_effector.orientation.z": pose.orientation.z,
-        "end_effector.orientation.w": pose.orientation.w,
-    }
-    action["gripper.position"] = float(np.clip(gripper, 0.0, 1.0))
-    return action
-
-
-def set_simulation_state(state: int) -> None:
-    """Call /set_simulation_state service through ROS2 CLI."""
-    request = f"{{state: {{state: {state}}}}}"
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/set_simulation_state",
-        "simulation_interfaces/srv/SetSimulationState",
-        request,
-    ]
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=SIM_SERVICE_CALL_TIMEOUT,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
-        raise RuntimeError(
-            f"set_simulation_state({state}) failed: {stderr or stdout or 'unknown error'}"
-        )
-    text = result.stdout
-    err_match = re.search(r"error_message='([^']*)'", text)
-    if err_match and err_match.group(1):
-        raise RuntimeError(
-            f"set_simulation_state({state}) unsuccessful: {err_match.group(1)}"
-        )
-
-
-def get_prim_translate_local(path: str) -> tuple[float, float, float]:
-    """Get prim local translate via /get_prim_attribute."""
-    request = f'{{path: "{path}", attribute: "xformOp:translate"}}'
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/get_prim_attribute",
-        "isaac_ros2_messages/srv/GetPrimAttribute",
-        request,
-    ]
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=PRIM_ATTR_SERVICE_TIMEOUT,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
-        raise RuntimeError(
-            f"get_prim_attribute failed for '{path}': {stderr or stdout or 'unknown error'}"
-        )
-    text = result.stdout
-    if "success=True" not in text:
-        raise RuntimeError(f"get_prim_attribute unsuccessful for '{path}': {text.strip()}")
-    match = re.search(r"value='(\[[^']+\])'", text)
-    if match is None:
-        raise RuntimeError(f"Cannot parse xformOp:translate for '{path}': {text.strip()}")
-    vec = np.fromstring(match.group(1).strip("[]"), sep=",")
-    if vec.shape[0] != 3:
-        raise RuntimeError(f"Invalid translate vector for '{path}': {match.group(1)}")
-    return float(vec[0]), float(vec[1]), float(vec[2])
-
-
-def set_prim_translate_local(path: str, xyz: tuple[float, float, float]) -> None:
-    """Set prim local translate via /set_prim_attribute."""
-    x, y, z = xyz
-    request = f'{{path: "{path}", attribute: "xformOp:translate", value: [{x}, {y}, {z}]}}'
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/set_prim_attribute",
-        "isaac_ros2_messages/srv/SetPrimAttribute",
-        request,
-    ]
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=PRIM_ATTR_SERVICE_TIMEOUT,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
-        raise RuntimeError(
-            f"set_prim_attribute failed for '{path}': {stderr or stdout or 'unknown error'}"
-        )
-    text = result.stdout
-    if "success=True" not in text:
-        raise RuntimeError(f"set_prim_attribute unsuccessful for '{path}': {text.strip()}")
-
-
-def randomize_object_xy_after_reset() -> None:
-    """Randomize object x/y in local prim translate; keep z unchanged."""
-    if not ENABLE_OBJECT_XY_RANDOMIZATION:
-        return
-    cur_x, cur_y, cur_z = get_prim_translate_local(OBJECT_ENTITY_PATH)
-    new_x = cur_x + random.uniform(-OBJECT_XY_RANDOM_OFFSET, OBJECT_XY_RANDOM_OFFSET)
-    new_y = cur_y + random.uniform(-OBJECT_XY_RANDOM_OFFSET, OBJECT_XY_RANDOM_OFFSET)
-    set_prim_translate_local(OBJECT_ENTITY_PATH, (new_x, new_y, cur_z))
-    print(
-        f"[OK] Randomized object local x/y: "
-        f"({cur_x:.3f}, {cur_y:.3f}) -> ({new_x:.3f}, {new_y:.3f})"
-    )
-
-
-def get_entity_pose_world_service(
-    entity: str,
-) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
-    """Get entity world pose from /get_entity_state service."""
-    request = f'{{entity: "{entity}"}}'
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/get_entity_state",
-        "simulation_interfaces/srv/GetEntityState",
-        request,
-    ]
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=ENTITY_STATE_SERVICE_TIMEOUT,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
-        raise RuntimeError(
-            f"get_entity_state failed for '{entity}': {stderr or stdout or 'unknown error'}"
-        )
-
-    text = result.stdout
-    err_match = re.search(r"error_message='([^']*)'", text)
-    if err_match and err_match.group(1):
-        raise RuntimeError(
-            f"get_entity_state unsuccessful for '{entity}': {err_match.group(1)}"
-        )
-
-    pos_match = re.search(
-        r"position=geometry_msgs\.msg\.Point\(x=([-+0-9.eE]+), y=([-+0-9.eE]+), z=([-+0-9.eE]+)\)",
-        text,
-    )
-    ori_match = re.search(
-        r"orientation=geometry_msgs\.msg\.Quaternion\(x=([-+0-9.eE]+), y=([-+0-9.eE]+), z=([-+0-9.eE]+), w=([-+0-9.eE]+)\)",
-        text,
-    )
-    if pos_match is None or ori_match is None:
-        raise RuntimeError(f"Cannot parse pose from get_entity_state response: {text.strip()}")
-    return (
-        (float(pos_match.group(1)), float(pos_match.group(2)), float(pos_match.group(3))),
-        (
-            float(ori_match.group(1)),
-            float(ori_match.group(2)),
-            float(ori_match.group(3)),
-            float(ori_match.group(4)),
-        ),
-    )
-
-
-def quat_multiply(
-    q1: tuple[float, float, float, float],
-    q2: tuple[float, float, float, float],
-) -> tuple[float, float, float, float]:
-    """Quaternion multiply for xyzw format."""
-    x1, y1, z1, w1 = q1
-    x2, y2, z2, w2 = q2
-    return (
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-    )
-
-
-def quat_conjugate(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    """Quaternion conjugate for xyzw format."""
-    x, y, z, w = q
-    return (-x, -y, -z, w)
-
-
-def quat_normalize(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    """Normalize quaternion in xyzw format."""
-    arr = np.array(q, dtype=np.float64)
-    n = np.linalg.norm(arr)
-    if n < 1e-9:
-        return (0.0, 0.0, 0.0, 1.0)
-    arr /= n
-    return (float(arr[0]), float(arr[1]), float(arr[2]), float(arr[3]))
-
-
-def rotate_vector_by_quat_inverse(
-    vec: tuple[float, float, float],
-    quat_xyzw: tuple[float, float, float, float],
-) -> tuple[float, float, float]:
-    """Rotate world vector into local frame via inverse quaternion."""
-    q_inv = quat_conjugate(quat_normalize(quat_xyzw))
-    v_quat = (vec[0], vec[1], vec[2], 0.0)
-    rotated = quat_multiply(quat_multiply(q_inv, v_quat), quat_conjugate(q_inv))
-    return (rotated[0], rotated[1], rotated[2])
-
-
-def get_object_pose_from_service(
-    base_world_pos: tuple[float, float, float],
-    base_world_quat: tuple[float, float, float, float],
-    include_orientation: bool = False,
-) -> Pose:
-    """Query object world pose once and convert object pose into base frame."""
-    base_wx, base_wy, base_wz = base_world_pos
-    base_q = base_world_quat
-    (obj_wx, obj_wy, obj_wz), obj_q = get_entity_pose_world_service(
-        OBJECT_ENTITY_PATH,
-    )
-
-    rel_world = (obj_wx - base_wx, obj_wy - base_wy, obj_wz - base_wz)
-    rel_x, rel_y, rel_z = rotate_vector_by_quat_inverse(rel_world, base_q)
-
-    qx, qy, qz, qw = 0.0, 0.0, 0.0, 1.0
-    if include_orientation:
-        # q_obj_in_base = inv(q_base) * q_obj
-        q_obj_in_base = quat_multiply(quat_conjugate(quat_normalize(base_q)), quat_normalize(obj_q))
-        qx, qy, qz, qw = quat_normalize(q_obj_in_base)
-
-    pose = Pose()
-    pose.position.x = rel_x
-    pose.position.y = rel_y
-    pose.position.z = rel_z
-    pose.orientation.x = qx
-    pose.orientation.y = qy
-    pose.orientation.z = qz
-    pose.orientation.w = qw
-    return pose
 
 
 def wait_for_position(
@@ -486,11 +171,17 @@ def main() -> None:
         print("[OK] Robot connected")
 
         print("Resetting simulation state...")
-        set_simulation_state(SIM_STATE_RESET)
-        set_simulation_state(SIM_STATE_PLAYING)
-        print("[OK] Simulation reset completed")
-        randomize_object_xy_after_reset()
-        sim_time.sleep(POST_RESET_WAIT)
+        reset_simulation_and_randomize_object(
+            OBJECT_ENTITY_PATH,
+            sim_state_reset=SIM_STATE_RESET,
+            sim_state_playing=SIM_STATE_PLAYING,
+            sim_service_timeout=SIM_SERVICE_CALL_TIMEOUT,
+            enable_randomization=ENABLE_OBJECT_XY_RANDOMIZATION,
+            xy_offset=OBJECT_XY_RANDOM_OFFSET,
+            prim_attr_timeout=PRIM_ATTR_SERVICE_TIMEOUT,
+            post_reset_wait=POST_RESET_WAIT,
+            sleep_fn=sim_time.sleep,
+        )
 
         print("Switching FSM: HOLD -> OCS2 ...")
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
@@ -509,7 +200,10 @@ def main() -> None:
         initial_pose.orientation.w = initial_obs["end_effector.orientation.w"]
 
         print("[Info] Querying base/object pose once before grasp...")
-        base_world_pos, base_world_quat = get_entity_pose_world_service(BASE_LINK_ENTITY_PATH)
+        base_world_pos, base_world_quat = get_entity_pose_world_service(
+            BASE_LINK_ENTITY_PATH,
+            timeout=ENTITY_STATE_SERVICE_TIMEOUT,
+        )
         print(
             f"[OK] base_link world position: "
             f"x={base_world_pos[0]:.6f}, y={base_world_pos[1]:.6f}, z={base_world_pos[2]:.6f}"
@@ -518,7 +212,9 @@ def main() -> None:
         pose = get_object_pose_from_service(
             base_world_pos,
             base_world_quat,
+            OBJECT_ENTITY_PATH,
             include_orientation=USE_OBJECT_ORIENTATION,
+            entity_state_timeout=ENTITY_STATE_SERVICE_TIMEOUT,
         )
         print(
             f"[OK] Object pose (base frame): "

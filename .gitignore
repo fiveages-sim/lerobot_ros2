@@ -41,4 +41,8 @@ log/
 dataset/
 outputs/
 raw_dataset/
+lerobot_dataset/
 external/
+**/dataset/
+**/raw_dataset/
+**/lerobot_dataset/

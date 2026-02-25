@@ -2,13 +2,12 @@
 """
 ROS2 Grasp Recording Demo using LeRobot.
 
-python examples/Cr5_ACT/auto_grasp_record.py
+python examples/IsaacSim_DobotCR5/scripts/grasp_record_dataset.py
 
-
-This script combines the grasp routine from demo_grasp.py with dataset capture.
-It performs a multi-step grasp sequence while recording raw frames (state +
-images + pose metadata) to disk. The raw data can later be converted offline
-into the LeRobot format by `convert_raw_to_lerobot.py`.
+This script records multi-step grasp episodes as raw data (state, images,
+keypoint point clouds, and metadata). Target poses are obtained from ROS2
+entity-state services (world frame), then converted to base frame for control.
+Raw recordings can be converted offline by `convert_raw_to_lerobot.py`.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import signal
 import sys
 import threading
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -29,7 +27,6 @@ import rclpy
 from geometry_msgs.msg import Pose
 from rclpy.executors import SingleThreadedExecutor
 from sensor_msgs.msg import Image, CameraInfo
-from tf2_msgs.msg import TFMessage
 from cv_bridge import CvBridge
 
 from lerobot_robot_ros2 import (
@@ -39,6 +36,13 @@ from lerobot_robot_ros2 import (
     ROS2RobotInterfaceConfig,
 )
 from lerobot_camera_ros2 import ROS2CameraConfig
+from isaac_ros2_sim_common import (
+    SimTimeHelper,
+    action_from_pose,
+    get_entity_pose_world_service,
+    get_object_pose_from_service,
+    reset_simulation_and_randomize_object,
+)
 
 
 # ----------------------- Configuration --------------------------------------
@@ -49,6 +53,8 @@ MAX_STAGE_DURATION = 2.0
 POSE_TOL_POS = 0.025     # 米 (20mm，基于实际误差10-40mm设定)
 POSE_TOL_ORI = 0.08        # 弧度 (~4.6°)
 GRIPPER_TOL = 0.05         # 开合容差（0~1）
+# 录制阶段默认只用位置判定到达；姿态误差用于日志观测
+REQUIRE_ORIENTATION_REACH = False
 RETURN_PAUSE = 1.0         # 回到初始位姿时的短暂停留（秒）
 
 CAMERA_NAME = "global"  # BridgeVLA expects zed_* naming
@@ -57,23 +63,41 @@ DEPTH_TOPIC = "/global_camera/depth"
 DEPTH_INFO_TOPIC = "/global_camera/camera_info"
 WRIST_CAMERA_NAME = "wrist"
 WRIST_CAMERA_TOPIC = "/wrist_camera/rgb"
-OBJECT_TF_TOPIC = "/isaac/appletf"
-TARGET_FRAME_ID = "apple"
+OBJECT_ENTITY_PATH = "/World/apple/apple/apple"
+BASE_LINK_ENTITY_PATH = "/World/DobotCR5_ROS2/DobotCR5/base_link"
+ENTITY_STATE_SERVICE_TIMEOUT = 8.0
+FSM_HOLD = 2
+FSM_OCS2 = 3
+FSM_SWITCH_DELAY = 0.1
+SIM_STATE_PLAYING = 1
+SIM_STATE_RESET = 0
+SIM_SERVICE_CALL_TIMEOUT = 8.0
+PRIM_ATTR_SERVICE_TIMEOUT = 8.0
+ENABLE_OBJECT_XY_RANDOMIZATION = True
+OBJECT_XY_RANDOM_OFFSET = 0.5
+POST_RESET_WAIT = 1.0
 USE_OBJECT_ORIENTATION = False
 APPROACH_CLEARANCE = 0.12   # Approach 高度：目标上方 120mm
-APPROACH_OFFSET_X = 0.12    # Lift 阶段 X 偏移
-APPROACH_OFFSET_Y = 0.12    # Lift 阶段 Y 偏移
 GRASP_CLEARANCE = -0.03     # Descend 高度：目标上方 5mm（改为正值，避免负Z）
 GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
+# 抓取阶段固定姿态（与 single demo 对齐）
+GRASP_ORIENTATION_X = 0.7
+GRASP_ORIENTATION_Y = 0.7
+GRASP_ORIENTATION_Z = 0.0
+GRASP_ORIENTATION_W = 0.0
 
 # 释放位置配置 (完整的抓取-移动-释放任务)
 RELEASE_POSITION_X = -0.5011657941743888
 RELEASE_POSITION_Y = 0.36339369774887115
-RELEASE_POSITION_Z = 0.37857743925383547
-LIFT_HEIGHT = 0.20          # 抬起高度（相对于抓取位置）
+RELEASE_POSITION_Z = 0.34
 TRANSPORT_HEIGHT = 0.4     # 移动时的安全高度
-RETRACT_HEIGHT = 0.20       # 释放后撤离高度
+RETRACT_OFFSET_Y = -0.2
+# 放置阶段固定姿态（与 single demo 对齐）
+PLACE_ORIENTATION_X = 0.64
+PLACE_ORIENTATION_Y = 0.64
+PLACE_ORIENTATION_Z = -0.28
+PLACE_ORIENTATION_W = -0.28
 POSE_TIMEOUT = 10.0
 TASK_NAME = "full_grasp_transport_release"
 # Order used for action vectors in dataset/keypoints
@@ -89,18 +113,6 @@ ACTION_KEYS = [
 # 是否在关键点采集深度并生成点云，可在开头交互式询问
 ENABLE_KEYPOINT_PCD = True
 # ----------------------------------------------------------------------------
-
-
-@dataclass
-class PoseSample:
-    x: float
-    y: float
-    z: float
-    qx: float
-    qy: float
-    qz: float
-    qw: float
-    timestamp: float
 
 
 class RawDepthListener:
@@ -199,75 +211,6 @@ class DepthCameraInfoListener:
             self._node = None
 
 
-class ObjectPoseListener:
-    """Subscribe to TF and keep the latest transform for the target frame."""
-
-    def __init__(self, topic: str, target_frame: str) -> None:
-        self.topic = topic
-        self.target_frame = target_frame
-        self._latest: Optional[PoseSample] = None
-        self._lock = threading.Lock()
-        self._update = threading.Event()
-
-        if not rclpy.ok():
-            rclpy.init()
-
-        self._node = rclpy.create_node("grasp_record_pose_listener")
-        self._sub = self._node.create_subscription(
-            TFMessage, self.topic, self._tf_callback, 10
-        )
-        self._executor = SingleThreadedExecutor()
-        self._executor.add_node(self._node)
-        self._thread = threading.Thread(
-            target=self._executor.spin, daemon=True
-        )
-        self._thread.start()
-
-    def _tf_callback(self, msg: TFMessage) -> None:
-        for transform in msg.transforms:
-            if transform.child_frame_id != self.target_frame:
-                continue
-            trans = transform.transform.translation
-            rot = transform.transform.rotation
-            sample = PoseSample(
-                x=trans.x,
-                y=trans.y,
-                z=trans.z,
-                qx=rot.x,
-                qy=rot.y,
-                qz=rot.z,
-                qw=rot.w,
-                timestamp=time.time(),
-            )
-            with self._lock:
-                self._latest = sample
-                self._update.set()
-            break
-
-    def wait_for_pose(self, timeout: float) -> Optional[PoseSample]:
-        if not self._update.wait(timeout):
-            return None
-        return self.get_latest()
-
-    def get_latest(self) -> Optional[PoseSample]:
-        with self._lock:
-            return self._latest
-
-    def shutdown(self) -> None:
-        if self._executor is not None:
-            self._executor.shutdown()
-            self._executor = None
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
-        if self._sub is not None:
-            self._sub.destroy()
-            self._sub = None
-        if self._node is not None:
-            self._node.destroy_node()
-            self._node = None
-
-
 def build_robot_config() -> ROS2RobotConfig:
     camera_cfg = {
         CAMERA_NAME: ROS2CameraConfig(
@@ -315,31 +258,6 @@ def build_robot_config() -> ROS2RobotConfig:
         cameras=camera_cfg,
         ros2_interface=ros2_interface,
     )
-
-
-def pose_from_sample(sample: PoseSample) -> Pose:
-    pose = Pose()
-    pose.position.x = sample.x
-    pose.position.y = sample.y
-    pose.position.z = sample.z
-    pose.orientation.x = sample.qx
-    pose.orientation.y = sample.qy
-    pose.orientation.z = sample.qz
-    pose.orientation.w = sample.qw
-    return pose
-
-
-def action_from_pose(pose: Pose, gripper: float) -> dict[str, float]:
-    return {
-        "end_effector.position.x": pose.position.x,
-        "end_effector.position.y": pose.position.y,
-        "end_effector.position.z": pose.position.z,
-        "end_effector.orientation.x": pose.orientation.x,
-        "end_effector.orientation.y": pose.orientation.y,
-        "end_effector.orientation.z": pose.orientation.z,
-        "end_effector.orientation.w": pose.orientation.w,
-        "gripper.position": float(np.clip(gripper, 0.0, 1.0)),
-    }
 
 
 def pose_from_observation(obs: dict[str, float]) -> Pose:
@@ -598,25 +516,24 @@ def main() -> None:
     global ENABLE_KEYPOINT_PCD
     use_pcd_input = input("Capture depth+pointcloud at keypoints? [y/N]: ").strip().lower()
     ENABLE_KEYPOINT_PCD = use_pcd_input in {"y", "yes"}
-
-    pause_input = input("Pause between episodes after returning to home? [y/N]: ").strip().lower()
-    pause_between_episodes = pause_input in {"y", "yes"}
+    manual_check_input = input("Manually review each episode after return-to-home? [y/N]: ").strip().lower()
+    enable_manual_episode_check = manual_check_input in {"y", "yes"}
 
     robot_config = build_robot_config()
     robot = ROS2Robot(robot_config)
-    pose_listener = ObjectPoseListener(OBJECT_TF_TOPIC, TARGET_FRAME_ID)
     depth_listener = RawDepthListener(DEPTH_TOPIC)
     cam_info_listener = DepthCameraInfoListener(DEPTH_INFO_TOPIC)
+    sim_time = SimTimeHelper()
 
     def shutdown_handler(sig, frame) -> None:  # type: ignore[override]
         print("\nInterrupt received. Cleaning up...")
         try:
-            pose_listener.shutdown()
             depth_listener.shutdown()
             cam_info_listener.shutdown()
             if robot.is_connected:
                 robot.disconnect()
         finally:
+            sim_time.shutdown()
             sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown_handler)
@@ -625,6 +542,12 @@ def main() -> None:
         print("Connecting robot...")
         robot.connect()
         print("[OK] Robot connected")
+
+        print("Switching FSM: HOLD -> OCS2 ...")
+        robot.ros2_interface.send_fsm_command(FSM_HOLD)
+        time.sleep(FSM_SWITCH_DELAY)
+        robot.ros2_interface.send_fsm_command(FSM_OCS2)
+        print("[OK] FSM switched to OCS2")
 
         intrinsics = cam_info_listener.wait_for_intrinsics(timeout=POSE_TIMEOUT)
         if intrinsics is None:
@@ -647,15 +570,31 @@ def main() -> None:
             episode_index = kept_episode
             attempt += 1
             print(f"=== Recording episode {kept_episode + 1}/{loops} (attempt {attempt}) ===")
+            print("Resetting simulation state...")
+            reset_simulation_and_randomize_object(
+                OBJECT_ENTITY_PATH,
+                sim_state_reset=SIM_STATE_RESET,
+                sim_state_playing=SIM_STATE_PLAYING,
+                sim_service_timeout=SIM_SERVICE_CALL_TIMEOUT,
+                enable_randomization=ENABLE_OBJECT_XY_RANDOMIZATION,
+                xy_offset=OBJECT_XY_RANDOM_OFFSET,
+                prim_attr_timeout=PRIM_ATTR_SERVICE_TIMEOUT,
+                post_reset_wait=POST_RESET_WAIT,
+                sleep_fn=time.sleep,
+            )
             command_counter = 0
             pcd_save_idx = 0  # 点云文件按保存顺序递增命名
-            print("Waiting for object pose TF...")
-            sample = pose_listener.wait_for_pose(timeout=POSE_TIMEOUT)
-            if sample is None:
-                raise RuntimeError(
-                    f"No TF data for frame '{TARGET_FRAME_ID}' within {POSE_TIMEOUT:.1f}s"
-                )
-            target_pose = pose_from_sample(sample)
+            base_world_pos, base_world_quat = get_entity_pose_world_service(
+                BASE_LINK_ENTITY_PATH, timeout=ENTITY_STATE_SERVICE_TIMEOUT
+            )
+            print("Querying object pose from simulation service...")
+            target_pose = get_object_pose_from_service(
+                base_world_pos,
+                base_world_quat,
+                OBJECT_ENTITY_PATH,
+                include_orientation=USE_OBJECT_ORIENTATION,
+                entity_state_timeout=ENTITY_STATE_SERVICE_TIMEOUT,
+            )
 
             current_obs = robot.get_observation()
             current_orientation = (
@@ -685,41 +624,59 @@ def main() -> None:
             approach_pose.position.x = target_pose.position.x
             approach_pose.position.y = target_pose.position.y
             approach_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
-            approach_pose.orientation = target_pose.orientation
+            approach_pose.orientation.x = GRASP_ORIENTATION_X
+            approach_pose.orientation.y = GRASP_ORIENTATION_Y
+            approach_pose.orientation.z = GRASP_ORIENTATION_Z
+            approach_pose.orientation.w = GRASP_ORIENTATION_W
 
             descend_pose = Pose()
             descend_pose.position.x = target_pose.position.x
             descend_pose.position.y = target_pose.position.y
             descend_pose.position.z = target_pose.position.z + GRASP_CLEARANCE
-            descend_pose.orientation = target_pose.orientation
+            descend_pose.orientation.x = GRASP_ORIENTATION_X
+            descend_pose.orientation.y = GRASP_ORIENTATION_Y
+            descend_pose.orientation.z = GRASP_ORIENTATION_Z
+            descend_pose.orientation.w = GRASP_ORIENTATION_W
 
             # Lift 阶段：抬起苹果
             lift_pose = Pose()
-            lift_pose.position.x = descend_pose.position.x
-            lift_pose.position.y = descend_pose.position.y
-            lift_pose.position.z = descend_pose.position.z + LIFT_HEIGHT
-            lift_pose.orientation = descend_pose.orientation
+            lift_pose.position.x = target_pose.position.x
+            lift_pose.position.y = target_pose.position.y
+            lift_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
+            lift_pose.orientation.x = GRASP_ORIENTATION_X
+            lift_pose.orientation.y = GRASP_ORIENTATION_Y
+            lift_pose.orientation.z = GRASP_ORIENTATION_Z
+            lift_pose.orientation.w = GRASP_ORIENTATION_W
 
             # Transport 阶段：移动到释放位置上方
             transport_pose = Pose()
             transport_pose.position.x = RELEASE_POSITION_X
             transport_pose.position.y = RELEASE_POSITION_Y
             transport_pose.position.z = TRANSPORT_HEIGHT
-            transport_pose.orientation = descend_pose.orientation
+            transport_pose.orientation.x = PLACE_ORIENTATION_X
+            transport_pose.orientation.y = PLACE_ORIENTATION_Y
+            transport_pose.orientation.z = PLACE_ORIENTATION_Z
+            transport_pose.orientation.w = PLACE_ORIENTATION_W
 
             # Lower 阶段：下降到释放高度
             lower_pose = Pose()
             lower_pose.position.x = RELEASE_POSITION_X
             lower_pose.position.y = RELEASE_POSITION_Y
             lower_pose.position.z = RELEASE_POSITION_Z
-            lower_pose.orientation = descend_pose.orientation
+            lower_pose.orientation.x = PLACE_ORIENTATION_X
+            lower_pose.orientation.y = PLACE_ORIENTATION_Y
+            lower_pose.orientation.z = PLACE_ORIENTATION_Z
+            lower_pose.orientation.w = PLACE_ORIENTATION_W
 
             # Retract 阶段：释放后撤离
             retract_pose = Pose()
             retract_pose.position.x = RELEASE_POSITION_X
-            retract_pose.position.y = RELEASE_POSITION_Y
-            retract_pose.position.z = RELEASE_POSITION_Z + RETRACT_HEIGHT
-            retract_pose.orientation = descend_pose.orientation
+            retract_pose.position.y = RELEASE_POSITION_Y + RETRACT_OFFSET_Y
+            retract_pose.position.z = RELEASE_POSITION_Z
+            retract_pose.orientation.x = PLACE_ORIENTATION_X
+            retract_pose.orientation.y = PLACE_ORIENTATION_Y
+            retract_pose.orientation.z = PLACE_ORIENTATION_Z
+            retract_pose.orientation.w = PLACE_ORIENTATION_W
 
             # 完整的8阶段序列
             sequence = [
@@ -753,7 +710,8 @@ def main() -> None:
                     "command_index": command_counter,
                 }
                 command_counter += 1
-                start = time.time()
+                start_sim = sim_time.now_seconds()
+                wall_start = time.monotonic()
                 reached_streak = 0
                 while True:
                     obs = robot.get_observation()
@@ -849,7 +807,8 @@ def main() -> None:
                     pos_err, ori_err, grip_err = pose_error(
                         obs, action, POSE_TOL_POS, POSE_TOL_ORI, GRIPPER_TOL
                     )
-                    if (pos_err <= POSE_TOL_POS) and (ori_err <= POSE_TOL_ORI):
+                    ori_ok = (ori_err <= POSE_TOL_ORI) if REQUIRE_ORIENTATION_REACH else True
+                    if (pos_err <= POSE_TOL_POS) and ori_ok:
                         reached_streak += 1
                     else:
                         reached_streak = 0
@@ -857,14 +816,23 @@ def main() -> None:
                     if reached_streak >= 3:
                         break
 
-                    if (time.time() - start) > MAX_STAGE_DURATION:
+                    elapsed_sim = sim_time.now_seconds() - start_sim
+                    if elapsed_sim > MAX_STAGE_DURATION:
                         print(
                             f"[WARN] Stage '{step_name}' timeout "
                             f"(pos_err={pos_err:.4f}, ori_err={ori_err:.3f}, grip_err={grip_err:.3f})"
                         )
                         break
 
-                    time.sleep(max(0.0, (1.0 / FPS)))
+                    # Wall-time guard avoids hard hang if /clock stops advancing unexpectedly.
+                    if (time.monotonic() - wall_start) > max(MAX_STAGE_DURATION + 5.0, 10.0):
+                        print(
+                            f"[WARN] Stage '{step_name}' wall-time guard triggered "
+                            f"(sim_elapsed={elapsed_sim:.3f}s)."
+                        )
+                        break
+
+                    sim_time.sleep(max(0.0, (1.0 / FPS)))
 
                 if pending_keypoint is not None:
                     raise RuntimeError(
@@ -877,11 +845,6 @@ def main() -> None:
                 raise RuntimeError("No frames captured during grasp sequence.")
 
             print(f"[OK] Episode raw saved with {recorded_count} frames.")
-            delete_input = input("Delete this episode data? [y/N]: ").strip().lower()
-            keep_episode = delete_input not in {"y", "yes"}
-            if not keep_episode:
-                cleanup_episode(raw_root, episode_index)
-                print(f"[Cleanup] Episode {kept_episode + 1} removed.")
 
             if robot.config.ros2_interface.gripper_enabled:
                 print("Opening gripper before returning to initial pose...")
@@ -899,20 +862,25 @@ def main() -> None:
                 robot.send_action(initial_action_closed)
                 time.sleep(RETURN_PAUSE)
 
+            keep_episode = True
+            if enable_manual_episode_check:
+                delete_input = input("Delete this episode data? [y/N]: ").strip().lower()
+                keep_episode = delete_input not in {"y", "yes"}
+                if not keep_episode:
+                    cleanup_episode(raw_root, episode_index)
+                    print(f"[Cleanup] Episode {kept_episode + 1} removed.")
+
             if keep_episode:
                 kept_episode += 1
-
-            if pause_between_episodes and kept_episode < loops:
-                input("Press Enter to start the next episode...")
 
         print(f"[OK] Raw dataset available at: {raw_root}")
 
     except Exception as exc:
         print(f"[ERROR] Recording failed: {exc}")
     finally:
-        pose_listener.shutdown()
         depth_listener.shutdown()
         cam_info_listener.shutdown()
+        sim_time.shutdown()
         if robot.is_connected:
             robot.disconnect()
             print("Robot disconnected")
