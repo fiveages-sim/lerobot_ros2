@@ -37,6 +37,10 @@
   * 编译好用于dobot cr5的description, 控制器，以及topic based ros2 control
   * 确保可以通过ocs2 arm controller控制仿真中的机器人
 
+
+https://github.com/user-attachments/assets/78cad128-95e7-475b-828f-d12a9ff4b84e
+
+
 ### 单次抓取放置仿真
 ```bash
 python scripts/grasp_single_demo.py
