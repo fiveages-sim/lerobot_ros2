@@ -4,17 +4,97 @@
 from __future__ import annotations
 
 import random
-import re
-import subprocess
 import threading
 import time
-from typing import Callable
+from typing import Callable, TypeVar
 
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Pose
+from isaac_ros2_messages.srv import GetPrimAttribute, SetPrimAttribute
+from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
+    action_from_pose,
+    quat_conjugate,
+    quat_multiply,
+    quat_normalize,
+    rotate_vector_by_quat_inverse,
+)
 from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
 from rclpy.parameter import Parameter
+from simulation_interfaces.srv import GetEntityState, SetSimulationState
+
+SERVICE_CALL_TIMEOUT = 8.0
+SERVICE_CALL_RETRIES = 3
+SERVICE_RETRY_DELAY = 0.2
+T = TypeVar("T")
+
+_service_node: Node | None = None
+_service_lock = threading.Lock()
+
+
+def _ensure_service_node() -> Node:
+    global _service_node
+    with _service_lock:
+        if _service_node is not None:
+            return _service_node
+        if not rclpy.ok():
+            rclpy.init()
+        _service_node = rclpy.create_node(
+            "lerobot_isaac_service_client",
+            parameter_overrides=[Parameter("use_sim_time", value=True)],
+            automatically_declare_parameters_from_overrides=True,
+        )
+        return _service_node
+
+
+def _call_service_once(
+    service_type: type,
+    service_name: str,
+    request: object,
+    *,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+) -> object:
+    node = _ensure_service_node()
+    client = node.create_client(service_type, service_name)
+    try:
+        if not client.wait_for_service(timeout_sec=max(0.1, timeout)):
+            raise RuntimeError(f"Service '{service_name}' unavailable within {timeout:.1f}s")
+        future = client.call_async(request)
+        start = time.monotonic()
+        while not future.done():
+            if (time.monotonic() - start) > timeout:
+                raise RuntimeError(f"Service '{service_name}' timed out after {timeout:.1f}s")
+            rclpy.spin_once(node, timeout_sec=0.01)
+        if future.exception() is not None:
+            raise RuntimeError(f"Service '{service_name}' call failed: {future.exception()}")
+        return future.result()
+    finally:
+        try:
+            node.destroy_client(client)
+        except Exception:
+            pass
+
+
+def _call_service_with_retry(
+    call_fn: Callable[[], T],
+    description: str,
+    *,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+) -> T:
+    attempts = max(1, int(retries))
+    last_error: Exception | None = None
+    for attempt_idx in range(attempts):
+        try:
+            return call_fn()
+        except Exception as exc:
+            last_error = exc
+            if attempt_idx < (attempts - 1):
+                time.sleep(max(0.0, retry_delay))
+    raise RuntimeError(
+        f"{description} failed after {attempts} attempts: {last_error or 'unknown error'}"
+    )
 
 
 class SimTimeHelper:
@@ -58,119 +138,125 @@ class SimTimeHelper:
             self._node = None
 
 
-def action_from_pose(pose: Pose, gripper: float) -> dict[str, float]:
-    return {
-        "end_effector.position.x": pose.position.x,
-        "end_effector.position.y": pose.position.y,
-        "end_effector.position.z": pose.position.z,
-        "end_effector.orientation.x": pose.orientation.x,
-        "end_effector.orientation.y": pose.orientation.y,
-        "end_effector.orientation.z": pose.orientation.z,
-        "end_effector.orientation.w": pose.orientation.w,
-        "gripper.position": float(np.clip(gripper, 0.0, 1.0)),
-    }
-
-
-def set_simulation_state(state: int, timeout: float = 8.0) -> None:
-    request = f"{{state: {{state: {state}}}}}"
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/set_simulation_state",
-        "simulation_interfaces/srv/SetSimulationState",
-        request,
-    ]
-    result = subprocess.run(
-        command, check=False, capture_output=True, text=True, timeout=timeout
+def set_simulation_state(
+    state: int,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+) -> None:
+    request = SetSimulationState.Request()
+    request.state.state = int(state)
+    result = _call_service_with_retry(
+        lambda: _call_service_once(
+            SetSimulationState,
+            "/set_simulation_state",
+            request,
+            timeout=timeout,
+        ),
+        f"set_simulation_state({state})",
+        retries=retries,
+        retry_delay=retry_delay,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
+    if result.result.error_message:
         raise RuntimeError(
-            f"set_simulation_state({state}) failed: {stderr or stdout or 'unknown error'}"
-        )
-    err_match = re.search(r"error_message='([^']*)'", result.stdout)
-    if err_match and err_match.group(1):
-        raise RuntimeError(
-            f"set_simulation_state({state}) unsuccessful: {err_match.group(1)}"
+            f"set_simulation_state({state}) unsuccessful: {result.result.error_message}"
         )
 
 
-def get_prim_translate_local(path: str, timeout: float = 8.0) -> tuple[float, float, float]:
-    request = f'{{path: "{path}", attribute: "xformOp:translate"}}'
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/get_prim_attribute",
-        "isaac_ros2_messages/srv/GetPrimAttribute",
-        request,
-    ]
-    result = subprocess.run(
-        command, check=False, capture_output=True, text=True, timeout=timeout
+def get_prim_translate_local(
+    path: str,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+) -> tuple[float, float, float]:
+    request = GetPrimAttribute.Request()
+    request.path = path
+    request.attribute = "xformOp:translate"
+    result = _call_service_with_retry(
+        lambda: _call_service_once(
+            GetPrimAttribute,
+            "/get_prim_attribute",
+            request,
+            timeout=timeout,
+        ),
+        f"get_prim_translate_local('{path}')",
+        retries=retries,
+        retry_delay=retry_delay,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
+    if not result.success:
         raise RuntimeError(
-            f"get_prim_attribute failed for '{path}': {stderr or stdout or 'unknown error'}"
+            f"get_prim_attribute unsuccessful for '{path}': {result.message or 'unknown error'}"
         )
-    text = result.stdout
-    if "success=True" not in text:
-        raise RuntimeError(f"get_prim_attribute unsuccessful for '{path}': {text.strip()}")
-    match = re.search(r"value='(\[[^']+\])'", text)
-    if match is None:
-        raise RuntimeError(f"Cannot parse xformOp:translate for '{path}': {text.strip()}")
-    vec = np.fromstring(match.group(1).strip("[]"), sep=",")
+    vec = np.fromstring(result.value.strip().strip("[]"), sep=",")
     if vec.shape[0] != 3:
-        raise RuntimeError(f"Invalid translate vector for '{path}': {match.group(1)}")
+        raise RuntimeError(f"Invalid translate vector for '{path}': {result.value}")
     return float(vec[0]), float(vec[1]), float(vec[2])
 
 
 def set_prim_translate_local(
-    path: str, xyz: tuple[float, float, float], timeout: float = 8.0
+    path: str,
+    xyz: tuple[float, float, float],
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
 ) -> None:
     x, y, z = xyz
-    request = f'{{path: "{path}", attribute: "xformOp:translate", value: [{x}, {y}, {z}]}}'
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/set_prim_attribute",
-        "isaac_ros2_messages/srv/SetPrimAttribute",
-        request,
-    ]
-    result = subprocess.run(
-        command, check=False, capture_output=True, text=True, timeout=timeout
+    request = SetPrimAttribute.Request()
+    request.path = path
+    request.attribute = "xformOp:translate"
+    request.value = f"[{x}, {y}, {z}]"
+    result = _call_service_with_retry(
+        lambda: _call_service_once(
+            SetPrimAttribute,
+            "/set_prim_attribute",
+            request,
+            timeout=timeout,
+        ),
+        f"set_prim_translate_local('{path}')",
+        retries=retries,
+        retry_delay=retry_delay,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
+    if not result.success:
         raise RuntimeError(
-            f"set_prim_attribute failed for '{path}': {stderr or stdout or 'unknown error'}"
-        )
-    if "success=True" not in result.stdout:
-        raise RuntimeError(
-            f"set_prim_attribute unsuccessful for '{path}': {result.stdout.strip()}"
+            f"set_prim_attribute unsuccessful for '{path}': {result.message or 'unknown error'}"
         )
 
 
-def randomize_object_xy_after_reset(
+def randomize_object_xyz_after_reset(
     object_entity_path: str,
     enabled: bool = True,
-    xy_offset: float = 0.04,
-    timeout: float = 8.0,
+    xyz_offset: tuple[float, float, float] | float = 0.04,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
 ) -> None:
     if not enabled:
         return
-    cur_x, cur_y, cur_z = get_prim_translate_local(object_entity_path, timeout=timeout)
-    new_x = cur_x + random.uniform(-xy_offset, xy_offset)
-    new_y = cur_y + random.uniform(-xy_offset, xy_offset)
-    set_prim_translate_local(object_entity_path, (new_x, new_y, cur_z), timeout=timeout)
+    if isinstance(xyz_offset, tuple):
+        if len(xyz_offset) != 3:
+            raise ValueError(f"xyz_offset must be a 3-tuple, got: {xyz_offset}")
+        off_x, off_y, off_z = xyz_offset
+    else:
+        off_x, off_y, off_z = float(xyz_offset), float(xyz_offset), 0.0
+    cur_x, cur_y, cur_z = get_prim_translate_local(
+        object_entity_path,
+        timeout=timeout,
+        retries=retries,
+        retry_delay=retry_delay,
+    )
+    new_x = cur_x + random.uniform(-off_x, off_x)
+    new_y = cur_y + random.uniform(-off_y, off_y)
+    new_z = cur_z + random.uniform(-off_z, off_z)
+    set_prim_translate_local(
+        object_entity_path,
+        (new_x, new_y, new_z),
+        timeout=timeout,
+        retries=retries,
+        retry_delay=retry_delay,
+    )
     print(
-        f"[OK] Randomized object local x/y: "
-        f"({cur_x:.3f}, {cur_y:.3f}) -> ({new_x:.3f}, {new_y:.3f})"
+        f"[OK] Randomized object local xyz: "
+        f"({cur_x:.3f}, {cur_y:.3f}, {cur_z:.3f}) -> ({new_x:.3f}, {new_y:.3f}, {new_z:.3f})"
     )
 
 
@@ -179,107 +265,72 @@ def reset_simulation_and_randomize_object(
     *,
     sim_state_reset: int = 0,
     sim_state_playing: int = 1,
-    sim_service_timeout: float = 8.0,
+    sim_service_timeout: float = SERVICE_CALL_TIMEOUT,
     enable_randomization: bool = True,
-    xy_offset: float = 0.04,
-    prim_attr_timeout: float = 8.0,
+    xyz_offset: tuple[float, float, float] | float = 0.04,
+    prim_attr_timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
     post_reset_wait: float = 1.0,
     sleep_fn: Callable[[float], None] | None = None,
 ) -> None:
-    set_simulation_state(sim_state_reset, timeout=sim_service_timeout)
-    set_simulation_state(sim_state_playing, timeout=sim_service_timeout)
+    set_simulation_state(
+        sim_state_reset,
+        timeout=sim_service_timeout,
+        retries=retries,
+        retry_delay=retry_delay,
+    )
+    set_simulation_state(
+        sim_state_playing,
+        timeout=sim_service_timeout,
+        retries=retries,
+        retry_delay=retry_delay,
+    )
     print("[OK] Simulation reset completed")
-    randomize_object_xy_after_reset(
+    randomize_object_xyz_after_reset(
         object_entity_path,
         enabled=enable_randomization,
-        xy_offset=xy_offset,
+        xyz_offset=xyz_offset,
         timeout=prim_attr_timeout,
+        retries=retries,
+        retry_delay=retry_delay,
     )
     (sleep_fn or time.sleep)(post_reset_wait)
 
 
 def get_entity_pose_world_service(
-    entity: str, timeout: float = 8.0
+    entity: str,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
-    request = f'{{entity: "{entity}"}}'
-    command = [
-        "ros2",
-        "service",
-        "call",
-        "/get_entity_state",
-        "simulation_interfaces/srv/GetEntityState",
-        request,
-    ]
-    result = subprocess.run(
-        command, check=False, capture_output=True, text=True, timeout=timeout
+    request = GetEntityState.Request()
+    request.entity = entity
+    result = _call_service_with_retry(
+        lambda: _call_service_once(
+            GetEntityState,
+            "/get_entity_state",
+            request,
+            timeout=timeout,
+        ),
+        f"get_entity_pose_world_service('{entity}')",
+        retries=retries,
+        retry_delay=retry_delay,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        stdout = result.stdout.strip()
+    if result.result.error_message:
         raise RuntimeError(
-            f"get_entity_state failed for '{entity}': {stderr or stdout or 'unknown error'}"
+            f"get_entity_state unsuccessful for '{entity}': {result.result.error_message}"
         )
-    text = result.stdout
-    err_match = re.search(r"error_message='([^']*)'", text)
-    if err_match and err_match.group(1):
-        raise RuntimeError(
-            f"get_entity_state unsuccessful for '{entity}': {err_match.group(1)}"
-        )
-    pos_match = re.search(
-        r"position=geometry_msgs\.msg\.Point\(x=([-+0-9.eE]+), y=([-+0-9.eE]+), z=([-+0-9.eE]+)\)",
-        text,
-    )
-    ori_match = re.search(
-        r"orientation=geometry_msgs\.msg\.Quaternion\(x=([-+0-9.eE]+), y=([-+0-9.eE]+), z=([-+0-9.eE]+), w=([-+0-9.eE]+)\)",
-        text,
-    )
-    if pos_match is None or ori_match is None:
-        raise RuntimeError(f"Cannot parse pose from get_entity_state response: {text.strip()}")
+    pose = result.state.pose
     return (
-        (float(pos_match.group(1)), float(pos_match.group(2)), float(pos_match.group(3))),
+        (float(pose.position.x), float(pose.position.y), float(pose.position.z)),
         (
-            float(ori_match.group(1)),
-            float(ori_match.group(2)),
-            float(ori_match.group(3)),
-            float(ori_match.group(4)),
+            float(pose.orientation.x),
+            float(pose.orientation.y),
+            float(pose.orientation.z),
+            float(pose.orientation.w),
         ),
     )
-
-
-def _quat_multiply(
-    q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
-) -> tuple[float, float, float, float]:
-    x1, y1, z1, w1 = q1
-    x2, y2, z2, w2 = q2
-    return (
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-    )
-
-
-def _quat_conjugate(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    x, y, z, w = q
-    return (-x, -y, -z, w)
-
-
-def _quat_normalize(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    arr = np.array(q, dtype=np.float64)
-    n = np.linalg.norm(arr)
-    if n < 1e-9:
-        return (0.0, 0.0, 0.0, 1.0)
-    arr /= n
-    return (float(arr[0]), float(arr[1]), float(arr[2]), float(arr[3]))
-
-
-def _rotate_vector_by_quat_inverse(
-    vec: tuple[float, float, float], quat_xyzw: tuple[float, float, float, float]
-) -> tuple[float, float, float]:
-    q_inv = _quat_conjugate(_quat_normalize(quat_xyzw))
-    v_quat = (vec[0], vec[1], vec[2], 0.0)
-    rotated = _quat_multiply(_quat_multiply(q_inv, v_quat), _quat_conjugate(q_inv))
-    return (rotated[0], rotated[1], rotated[2])
 
 
 def get_object_pose_from_service(
@@ -288,23 +339,28 @@ def get_object_pose_from_service(
     object_entity_path: str,
     *,
     include_orientation: bool = False,
-    entity_state_timeout: float = 8.0,
+    entity_state_timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
 ) -> Pose:
     base_wx, base_wy, base_wz = base_world_pos
     base_q = base_world_quat
     (obj_wx, obj_wy, obj_wz), obj_q = get_entity_pose_world_service(
-        object_entity_path, timeout=entity_state_timeout
+        object_entity_path,
+        timeout=entity_state_timeout,
+        retries=retries,
+        retry_delay=retry_delay,
     )
     rel_world = (obj_wx - base_wx, obj_wy - base_wy, obj_wz - base_wz)
-    rel_x, rel_y, rel_z = _rotate_vector_by_quat_inverse(rel_world, base_q)
+    rel_x, rel_y, rel_z = rotate_vector_by_quat_inverse(rel_world, base_q)
 
     qx, qy, qz, qw = 0.0, 0.0, 0.0, 1.0
     if include_orientation:
-        q_obj_in_base = _quat_multiply(
-            _quat_conjugate(_quat_normalize(base_q)),
-            _quat_normalize(obj_q),
+        q_obj_in_base = quat_multiply(
+            quat_conjugate(quat_normalize(base_q)),
+            quat_normalize(obj_q),
         )
-        qx, qy, qz, qw = _quat_normalize(q_obj_in_base)
+        qx, qy, qz, qw = quat_normalize(q_obj_in_base)
 
     pose = Pose()
     pose.position.x = rel_x

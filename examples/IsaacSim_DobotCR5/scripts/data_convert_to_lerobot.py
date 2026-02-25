@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot_robot_ros2.utils.pose_utils import quat_xyzw_to_rot6d  # pyright: ignore[reportMissingImports]
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,40 +84,6 @@ def _replace_quat_names(names: list[str]) -> tuple[list[str], bool]:
     return new_names, True
 
 
-def _quat_xyzw_to_rot6d(quat_xyzw: np.ndarray) -> np.ndarray:
-    quat = np.asarray(quat_xyzw, dtype=np.float32)
-    if quat.shape[-1] != 4:
-        raise ValueError(f"Expected quaternion with 4 elements, got shape {quat.shape}")
-    quat = np.atleast_2d(quat)
-
-    # Normalize quaternion to avoid invalid rotation matrices.
-    norms = np.linalg.norm(quat, axis=-1, keepdims=True)
-    norms = np.where(norms < 1e-8, 1.0, norms)
-    quat = quat / norms
-
-    x = quat[:, 0]
-    y = quat[:, 1]
-    z = quat[:, 2]
-    w = quat[:, 3]
-
-    # Quaternion (xyzw) -> rotation matrix.
-    r00 = 1.0 - 2.0 * (y * y + z * z)
-    r01 = 2.0 * (x * y - z * w)
-    r02 = 2.0 * (x * z + y * w)
-
-    r10 = 2.0 * (x * y + z * w)
-    r11 = 1.0 - 2.0 * (x * x + z * z)
-    r12 = 2.0 * (y * z - x * w)
-
-    r20 = 2.0 * (x * z - y * w)
-    r21 = 2.0 * (y * z + x * w)
-    r22 = 1.0 - 2.0 * (x * x + y * y)
-
-    # Rotation 6D uses first two columns of rotation matrix.
-    rot6d = np.stack([r00, r10, r20, r01, r11, r21], axis=-1).astype(np.float32)
-    return np.atleast_2d(rot6d)
-
-
 def build_features(meta: dict) -> tuple[dict, list[str], list[str], bool, bool]:
     state_names = meta.get("state_names") or []
     action_keys = meta.get("action_keys") or []
@@ -180,7 +147,7 @@ def action_from_next(
         "end_effector.position.z": float(next_ee_pose[2]),
     }
     if use_rot6d:
-        rot6d = _quat_xyzw_to_rot6d(next_ee_pose[3:7])
+        rot6d = quat_xyzw_to_rot6d(next_ee_pose[3:7])
         for i in range(6):
             action_dict[f"{ROT6D_PREFIX}_{i}"] = float(rot6d[0, i])
     else:
@@ -223,7 +190,7 @@ def _convert_state_vec(
     quat_vals = [name_to_val.get(n) for n in QUAT_NAMES]
     if any(v is None for v in quat_vals):
         return state_vec.astype(np.float32, copy=False)
-    rot6d = _quat_xyzw_to_rot6d(np.asarray(quat_vals, dtype=np.float32))
+    rot6d = quat_xyzw_to_rot6d(np.asarray(quat_vals, dtype=np.float32))
     out = []
     for name in new_names:
         if name.startswith(ROT6D_PREFIX):

@@ -29,18 +29,18 @@
 
 ### 单次抓取放置仿真
 ```bash
-python grasp_single_demo.py
+python scripts/grasp_single_demo.py
 ```
 https://github.com/user-attachments/assets/d75b44b9-e6a4-4131-bd86-3ea269ea96aa
 
 ### 录制数据集
 ```bash
-python grasp_record_dataset.py
+python scripts/grasp_record_dataset.py
 ```
 
 ### 将数据集转化为lerobot格式
 ```bash
-python data_convert_to_lerobot.py
+python scripts/data_convert_to_lerobot.py
 ```
 默认转换编码为AV1,需要将VLC升级到4.0版本，或者使用cursor可以查看
 

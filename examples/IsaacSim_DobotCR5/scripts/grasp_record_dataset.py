@@ -36,6 +36,8 @@ from lerobot_robot_ros2 import (
     ROS2RobotInterfaceConfig,
 )
 from lerobot_camera_ros2 import ROS2CameraConfig
+from grasp_config import GRASP_CFG
+from grasp_motion_primitives import build_grasp_transport_release_sequence
 from isaac_ros2_sim_common import (
     SimTimeHelper,
     action_from_pose,
@@ -46,16 +48,16 @@ from isaac_ros2_sim_common import (
 
 
 # ----------------------- Configuration --------------------------------------
-FPS = 30
+FPS = GRASP_CFG.record.fps
 # 最长等待时间（秒），以防未到达目标位姿也不会无限等待
-MAX_STAGE_DURATION = 2.0
+MAX_STAGE_DURATION = GRASP_CFG.record.max_stage_duration
 # 判定"到达目标"的容差（根据实际硬件精度调整）
-POSE_TOL_POS = 0.025     # 米 (20mm，基于实际误差10-40mm设定)
-POSE_TOL_ORI = 0.08        # 弧度 (~4.6°)
-GRIPPER_TOL = 0.05         # 开合容差（0~1）
+POSE_TOL_POS = GRASP_CFG.record.pose_tol_pos
+POSE_TOL_ORI = GRASP_CFG.record.pose_tol_ori
+GRIPPER_TOL = GRASP_CFG.record.gripper_tol
 # 录制阶段默认只用位置判定到达；姿态误差用于日志观测
-REQUIRE_ORIENTATION_REACH = False
-RETURN_PAUSE = 1.0         # 回到初始位姿时的短暂停留（秒）
+REQUIRE_ORIENTATION_REACH = GRASP_CFG.record.require_orientation_reach
+RETURN_PAUSE = GRASP_CFG.record.return_pause
 
 CAMERA_NAME = "global"  # BridgeVLA expects zed_* naming
 CAMERA_TOPIC = "/global_camera/rgb"
@@ -63,43 +65,10 @@ DEPTH_TOPIC = "/global_camera/depth"
 DEPTH_INFO_TOPIC = "/global_camera/camera_info"
 WRIST_CAMERA_NAME = "wrist"
 WRIST_CAMERA_TOPIC = "/wrist_camera/rgb"
-OBJECT_ENTITY_PATH = "/World/apple/apple/apple"
-BASE_LINK_ENTITY_PATH = "/World/DobotCR5_ROS2/DobotCR5/base_link"
-ENTITY_STATE_SERVICE_TIMEOUT = 8.0
-FSM_HOLD = 2
-FSM_OCS2 = 3
-FSM_SWITCH_DELAY = 0.1
-SIM_STATE_PLAYING = 1
-SIM_STATE_RESET = 0
-SIM_SERVICE_CALL_TIMEOUT = 8.0
-PRIM_ATTR_SERVICE_TIMEOUT = 8.0
-ENABLE_OBJECT_XY_RANDOMIZATION = True
-OBJECT_XY_RANDOM_OFFSET = 0.5
-POST_RESET_WAIT = 1.0
-USE_OBJECT_ORIENTATION = False
-APPROACH_CLEARANCE = 0.12   # Approach 高度：目标上方 120mm
-GRASP_CLEARANCE = -0.03     # Descend 高度：目标上方 5mm（改为正值，避免负Z）
-GRIPPER_OPEN = 1.0
-GRIPPER_CLOSED = 0.0
-# 抓取阶段固定姿态（与 single demo 对齐）
-GRASP_ORIENTATION_X = 0.7
-GRASP_ORIENTATION_Y = 0.7
-GRASP_ORIENTATION_Z = 0.0
-GRASP_ORIENTATION_W = 0.0
-
-# 释放位置配置 (完整的抓取-移动-释放任务)
-RELEASE_POSITION_X = -0.5011657941743888
-RELEASE_POSITION_Y = 0.36339369774887115
-RELEASE_POSITION_Z = 0.34
-TRANSPORT_HEIGHT = 0.4     # 移动时的安全高度
-RETRACT_OFFSET_Y = -0.2
-# 放置阶段固定姿态（与 single demo 对齐）
-PLACE_ORIENTATION_X = 0.64
-PLACE_ORIENTATION_Y = 0.64
-PLACE_ORIENTATION_Z = -0.28
-PLACE_ORIENTATION_W = -0.28
-POSE_TIMEOUT = 10.0
-TASK_NAME = "full_grasp_transport_release"
+OBJECT_ENTITY_PATH = GRASP_CFG.shared.object_entity_path
+USE_OBJECT_ORIENTATION = GRASP_CFG.shared.use_object_orientation
+POSE_TIMEOUT = GRASP_CFG.record.pose_timeout
+TASK_NAME = GRASP_CFG.record.task_name
 # Order used for action vectors in dataset/keypoints
 ACTION_KEYS = [
     "end_effector.position.x",
@@ -111,7 +80,7 @@ ACTION_KEYS = [
     "end_effector.orientation.w",
 ]
 # 是否在关键点采集深度并生成点云，可在开头交互式询问
-ENABLE_KEYPOINT_PCD = True
+ENABLE_KEYPOINT_PCD = GRASP_CFG.record.enable_keypoint_pcd
 # ----------------------------------------------------------------------------
 
 
@@ -544,9 +513,9 @@ def main() -> None:
         print("[OK] Robot connected")
 
         print("Switching FSM: HOLD -> OCS2 ...")
-        robot.ros2_interface.send_fsm_command(FSM_HOLD)
-        time.sleep(FSM_SWITCH_DELAY)
-        robot.ros2_interface.send_fsm_command(FSM_OCS2)
+        robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+        time.sleep(GRASP_CFG.runtime.fsm_switch_delay)
+        robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_ocs2)
         print("[OK] FSM switched to OCS2")
 
         intrinsics = cam_info_listener.wait_for_intrinsics(timeout=POSE_TIMEOUT)
@@ -561,8 +530,8 @@ def main() -> None:
         print(f"[OK] Raw data will be saved to {raw_root}")
 
         initial_pose = pose_from_observation(initial_obs)
-        initial_action_open = action_from_pose(initial_pose, GRIPPER_OPEN)
-        initial_action_closed = action_from_pose(initial_pose, GRIPPER_CLOSED)
+        initial_action_open = action_from_pose(initial_pose, GRASP_CFG.motion.gripper_open)
+        initial_action_closed = action_from_pose(initial_pose, GRASP_CFG.motion.gripper_closed)
 
         kept_episode = 0
         attempt = 0
@@ -573,19 +542,14 @@ def main() -> None:
             print("Resetting simulation state...")
             reset_simulation_and_randomize_object(
                 OBJECT_ENTITY_PATH,
-                sim_state_reset=SIM_STATE_RESET,
-                sim_state_playing=SIM_STATE_PLAYING,
-                sim_service_timeout=SIM_SERVICE_CALL_TIMEOUT,
-                enable_randomization=ENABLE_OBJECT_XY_RANDOMIZATION,
-                xy_offset=OBJECT_XY_RANDOM_OFFSET,
-                prim_attr_timeout=PRIM_ATTR_SERVICE_TIMEOUT,
-                post_reset_wait=POST_RESET_WAIT,
-                sleep_fn=time.sleep,
+                xyz_offset=GRASP_CFG.runtime.object_xyz_random_offset,
+                post_reset_wait=GRASP_CFG.runtime.post_reset_wait,
+                sleep_fn=sim_time.sleep,
             )
             command_counter = 0
             pcd_save_idx = 0  # 点云文件按保存顺序递增命名
             base_world_pos, base_world_quat = get_entity_pose_world_service(
-                BASE_LINK_ENTITY_PATH, timeout=ENTITY_STATE_SERVICE_TIMEOUT
+                GRASP_CFG.runtime.base_link_entity_path,
             )
             print("Querying object pose from simulation service...")
             target_pose = get_object_pose_from_service(
@@ -593,7 +557,6 @@ def main() -> None:
                 base_world_quat,
                 OBJECT_ENTITY_PATH,
                 include_orientation=USE_OBJECT_ORIENTATION,
-                entity_state_timeout=ENTITY_STATE_SERVICE_TIMEOUT,
             )
 
             current_obs = robot.get_observation()
@@ -620,75 +583,23 @@ def main() -> None:
                     target_pose.orientation.w,
                 ) = current_orientation
 
-            approach_pose = Pose()
-            approach_pose.position.x = target_pose.position.x
-            approach_pose.position.y = target_pose.position.y
-            approach_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
-            approach_pose.orientation.x = GRASP_ORIENTATION_X
-            approach_pose.orientation.y = GRASP_ORIENTATION_Y
-            approach_pose.orientation.z = GRASP_ORIENTATION_Z
-            approach_pose.orientation.w = GRASP_ORIENTATION_W
-
-            descend_pose = Pose()
-            descend_pose.position.x = target_pose.position.x
-            descend_pose.position.y = target_pose.position.y
-            descend_pose.position.z = target_pose.position.z + GRASP_CLEARANCE
-            descend_pose.orientation.x = GRASP_ORIENTATION_X
-            descend_pose.orientation.y = GRASP_ORIENTATION_Y
-            descend_pose.orientation.z = GRASP_ORIENTATION_Z
-            descend_pose.orientation.w = GRASP_ORIENTATION_W
-
-            # Lift 阶段：抬起苹果
-            lift_pose = Pose()
-            lift_pose.position.x = target_pose.position.x
-            lift_pose.position.y = target_pose.position.y
-            lift_pose.position.z = target_pose.position.z + APPROACH_CLEARANCE
-            lift_pose.orientation.x = GRASP_ORIENTATION_X
-            lift_pose.orientation.y = GRASP_ORIENTATION_Y
-            lift_pose.orientation.z = GRASP_ORIENTATION_Z
-            lift_pose.orientation.w = GRASP_ORIENTATION_W
-
-            # Transport 阶段：移动到释放位置上方
-            transport_pose = Pose()
-            transport_pose.position.x = RELEASE_POSITION_X
-            transport_pose.position.y = RELEASE_POSITION_Y
-            transport_pose.position.z = TRANSPORT_HEIGHT
-            transport_pose.orientation.x = PLACE_ORIENTATION_X
-            transport_pose.orientation.y = PLACE_ORIENTATION_Y
-            transport_pose.orientation.z = PLACE_ORIENTATION_Z
-            transport_pose.orientation.w = PLACE_ORIENTATION_W
-
-            # Lower 阶段：下降到释放高度
-            lower_pose = Pose()
-            lower_pose.position.x = RELEASE_POSITION_X
-            lower_pose.position.y = RELEASE_POSITION_Y
-            lower_pose.position.z = RELEASE_POSITION_Z
-            lower_pose.orientation.x = PLACE_ORIENTATION_X
-            lower_pose.orientation.y = PLACE_ORIENTATION_Y
-            lower_pose.orientation.z = PLACE_ORIENTATION_Z
-            lower_pose.orientation.w = PLACE_ORIENTATION_W
-
-            # Retract 阶段：释放后撤离
-            retract_pose = Pose()
-            retract_pose.position.x = RELEASE_POSITION_X
-            retract_pose.position.y = RELEASE_POSITION_Y + RETRACT_OFFSET_Y
-            retract_pose.position.z = RELEASE_POSITION_Z
-            retract_pose.orientation.x = PLACE_ORIENTATION_X
-            retract_pose.orientation.y = PLACE_ORIENTATION_Y
-            retract_pose.orientation.z = PLACE_ORIENTATION_Z
-            retract_pose.orientation.w = PLACE_ORIENTATION_W
-
-            # 完整的8阶段序列
-            sequence = [
-                ("1-Approach", action_from_pose(approach_pose, GRIPPER_OPEN)),
-                ("2-Descend", action_from_pose(descend_pose, GRIPPER_OPEN)),
-                ("3-Grasp", action_from_pose(descend_pose, GRIPPER_CLOSED)),
-                ("4-Lift", action_from_pose(lift_pose, GRIPPER_CLOSED)),
-                ("5-Transport", action_from_pose(transport_pose, GRIPPER_CLOSED)),
-                ("6-Lower", action_from_pose(lower_pose, GRIPPER_CLOSED)),
-                ("7-Release", action_from_pose(lower_pose, GRIPPER_OPEN)),
-                ("8-Retract", action_from_pose(retract_pose, GRIPPER_OPEN)),
-            ]
+            sequence = build_grasp_transport_release_sequence(
+                target_pose,
+                approach_clearance=GRASP_CFG.motion.approach_clearance,
+                grasp_clearance=GRASP_CFG.motion.grasp_clearance,
+                grasp_orientation=GRASP_CFG.motion.grasp_orientation,
+                place_orientation=GRASP_CFG.motion.place_orientation,
+                release_position=GRASP_CFG.motion.release_position,
+                transport_height=GRASP_CFG.motion.transport_height,
+                retract_offset_y=GRASP_CFG.motion.retract_offset_y,
+                gripper_open=GRASP_CFG.motion.gripper_open,
+                gripper_closed=GRASP_CFG.motion.gripper_closed,
+                home_action=(
+                    initial_action_closed
+                    if robot.config.ros2_interface.gripper_enabled
+                    else initial_action_open
+                ),
+            )
 
             episode_dir = raw_root / "episodes" / f"episode_{episode_index:06d}"
             frames_dir = episode_dir / "frames"
@@ -845,22 +756,6 @@ def main() -> None:
                 raise RuntimeError("No frames captured during grasp sequence.")
 
             print(f"[OK] Episode raw saved with {recorded_count} frames.")
-
-            if robot.config.ros2_interface.gripper_enabled:
-                print("Opening gripper before returning to initial pose...")
-                current_obs = robot.get_observation()
-                open_current = action_from_observation(current_obs, GRIPPER_OPEN)
-                robot.send_action(open_current)
-                time.sleep(RETURN_PAUSE)
-
-            print("Returning to initial pose...")
-            robot.send_action(initial_action_open)
-            time.sleep(RETURN_PAUSE)
-
-            if robot.config.ros2_interface.gripper_enabled:
-                print("Closing gripper after return...")
-                robot.send_action(initial_action_closed)
-                time.sleep(RETURN_PAUSE)
 
             keep_episode = True
             if enable_manual_episode_check:

@@ -22,6 +22,8 @@ from lerobot_robot_ros2 import (
     ROS2RobotConfig,
     ROS2RobotInterfaceConfig,
 )
+from grasp_config import GRASP_CFG
+from grasp_motion_primitives import build_grasp_transport_release_sequence
 from isaac_ros2_sim_common import (
     SimTimeHelper,
     action_from_pose,
@@ -33,50 +35,6 @@ from isaac_ros2_sim_common import (
 # ---------------------------------------------------------------------------
 # Configuration parameters
 # ---------------------------------------------------------------------------
-OBJECT_ENTITY_PATH = "/World/apple/apple/apple"     # Entity path for object in Isaac Sim
-
-APPROACH_CLEARANCE = 0.12       # Meters above object before descending
-GRASP_CLEARANCE = -0.03         # Meters above object when closing gripper
-MOVE_DURATION = 0.6             # Seconds to wait after each motion command
-GRIPPER_ACTION_WAIT = 0.6       # Seconds to wait after open/close gripper
-RETURN_PAUSE = 1.0              # Seconds to wait for return-to-home moves
-RETURN_POSE_TIMEOUT = 8.0       # Max seconds to wait for initial pose arrival
-RETURN_POS_TOL = 0.02           # Position tolerance (m) for return pose check
-RETURN_CHECK_PERIOD = 0.05      # Poll period while waiting for return pose
-GRIPPER_OPEN = 1.0              # Fully open gripper command
-GRIPPER_CLOSED = 0.0            # Fully closed gripper command
-USE_OBJECT_ORIENTATION = False  # If False, keep current wrist orientation
-
-# Grasp orientation (vertical-down) for approach/descend/lift stages
-GRASP_ORIENTATION_X = 0.7
-GRASP_ORIENTATION_Y = 0.7
-GRASP_ORIENTATION_Z = 0.00
-GRASP_ORIENTATION_W = 0.00
-
-# Shelf release configuration (from auto_grasp_record transport/release flow)
-RELEASE_POSITION_X = -0.5011657941743888
-RELEASE_POSITION_Y = 0.36339369774887115
-RELEASE_POSITION_Z = 0.34
-TRANSPORT_HEIGHT = 0.4
-RETRACT_OFFSET_Y = -0.2
-# Placement orientation (used for transport/lower/retract stages)
-PLACE_ORIENTATION_X = 0.64
-PLACE_ORIENTATION_Y = 0.64
-PLACE_ORIENTATION_Z = -0.28
-PLACE_ORIENTATION_W = -0.28
-FSM_HOLD = 2
-FSM_OCS2 = 3
-FSM_SWITCH_DELAY = 0.1
-POST_RESET_WAIT = 1.0
-SIM_STATE_PLAYING = 1
-SIM_STATE_RESET = 0
-SIM_SERVICE_CALL_TIMEOUT = 8.0
-ENTITY_STATE_SERVICE_TIMEOUT = 8.0
-BASE_LINK_ENTITY_PATH = "/World/DobotCR5_ROS2/DobotCR5/base_link"
-PRIM_ATTR_SERVICE_TIMEOUT = 8.0
-ENABLE_OBJECT_XY_RANDOMIZATION = True
-OBJECT_XY_RANDOM_OFFSET = 0.5
-ROS_WAIT_POLL_PERIOD = 0.01
 # ---------------------------------------------------------------------------
 
 
@@ -110,31 +68,6 @@ def build_robot_config() -> ROS2RobotConfig:
             gripper_command_topic="gripper_joint/position_command",
         ),
     )
-
-
-def wait_for_position(
-    robot: ROS2Robot,
-    time_source: SimTimeHelper,
-    target_pose: Pose,
-    timeout: float,
-    pos_tolerance: float,
-) -> bool:
-    """Wait until end-effector position is close to target pose."""
-    start_time = time_source.now_seconds()
-    wall_start = time.monotonic()
-    while (time_source.now_seconds() - start_time) <= timeout:
-        if (time.monotonic() - wall_start) > max(timeout + 2.0, 5.0):
-            print("[WARN] wait_for_position wall-time guard triggered; stop waiting.")
-            return False
-        obs = robot.get_observation()
-        dx = obs["end_effector.position.x"] - target_pose.position.x
-        dy = obs["end_effector.position.y"] - target_pose.position.y
-        dz = obs["end_effector.position.z"] - target_pose.position.z
-        pos_err = float(np.sqrt(dx * dx + dy * dy + dz * dz))
-        if pos_err <= pos_tolerance:
-            return True
-        time_source.sleep(RETURN_CHECK_PERIOD)
-    return False
 
 
 def main() -> None:
@@ -172,21 +105,16 @@ def main() -> None:
 
         print("Resetting simulation state...")
         reset_simulation_and_randomize_object(
-            OBJECT_ENTITY_PATH,
-            sim_state_reset=SIM_STATE_RESET,
-            sim_state_playing=SIM_STATE_PLAYING,
-            sim_service_timeout=SIM_SERVICE_CALL_TIMEOUT,
-            enable_randomization=ENABLE_OBJECT_XY_RANDOMIZATION,
-            xy_offset=OBJECT_XY_RANDOM_OFFSET,
-            prim_attr_timeout=PRIM_ATTR_SERVICE_TIMEOUT,
-            post_reset_wait=POST_RESET_WAIT,
+            GRASP_CFG.shared.object_entity_path,
+            xyz_offset=GRASP_CFG.runtime.object_xyz_random_offset,
+            post_reset_wait=GRASP_CFG.runtime.post_reset_wait,
             sleep_fn=sim_time.sleep,
         )
 
         print("Switching FSM: HOLD -> OCS2 ...")
-        robot.ros2_interface.send_fsm_command(FSM_HOLD)
-        sim_time.sleep(FSM_SWITCH_DELAY)
-        robot.ros2_interface.send_fsm_command(FSM_OCS2)
+        robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+        sim_time.sleep(GRASP_CFG.runtime.fsm_switch_delay)
+        robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_ocs2)
         print("[OK] FSM switched to OCS2")
 
         initial_obs = robot.get_observation()
@@ -201,20 +129,18 @@ def main() -> None:
 
         print("[Info] Querying base/object pose once before grasp...")
         base_world_pos, base_world_quat = get_entity_pose_world_service(
-            BASE_LINK_ENTITY_PATH,
-            timeout=ENTITY_STATE_SERVICE_TIMEOUT,
+            GRASP_CFG.runtime.base_link_entity_path,
         )
         print(
             f"[OK] base_link world position: "
             f"x={base_world_pos[0]:.6f}, y={base_world_pos[1]:.6f}, z={base_world_pos[2]:.6f}"
         )
-        print(f"Getting object pose from entity state: {OBJECT_ENTITY_PATH}")
+        print(f"Getting object pose from entity state: {GRASP_CFG.shared.object_entity_path}")
         pose = get_object_pose_from_service(
             base_world_pos,
             base_world_quat,
-            OBJECT_ENTITY_PATH,
-            include_orientation=USE_OBJECT_ORIENTATION,
-            entity_state_timeout=ENTITY_STATE_SERVICE_TIMEOUT,
+            GRASP_CFG.shared.object_entity_path,
+            include_orientation=GRASP_CFG.shared.use_object_orientation,
         )
         print(
             f"[OK] Object pose (base frame): "
@@ -227,7 +153,7 @@ def main() -> None:
             current_obs["end_effector.orientation.z"],
             current_obs["end_effector.orientation.w"],
         )
-        if USE_OBJECT_ORIENTATION:
+        if GRASP_CFG.shared.use_object_orientation:
             orientation_vec = np.array(
                 [
                     pose.orientation.x,
@@ -251,110 +177,78 @@ def main() -> None:
                 pose.orientation.w,
             ) = current_orientation
 
-        approach_pose = Pose()
-        approach_pose.position.x = pose.position.x
-        approach_pose.position.y = pose.position.y
-        approach_pose.position.z = pose.position.z + APPROACH_CLEARANCE
-        approach_pose.orientation.x = GRASP_ORIENTATION_X
-        approach_pose.orientation.y = GRASP_ORIENTATION_Y
-        approach_pose.orientation.z = GRASP_ORIENTATION_Z
-        approach_pose.orientation.w = GRASP_ORIENTATION_W
-
-        descend_pose = Pose()
-        descend_pose.position.x = pose.position.x
-        descend_pose.position.y = pose.position.y
-        descend_pose.position.z = pose.position.z + GRASP_CLEARANCE
-        descend_pose.orientation.x = GRASP_ORIENTATION_X
-        descend_pose.orientation.y = GRASP_ORIENTATION_Y
-        descend_pose.orientation.z = GRASP_ORIENTATION_Z
-        descend_pose.orientation.w = GRASP_ORIENTATION_W
-
-        lift_pose = Pose()
-        lift_pose.position.x = pose.position.x
-        lift_pose.position.y = pose.position.y
-        lift_pose.position.z = pose.position.z + APPROACH_CLEARANCE
-        lift_pose.orientation.x = GRASP_ORIENTATION_X
-        lift_pose.orientation.y = GRASP_ORIENTATION_Y
-        lift_pose.orientation.z = GRASP_ORIENTATION_Z
-        lift_pose.orientation.w = GRASP_ORIENTATION_W
-
-        transport_pose = Pose()
-        transport_pose.position.x = RELEASE_POSITION_X
-        transport_pose.position.y = RELEASE_POSITION_Y
-        transport_pose.position.z = TRANSPORT_HEIGHT
-        transport_pose.orientation.x = PLACE_ORIENTATION_X
-        transport_pose.orientation.y = PLACE_ORIENTATION_Y
-        transport_pose.orientation.z = PLACE_ORIENTATION_Z
-        transport_pose.orientation.w = PLACE_ORIENTATION_W
-
-        lower_pose = Pose()
-        lower_pose.position.x = RELEASE_POSITION_X
-        lower_pose.position.y = RELEASE_POSITION_Y
-        lower_pose.position.z = RELEASE_POSITION_Z
-        lower_pose.orientation.x = PLACE_ORIENTATION_X
-        lower_pose.orientation.y = PLACE_ORIENTATION_Y
-        lower_pose.orientation.z = PLACE_ORIENTATION_Z
-        lower_pose.orientation.w = PLACE_ORIENTATION_W
-
-        retract_pose = Pose()
-        retract_pose.position.x = RELEASE_POSITION_X
-        retract_pose.position.y = RELEASE_POSITION_Y + RETRACT_OFFSET_Y
-        retract_pose.position.z = RELEASE_POSITION_Z
-        retract_pose.orientation.x = PLACE_ORIENTATION_X
-        retract_pose.orientation.y = PLACE_ORIENTATION_Y
-        retract_pose.orientation.z = PLACE_ORIENTATION_Z
-        retract_pose.orientation.w = PLACE_ORIENTATION_W
-
-        print("Opening gripper and moving to approach pose...")
-        robot.send_action(action_from_pose(approach_pose, GRIPPER_OPEN))
-        sim_time.sleep(MOVE_DURATION)
-
-        print("Descending towards object...")
-        robot.send_action(action_from_pose(descend_pose, GRIPPER_OPEN))
-        sim_time.sleep(MOVE_DURATION)
-
-        print("Closing gripper to grasp object...")
-        robot.send_action(action_from_pose(descend_pose, GRIPPER_CLOSED))
-        sim_time.sleep(GRIPPER_ACTION_WAIT)
-
-        print("Lifting object...")
-        robot.send_action(action_from_pose(lift_pose, GRIPPER_CLOSED))
-        sim_time.sleep(MOVE_DURATION)
-
-        print("Transporting object to shelf...")
-        robot.send_action(action_from_pose(transport_pose, GRIPPER_CLOSED))
-        sim_time.sleep(MOVE_DURATION)
-
-        print("Lowering object onto shelf...")
-        robot.send_action(action_from_pose(lower_pose, GRIPPER_CLOSED))
-        sim_time.sleep(MOVE_DURATION)
-
-        print("Releasing object...")
-        robot.send_action(action_from_pose(lower_pose, GRIPPER_OPEN))
-        sim_time.sleep(GRIPPER_ACTION_WAIT)
-
-        print("Retracting after release...")
-        robot.send_action(action_from_pose(retract_pose, GRIPPER_OPEN))
-        sim_time.sleep(MOVE_DURATION)
-
-        print("Returning to initial pose...")
-        robot.send_action(action_from_pose(initial_pose, GRIPPER_OPEN))
-        arrived_home = wait_for_position(
-            robot,
-            sim_time,
-            initial_pose,
-            timeout=RETURN_POSE_TIMEOUT,
-            pos_tolerance=RETURN_POS_TOL,
+        sequence = build_grasp_transport_release_sequence(
+            pose,
+            approach_clearance=GRASP_CFG.motion.approach_clearance,
+            grasp_clearance=GRASP_CFG.motion.grasp_clearance,
+            grasp_orientation=GRASP_CFG.motion.grasp_orientation,
+            place_orientation=GRASP_CFG.motion.place_orientation,
+            release_position=GRASP_CFG.motion.release_position,
+            transport_height=GRASP_CFG.motion.transport_height,
+            retract_offset_y=GRASP_CFG.motion.retract_offset_y,
+            gripper_open=GRASP_CFG.motion.gripper_open,
+            gripper_closed=GRASP_CFG.motion.gripper_closed,
+            home_action=action_from_pose(initial_pose, GRASP_CFG.motion.gripper_closed),
         )
-        if not arrived_home:
-            print(
-                f"[WARN] Return-to-home timeout after {RETURN_POSE_TIMEOUT:.1f}s "
-                f"(tol={RETURN_POS_TOL:.3f}m), continue anyway."
-            )
-            sim_time.sleep(RETURN_PAUSE)
+        stage_messages = {
+            "1-Approach": "Opening gripper and moving to approach pose...",
+            "2-Descend": "Descending towards object...",
+            "3-Grasp": "Closing gripper to grasp object...",
+            "4-Lift": "Lifting object...",
+            "5-Transport": "Transporting object to shelf...",
+            "6-Lower": "Lowering object onto shelf...",
+            "7-Release": "Releasing object...",
+            "8-Retract": "Retracting after release...",
+            "9-ReturnHome": "Returning to initial pose...",
+        }
+        for stage_name, action in sequence:
+            print(stage_messages.get(stage_name, f"Executing stage {stage_name}..."))
+            robot.send_action(action)
+            if stage_name == "9-ReturnHome":
+                arrive_result = robot.ros2_interface.wait_until_arrive(
+                    part="arm",
+                    timeout=GRASP_CFG.single.return_pose_timeout,
+                    poll_period=GRASP_CFG.single.return_check_period,
+                    position_threshold=GRASP_CFG.single.return_pos_tol,
+                    time_now_fn=sim_time.now_seconds,
+                    sleep_fn=sim_time.sleep,
+                )
+            elif stage_name in {"3-Grasp", "7-Release"}:
+                # Gripper position can stay off-target when holding an object.
+                # Use arm arrival + short gripper settle wait instead of gripper-position arrival.
+                arrive_result = robot.ros2_interface.wait_until_arrive(
+                    part="arm",
+                    timeout=GRASP_CFG.single.stage_arrival_timeout,
+                    poll_period=GRASP_CFG.single.stage_check_period,
+                    time_now_fn=sim_time.now_seconds,
+                    sleep_fn=sim_time.sleep,
+                )
+                sim_time.sleep(GRASP_CFG.single.gripper_action_wait)
+            else:
+                arrive_result = robot.ros2_interface.wait_until_arrive(
+                    part="arm",
+                    timeout=GRASP_CFG.single.stage_arrival_timeout,
+                    poll_period=GRASP_CFG.single.stage_check_period,
+                    time_now_fn=sim_time.now_seconds,
+                    sleep_fn=sim_time.sleep,
+                )
+            if not arrive_result.get("arrived", False):
+                if stage_name == "9-ReturnHome":
+                    print(
+                        f"[WARN] Return-to-home timeout after {GRASP_CFG.single.return_pose_timeout:.1f}s "
+                        f"(elapsed={arrive_result.get('elapsed', 0.0):.2f}s, "
+                        f"pos_tol={GRASP_CFG.single.return_pos_tol:.3f}m), continue anyway."
+                    )
+                else:
+                    print(
+                        f"[WARN] Stage {stage_name} arrival timeout "
+                        f"({arrive_result.get('elapsed', 0.0):.2f}s), fallback wait."
+                    )
+                    # Keep a short fallback to absorb delayed controller updates.
+                    sim_time.sleep(GRASP_CFG.single.stage_fallback_wait)
 
         print("Switching FSM to HOLD...")
-        robot.ros2_interface.send_fsm_command(FSM_HOLD)
+        robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
         print("[OK] FSM switched to HOLD")
 
         print("[OK] Grasp + transport + return sequence completed.")

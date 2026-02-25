@@ -19,15 +19,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
+import sys
 import time
 from pathlib import Path
 import tempfile
-from typing import Dict
+from typing import Callable, Dict
 
 import numpy as np
 import torch
-
-from pytorch3d.transforms import matrix_to_quaternion, matrix_to_rotation_6d, quaternion_to_matrix, rotation_6d_to_matrix
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
@@ -39,6 +39,12 @@ from lerobot_robot_ros2 import (
     ROS2RobotInterfaceConfig,
 )
 from lerobot_camera_ros2 import ROS2CameraConfig
+from grasp_config import GRASP_CFG
+from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object
+from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
+    quat_xyzw_to_rot6d,
+    rot6d_to_quat_xyzw,
+)
 
 
 # 全局配置
@@ -218,30 +224,6 @@ def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> D
     return {name: float(action_vec[i]) for i, name in enumerate(names)}
 
 
-def _quat_xyzw_to_rot6d(quat_xyzw: np.ndarray) -> np.ndarray:
-    quat = np.asarray(quat_xyzw, dtype=np.float32)
-    if quat.shape[-1] != 4:
-        raise ValueError(f"Expected quaternion with 4 elements, got shape {quat.shape}")
-    quat = np.atleast_2d(quat)
-    # pytorch3d expects (w, x, y, z)
-    quat_wxyz = np.stack([quat[..., 3], quat[..., 0], quat[..., 1], quat[..., 2]], axis=-1)
-    rot_mats = quaternion_to_matrix(torch.as_tensor(quat_wxyz, dtype=torch.float32))
-    rot6d = matrix_to_rotation_6d(rot_mats).detach().cpu().numpy().astype(np.float32)
-    return np.atleast_2d(rot6d)
-
-
-def _rot6d_to_quat_xyzw(rot6d: np.ndarray) -> np.ndarray:
-    rot = np.asarray(rot6d, dtype=np.float32)
-    if rot.shape[-1] != 6:
-        raise ValueError(f"Expected rot6d with 6 elements, got shape {rot.shape}")
-    rot = np.atleast_2d(rot)
-    rot_mats = rotation_6d_to_matrix(torch.as_tensor(rot, dtype=torch.float32))
-    quat_wxyz = matrix_to_quaternion(rot_mats)
-    quat_wxyz = quat_wxyz.detach().cpu().numpy().astype(np.float32)
-    quat_xyzw = np.stack([quat_wxyz[..., 1], quat_wxyz[..., 2], quat_wxyz[..., 3], quat_wxyz[..., 0]], axis=-1)
-    return np.atleast_2d(quat_xyzw)
-
-
 def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMetadata) -> None:
     names = meta.features.get("observation.state", {}).get("names", [])
     if not any(n.startswith("end_effector.rot6d_") for n in names):
@@ -257,7 +239,7 @@ def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMe
     quat = np.asarray(quat_vals, dtype=np.float32)
     if np.any(np.isnan(quat)):
         return
-    rot6d = _quat_xyzw_to_rot6d(quat)[0]
+    rot6d = quat_xyzw_to_rot6d(quat)[0]
     for i in range(6):
         raw_obs[f"end_effector.rot6d_{i}"] = float(rot6d[i])
 
@@ -267,7 +249,7 @@ def _maybe_convert_rot6d_action(cmd: Dict[str, float]) -> None:
     if not all(k in cmd for k in rot6d_keys):
         return
     rot6d = np.array([cmd[k] for k in rot6d_keys], dtype=np.float32)
-    quat_xyzw = _rot6d_to_quat_xyzw(rot6d)[0]
+    quat_xyzw = rot6d_to_quat_xyzw(rot6d)[0]
     cmd["end_effector.orientation.x"] = float(quat_xyzw[0])
     cmd["end_effector.orientation.y"] = float(quat_xyzw[1])
     cmd["end_effector.orientation.z"] = float(quat_xyzw[2])
@@ -424,6 +406,7 @@ def infer_action_vec(
     raw_obs: Dict[str, float],
     device: str,
     hz: float,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> np.ndarray | None:
     """执行一次策略推理并返回原始动作向量。"""
     batch = {}
@@ -465,7 +448,7 @@ def infer_action_vec(
         if img is None:
             print(f"[ERROR] Could not find image for {cam_key}")
             print(f"[DEBUG] Available obs keys: {list(raw_obs.keys())}")
-            time.sleep(1.0 / hz)
+            sleep_fn(1.0 / hz)
             return None
 
         if img.dtype != np.uint8:
@@ -481,7 +464,7 @@ def infer_action_vec(
         missing = [k for k in required_imgs if k not in batch]
         if missing:
             print(f"[warn] Missing images: {missing}")
-            time.sleep(1.0 / hz)
+            sleep_fn(1.0 / hz)
             return None
 
     for k, v in list(batch.items()):
@@ -549,14 +532,48 @@ def main() -> None:
     _train_cfg, meta, policy, policy_image_feats, gripper_idx = init_inference(args)
 
     robot = build_robot()
+    sim_time = SimTimeHelper()
+    robot_connected = False
+
+    def shutdown_handler(sig, frame) -> None:
+        print("\nInterrupt received, shutting down...")
+        try:
+            if robot_connected:
+                try:
+                    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                except Exception:
+                    pass
+                robot.disconnect()
+        finally:
+            sim_time.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown_handler)
+
+    print("Connecting to robot...")
     robot.connect()
-    print("✓ Robot connected, starting control loop...")
+    robot_connected = True
+    print("[OK] Robot connected")
+
+    print("Resetting simulation state...")
+    reset_simulation_and_randomize_object(
+        GRASP_CFG.shared.object_entity_path,
+        xyz_offset=GRASP_CFG.runtime.object_xyz_random_offset,
+        post_reset_wait=GRASP_CFG.runtime.post_reset_wait,
+        sleep_fn=sim_time.sleep,
+    )
+
+    print("Switching FSM: HOLD -> OCS2 ...")
+    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+    sim_time.sleep(GRASP_CFG.runtime.fsm_switch_delay)
+    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_ocs2)
+    print("[OK] FSM switched to OCS2, starting inference loop...")
 
     period = 1.0 / args.hz
     try:
         missing_warned = False
         while True:
-            t0 = time.time()
+            t0 = sim_time.now_seconds()
             raw_obs = robot.get_observation()
             _maybe_inject_rot6d_in_obs(raw_obs, meta)
             if not missing_warned and USE_STATE_INPUT and "observation.state" in meta.features:
@@ -573,6 +590,7 @@ def main() -> None:
                 raw_obs=raw_obs,
                 device=args.device,
                 hz=args.hz,
+                sleep_fn=sim_time.sleep,
             )
             if action_vec is None:
                 continue
@@ -606,15 +624,25 @@ def main() -> None:
                 print(f"Gripper cmd: {cmd.get('gripper.position', 'N/A')}")
             robot.send_action(cmd)
 
-            elapsed = time.time() - t0
+            elapsed = sim_time.now_seconds() - t0
             sleep_t = period - elapsed
             if sleep_t > 0:
-                time.sleep(sleep_t)
+                sim_time.sleep(sleep_t)
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
-        robot.disconnect()
-        print("✓ Robot disconnected.")
+        try:
+            if robot_connected:
+                print("Switching FSM to HOLD...")
+                robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                print("[OK] FSM switched to HOLD")
+        except Exception as err:
+            print(f"[WARN] Failed to switch FSM to HOLD during cleanup: {err}")
+        finally:
+            sim_time.shutdown()
+            if robot_connected:
+                robot.disconnect()
+                print("✓ Robot disconnected.")
 
 
 if __name__ == "__main__":
