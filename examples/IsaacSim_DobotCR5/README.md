@@ -27,6 +27,16 @@
 * [配置ROS2 Prim Service ](https://docs.isaacsim.omniverse.nvidia.com/latest/ros2_tutorials/tutorial_ros2_prim_service.html)
 
 
+### 启动Isaac Sim仿真与ROS2 控制
+
+* Isaac Sim仿真启动
+  * 按照[robot_usds](https://github.com/fiveages-sim/robot_usds)中的指引配置好仿真的机器人和环境资产
+  * 打开`Grasp_Apple.usd`并运行
+* ROS2 Control程序启动
+  * 按照[open-deploy-ws](https://github.com/fiveages-sim/open-deploy-ws)中的指引配置好ROS2工作空间
+  * 编译好用于dobot cr5的description, 控制器，以及topic based ros2 control
+  * 确保可以通过ocs2 arm controller控制仿真中的机器人
+
 ### 单次抓取放置仿真
 ```bash
 python scripts/grasp_single_demo.py
