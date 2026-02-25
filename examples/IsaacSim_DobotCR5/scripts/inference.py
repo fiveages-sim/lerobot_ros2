@@ -19,15 +19,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
+import sys
 import time
 from pathlib import Path
 import tempfile
-from typing import Dict
+from typing import Callable, Dict
 
 import numpy as np
 import torch
-
-from pytorch3d.transforms import matrix_to_quaternion, matrix_to_rotation_6d, quaternion_to_matrix, rotation_6d_to_matrix
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
@@ -39,6 +39,12 @@ from lerobot_robot_ros2 import (
     ROS2RobotInterfaceConfig,
 )
 from lerobot_camera_ros2 import ROS2CameraConfig
+from grasp_config import GRASP_CFG
+from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object
+from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
+    quat_xyzw_to_rot6d,
+    rot6d_to_quat_xyzw,
+)
 
 
 # 全局配置
@@ -47,8 +53,8 @@ FPS = 30
 USE_STATE_INPUT = True
 
 
-DEFAULT_DATASET = Path("/home/king/lerobot_ros2/dataset/down_dataset_30")
-DEFAULT_TRAIN_CFG = Path("/home/king/lerobot_ros2/outputs/act_all_down30/checkpoints/last/pretrained_model/train_config.json")
+DEFAULT_DATASET = None
+DEFAULT_TRAIN_CFG = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,19 +64,28 @@ def parse_args() -> argparse.Namespace:
         "--dataset",
         type=Path,
         default=DEFAULT_DATASET,
-        help=f"Path to dataset root (contains meta/data/videos). Default: {DEFAULT_DATASET}",
+        help=(
+            "Path to dataset root (contains meta/data/videos). "
+            "If omitted, auto-detect latest dataset under ./dataset or ./lerobot_dataset."
+        ),
     )
     parser.add_argument(
         "--train-config",
         type=Path,
         default=DEFAULT_TRAIN_CFG,
-        help=f"Path to train_config.json 或其所在目录. Default: {DEFAULT_TRAIN_CFG}",
+        help=(
+            "Path to train_config.json or its parent dir (e.g. .../pretrained_model). "
+            "If omitted, auto-detect latest train_config.json under ./outputs."
+        ),
     )
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default="/home/king/lerobot_ros2/outputs/act_run2/checkpoints/last",
-        help="可选：显式指定 checkpoint 目录（包含 pretrained_model），如 .../last 或 .../000500。",
+        default=None,
+        help=(
+            "Optional explicit checkpoint dir (contains pretrained_model), e.g. .../last or .../000500. "
+            "If omitted, infer from --train-config."
+        ),
     )
     parser.add_argument("--device", type=str, default="cuda", help="cuda|cpu|mps")
     parser.add_argument("--tolerance-s", type=float, default=0.5, help="覆盖时间容差（秒），默认按 fps 计算")
@@ -102,6 +117,92 @@ def parse_args() -> argparse.Namespace:
 
 
 SANITIZED_DROP_INDICES: list[int] = []
+
+
+def _find_latest_dataset_dir() -> Path:
+    candidates: list[Path] = []
+    for parent in (Path.cwd() / "dataset", Path.cwd() / "lerobot_dataset"):
+        if not parent.is_dir():
+            continue
+        for child in parent.iterdir():
+            if child.is_dir() and (child / "meta" / "info.json").is_file():
+                candidates.append(child)
+
+    if not candidates:
+        raise FileNotFoundError(
+            "Cannot auto-detect dataset. Please pass --dataset, "
+            "or create ./dataset/<name>/meta/info.json (or ./lerobot_dataset/<name>/meta/info.json)."
+        )
+    latest = max(candidates, key=lambda p: p.stat().st_mtime).resolve()
+    print(f"[info] Auto-selected dataset: {latest}")
+    return latest
+
+
+def _resolve_dataset_path(dataset_arg: Path | None) -> Path:
+    if dataset_arg is None:
+        return _find_latest_dataset_dir()
+    dataset_root = dataset_arg.expanduser().resolve()
+    if not dataset_root.exists():
+        raise FileNotFoundError(dataset_root)
+    return dataset_root
+
+
+def _find_latest_train_config() -> Path:
+    outputs_dir = Path.cwd() / "outputs"
+    if not outputs_dir.is_dir():
+        raise FileNotFoundError("Cannot auto-detect train config: ./outputs does not exist. Please pass --train-config.")
+
+    candidates = list(outputs_dir.glob("**/checkpoints/last/pretrained_model/train_config.json"))
+    if not candidates:
+        candidates = list(outputs_dir.glob("**/pretrained_model/train_config.json"))
+    if not candidates:
+        raise FileNotFoundError(
+            "Cannot auto-detect train config under ./outputs. Please pass --train-config explicitly."
+        )
+
+    latest = max(candidates, key=lambda p: p.stat().st_mtime).resolve()
+    print(f"[info] Auto-selected train config: {latest}")
+    return latest
+
+
+def _resolve_train_config_path(train_config_arg: Path | None) -> Path:
+    cfg_path = _find_latest_train_config() if train_config_arg is None else train_config_arg.expanduser().resolve()
+    if cfg_path.is_dir():
+        cfg_path = cfg_path / "train_config.json"
+    if not cfg_path.is_file():
+        raise FileNotFoundError(cfg_path)
+    return cfg_path
+
+
+def _resolve_checkpoint_path(checkpoint_arg: Path | None, train_config_path: Path) -> Path:
+    if checkpoint_arg is not None:
+        ckpt_path = checkpoint_arg.expanduser().resolve()
+        if ckpt_path.name != "pretrained_model" and (ckpt_path / "pretrained_model").is_dir():
+            ckpt_path = ckpt_path / "pretrained_model"
+        if not ckpt_path.is_dir():
+            raise FileNotFoundError(ckpt_path)
+        return ckpt_path
+
+    # Infer from train_config.json location first.
+    if train_config_path.parent.name == "pretrained_model":
+        inferred = train_config_path.parent
+    else:
+        inferred = train_config_path.parent / "pretrained_model"
+
+    if inferred.is_dir():
+        print(f"[info] Auto-selected checkpoint: {inferred.resolve()}")
+        return inferred.resolve()
+
+    # Fallback: try sibling last/pretrained_model from config dir.
+    fallback = train_config_path.parent.parent / "last" / "pretrained_model"
+    if fallback.is_dir():
+        print(f"[info] Auto-selected checkpoint: {fallback.resolve()}")
+        return fallback.resolve()
+
+    raise FileNotFoundError(
+        f"Cannot infer checkpoint from train config: {train_config_path}. "
+        "Please pass --checkpoint explicitly."
+    )
 
 
 def _sanitize_train_config(cfg_path: Path) -> Path:
@@ -218,30 +319,6 @@ def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> D
     return {name: float(action_vec[i]) for i, name in enumerate(names)}
 
 
-def _quat_xyzw_to_rot6d(quat_xyzw: np.ndarray) -> np.ndarray:
-    quat = np.asarray(quat_xyzw, dtype=np.float32)
-    if quat.shape[-1] != 4:
-        raise ValueError(f"Expected quaternion with 4 elements, got shape {quat.shape}")
-    quat = np.atleast_2d(quat)
-    # pytorch3d expects (w, x, y, z)
-    quat_wxyz = np.stack([quat[..., 3], quat[..., 0], quat[..., 1], quat[..., 2]], axis=-1)
-    rot_mats = quaternion_to_matrix(torch.as_tensor(quat_wxyz, dtype=torch.float32))
-    rot6d = matrix_to_rotation_6d(rot_mats).detach().cpu().numpy().astype(np.float32)
-    return np.atleast_2d(rot6d)
-
-
-def _rot6d_to_quat_xyzw(rot6d: np.ndarray) -> np.ndarray:
-    rot = np.asarray(rot6d, dtype=np.float32)
-    if rot.shape[-1] != 6:
-        raise ValueError(f"Expected rot6d with 6 elements, got shape {rot.shape}")
-    rot = np.atleast_2d(rot)
-    rot_mats = rotation_6d_to_matrix(torch.as_tensor(rot, dtype=torch.float32))
-    quat_wxyz = matrix_to_quaternion(rot_mats)
-    quat_wxyz = quat_wxyz.detach().cpu().numpy().astype(np.float32)
-    quat_xyzw = np.stack([quat_wxyz[..., 1], quat_wxyz[..., 2], quat_wxyz[..., 3], quat_wxyz[..., 0]], axis=-1)
-    return np.atleast_2d(quat_xyzw)
-
-
 def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMetadata) -> None:
     names = meta.features.get("observation.state", {}).get("names", [])
     if not any(n.startswith("end_effector.rot6d_") for n in names):
@@ -257,7 +334,7 @@ def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMe
     quat = np.asarray(quat_vals, dtype=np.float32)
     if np.any(np.isnan(quat)):
         return
-    rot6d = _quat_xyzw_to_rot6d(quat)[0]
+    rot6d = quat_xyzw_to_rot6d(quat)[0]
     for i in range(6):
         raw_obs[f"end_effector.rot6d_{i}"] = float(rot6d[i])
 
@@ -267,7 +344,7 @@ def _maybe_convert_rot6d_action(cmd: Dict[str, float]) -> None:
     if not all(k in cmd for k in rot6d_keys):
         return
     rot6d = np.array([cmd[k] for k in rot6d_keys], dtype=np.float32)
-    quat_xyzw = _rot6d_to_quat_xyzw(rot6d)[0]
+    quat_xyzw = rot6d_to_quat_xyzw(rot6d)[0]
     cmd["end_effector.orientation.x"] = float(quat_xyzw[0])
     cmd["end_effector.orientation.y"] = float(quat_xyzw[1])
     cmd["end_effector.orientation.z"] = float(quat_xyzw[2])
@@ -317,29 +394,17 @@ def _filter_state_features(meta: LeRobotDatasetMetadata, drop_set: set[str]) -> 
 
 def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, torch.nn.Module, list[str], int | None]:
     """加载训练配置/数据集元信息/策略模型，用于在线推理。"""
-    dataset_root = args.dataset.expanduser().resolve()
-    if not dataset_root.exists():
-        raise FileNotFoundError(dataset_root)
+    dataset_root = _resolve_dataset_path(args.dataset)
+    train_config_path = _resolve_train_config_path(args.train_config)
 
-    sanitized_cfg_path = _sanitize_train_config(args.train_config)
+    sanitized_cfg_path = _sanitize_train_config(train_config_path)
     train_cfg = TrainPipelineConfig.from_pretrained(sanitized_cfg_path)
     train_cfg.dataset.root = str(dataset_root)
     train_cfg.dataset.repo_id = dataset_root.name
     if args.tolerance_s is not None:
         train_cfg.dataset.tolerance_s = args.tolerance_s
 
-    if args.checkpoint:
-        ckpt_path = args.checkpoint
-        if (ckpt_path / "pretrained_model").is_dir():
-            ckpt_path = ckpt_path / "pretrained_model"
-    else:
-        ckpt_path = args.train_config
-        if ckpt_path.is_file():
-            ckpt_path = ckpt_path.parent
-        if ckpt_path.name != "pretrained_model":
-            last_dir = ckpt_path.parent / "last" / "pretrained_model"
-            if last_dir.exists():
-                ckpt_path = last_dir
+    ckpt_path = _resolve_checkpoint_path(args.checkpoint, train_config_path)
 
     train_cfg.policy.pretrained_path = str(ckpt_path)
 
@@ -424,6 +489,7 @@ def infer_action_vec(
     raw_obs: Dict[str, float],
     device: str,
     hz: float,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> np.ndarray | None:
     """执行一次策略推理并返回原始动作向量。"""
     batch = {}
@@ -465,7 +531,7 @@ def infer_action_vec(
         if img is None:
             print(f"[ERROR] Could not find image for {cam_key}")
             print(f"[DEBUG] Available obs keys: {list(raw_obs.keys())}")
-            time.sleep(1.0 / hz)
+            sleep_fn(1.0 / hz)
             return None
 
         if img.dtype != np.uint8:
@@ -481,7 +547,7 @@ def infer_action_vec(
         missing = [k for k in required_imgs if k not in batch]
         if missing:
             print(f"[warn] Missing images: {missing}")
-            time.sleep(1.0 / hz)
+            sleep_fn(1.0 / hz)
             return None
 
     for k, v in list(batch.items()):
@@ -549,14 +615,48 @@ def main() -> None:
     _train_cfg, meta, policy, policy_image_feats, gripper_idx = init_inference(args)
 
     robot = build_robot()
+    sim_time = SimTimeHelper()
+    robot_connected = False
+
+    def shutdown_handler(sig, frame) -> None:
+        print("\nInterrupt received, shutting down...")
+        try:
+            if robot_connected:
+                try:
+                    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                except Exception:
+                    pass
+                robot.disconnect()
+        finally:
+            sim_time.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown_handler)
+
+    print("Connecting to robot...")
     robot.connect()
-    print("✓ Robot connected, starting control loop...")
+    robot_connected = True
+    print("[OK] Robot connected")
+
+    print("Resetting simulation state...")
+    reset_simulation_and_randomize_object(
+        GRASP_CFG.shared.object_entity_path,
+        xyz_offset=GRASP_CFG.runtime.object_xyz_random_offset,
+        post_reset_wait=GRASP_CFG.runtime.post_reset_wait,
+        sleep_fn=sim_time.sleep,
+    )
+
+    print("Switching FSM: HOLD -> OCS2 ...")
+    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+    sim_time.sleep(GRASP_CFG.runtime.fsm_switch_delay)
+    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_ocs2)
+    print("[OK] FSM switched to OCS2, starting inference loop...")
 
     period = 1.0 / args.hz
     try:
         missing_warned = False
         while True:
-            t0 = time.time()
+            t0 = sim_time.now_seconds()
             raw_obs = robot.get_observation()
             _maybe_inject_rot6d_in_obs(raw_obs, meta)
             if not missing_warned and USE_STATE_INPUT and "observation.state" in meta.features:
@@ -573,6 +673,7 @@ def main() -> None:
                 raw_obs=raw_obs,
                 device=args.device,
                 hz=args.hz,
+                sleep_fn=sim_time.sleep,
             )
             if action_vec is None:
                 continue
@@ -606,15 +707,25 @@ def main() -> None:
                 print(f"Gripper cmd: {cmd.get('gripper.position', 'N/A')}")
             robot.send_action(cmd)
 
-            elapsed = time.time() - t0
+            elapsed = sim_time.now_seconds() - t0
             sleep_t = period - elapsed
             if sleep_t > 0:
-                time.sleep(sleep_t)
+                sim_time.sleep(sleep_t)
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
-        robot.disconnect()
-        print("✓ Robot disconnected.")
+        try:
+            if robot_connected:
+                print("Switching FSM to HOLD...")
+                robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                print("[OK] FSM switched to HOLD")
+        except Exception as err:
+            print(f"[WARN] Failed to switch FSM to HOLD during cleanup: {err}")
+        finally:
+            sim_time.shutdown()
+            if robot_connected:
+                robot.disconnect()
+                print("✓ Robot disconnected.")
 
 
 if __name__ == "__main__":

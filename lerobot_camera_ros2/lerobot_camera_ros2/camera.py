@@ -6,6 +6,7 @@ allowing cameras to receive image data through ROS 2 topics.
 """
 
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -89,6 +90,9 @@ class ROS2Camera(Camera):
         self.image_received_event = threading.Event()
         self.depth_received_event = threading.Event()
         self._dimensions_initialized = False
+        self._cv_bridge_enabled = os.getenv("LEROBOT_ROS2_DISABLE_CV_BRIDGE", "0") != "1"
+        self._last_cv_bridge_error_log_ts = 0.0
+        self._cv_bridge_error_log_interval_s = 2.0
         
         # Connection state
         self._connected = False
@@ -245,11 +249,25 @@ class ROS2Camera(Camera):
                 self._dimensions_initialized = True
             
             # Convert ROS image message to OpenCV format
-            try:
-                cv_image = self.bridge.imgmsg_to_cv2(msg, self.encoding)
-            except Exception as e:
-                logger.error(f"Failed to convert ROS image message: {e}")
-                return
+            cv_image = None
+            if self._cv_bridge_enabled:
+                try:
+                    cv_image = self.bridge.imgmsg_to_cv2(msg, self.encoding)
+                except Exception as e:
+                    now = time.monotonic()
+                    if (now - self._last_cv_bridge_error_log_ts) >= self._cv_bridge_error_log_interval_s:
+                        logger.error(f"Failed to convert ROS image message: {e}")
+                        logger.warning(
+                            "Disabling cv_bridge for camera '%s' and falling back to manual converter.",
+                            self.topic_name,
+                        )
+                        self._last_cv_bridge_error_log_ts = now
+                    self._cv_bridge_enabled = False
+
+            if cv_image is None:
+                cv_image = self._manual_convert_image_msg(msg, self.encoding)
+                if cv_image is None:
+                    return
             
             # Convert to RGB format for LeRobot
             try:
@@ -273,6 +291,57 @@ class ROS2Camera(Camera):
                 
         except Exception as e:
             logger.error(f"Error processing image: {e}")
+
+    def _manual_convert_image_msg(self, msg: Image, encoding: str) -> np.ndarray | None:
+        """Fallback conversion path that avoids cv_bridge."""
+        try:
+            src = (msg.encoding or "").lower()
+            dst = (encoding or src or "bgr8").lower()
+            h, w = int(msg.height), int(msg.width)
+            if h <= 0 or w <= 0:
+                logger.error("Manual conversion got invalid image size: %sx%s", w, h)
+                return None
+
+            raw = np.frombuffer(msg.data, dtype=np.uint8)
+            if src in ("rgb8", "bgr8"):
+                expected = h * w * 3
+                if raw.size < expected:
+                    logger.error("Manual conversion failed: RGB payload too small (%s < %s)", raw.size, expected)
+                    return None
+                img = raw[:expected].reshape(h, w, 3)
+                if src != dst and dst in ("rgb8", "bgr8"):
+                    return img[..., ::-1].copy()
+                return img.copy()
+
+            if src in ("rgba8", "bgra8"):
+                expected = h * w * 4
+                if raw.size < expected:
+                    logger.error("Manual conversion failed: RGBA payload too small (%s < %s)", raw.size, expected)
+                    return None
+                img = raw[:expected].reshape(h, w, 4)
+                if src == "rgba8":
+                    rgb = img[..., :3]
+                else:
+                    rgb = img[..., [2, 1, 0]]
+                if dst == "bgr8":
+                    return rgb[..., ::-1].copy()
+                return rgb.copy()
+
+            if src == "mono8":
+                expected = h * w
+                if raw.size < expected:
+                    logger.error("Manual conversion failed: mono payload too small (%s < %s)", raw.size, expected)
+                    return None
+                gray = raw[:expected].reshape(h, w)
+                if dst in ("rgb8", "bgr8", "rgba8", "bgra8"):
+                    return np.repeat(gray[:, :, None], 3, axis=2)
+                return gray.copy()
+
+            logger.error("Manual conversion unsupported encoding: src=%s dst=%s", src, dst)
+            return None
+        except Exception as exc:
+            logger.error("Manual conversion exception: %s", exc)
+            return None
 
     def _depth_callback(self, msg: Image) -> None:
         if not self.depth_topic_name:

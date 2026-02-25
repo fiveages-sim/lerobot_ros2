@@ -17,20 +17,18 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    import torch
-    from pytorch3d.transforms import matrix_to_rotation_6d, quaternion_to_matrix
-except ImportError as exc:  # pragma: no cover - import guard
-    raise RuntimeError(
-        "The 'torch' and 'pytorch3d' python packages are required for rotation-6D conversion."
-    ) from exc
-
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot_robot_ros2.utils.pose_utils import quat_xyzw_to_rot6d  # pyright: ignore[reportMissingImports]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert raw grasp data to LeRobot dataset")
-    parser.add_argument("--raw-root", type=Path, required=True, help="Raw dataset root (contains meta.json)")
+    parser.add_argument(
+        "--raw-root",
+        type=Path,
+        default=None,
+        help="Raw dataset root (contains meta.json). If omitted, auto-detect latest under ./raw_dataset/",
+    )
     parser.add_argument("--out-root", type=Path, default=None, help="Output dataset root (optional)")
     parser.add_argument("--copy-points", action="store_true", help="Copy points/ directory if present")
     return parser.parse_args()
@@ -41,6 +39,29 @@ def load_meta(raw_root: Path) -> dict:
     if not meta_path.is_file():
         raise FileNotFoundError(f"Missing meta.json: {meta_path}")
     return json.loads(meta_path.read_text())
+
+
+def resolve_raw_root(raw_root_arg: Path | None) -> Path:
+    if raw_root_arg is not None:
+        return raw_root_arg.expanduser().resolve()
+
+    raw_dataset_dir = Path.cwd() / "raw_dataset"
+    if not raw_dataset_dir.is_dir():
+        raise FileNotFoundError(
+            f"--raw-root not provided and raw dataset directory not found: {raw_dataset_dir}"
+        )
+
+    candidates = [
+        p for p in raw_dataset_dir.iterdir() if p.is_dir() and (p / "meta.json").is_file()
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"No valid raw dataset found in {raw_dataset_dir} (expected subdirs containing meta.json)"
+        )
+
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    print(f"[info] Auto-selected raw dataset: {latest}")
+    return latest.resolve()
 
 
 ROT6D_PREFIX = "end_effector.rot6d"
@@ -61,18 +82,6 @@ def _replace_quat_names(names: list[str]) -> tuple[list[str], bool]:
     for offset, name in enumerate(rot6d_names):
         new_names.insert(start_idx + offset, name)
     return new_names, True
-
-
-def _quat_xyzw_to_rot6d(quat_xyzw: np.ndarray) -> np.ndarray:
-    quat = np.asarray(quat_xyzw, dtype=np.float32)
-    if quat.shape[-1] != 4:
-        raise ValueError(f"Expected quaternion with 4 elements, got shape {quat.shape}")
-    quat = np.atleast_2d(quat)
-    # pytorch3d expects (w, x, y, z)
-    quat_wxyz = np.stack([quat[..., 3], quat[..., 0], quat[..., 1], quat[..., 2]], axis=-1)
-    rot_mats = quaternion_to_matrix(torch.as_tensor(quat_wxyz, dtype=torch.float32))
-    rot6d = matrix_to_rotation_6d(rot_mats).detach().cpu().numpy().astype(np.float32)
-    return np.atleast_2d(rot6d)
 
 
 def build_features(meta: dict) -> tuple[dict, list[str], list[str], bool, bool]:
@@ -138,7 +147,7 @@ def action_from_next(
         "end_effector.position.z": float(next_ee_pose[2]),
     }
     if use_rot6d:
-        rot6d = _quat_xyzw_to_rot6d(next_ee_pose[3:7])
+        rot6d = quat_xyzw_to_rot6d(next_ee_pose[3:7])
         for i in range(6):
             action_dict[f"{ROT6D_PREFIX}_{i}"] = float(rot6d[0, i])
     else:
@@ -181,7 +190,7 @@ def _convert_state_vec(
     quat_vals = [name_to_val.get(n) for n in QUAT_NAMES]
     if any(v is None for v in quat_vals):
         return state_vec.astype(np.float32, copy=False)
-    rot6d = _quat_xyzw_to_rot6d(np.asarray(quat_vals, dtype=np.float32))
+    rot6d = quat_xyzw_to_rot6d(np.asarray(quat_vals, dtype=np.float32))
     out = []
     for name in new_names:
         if name.startswith(ROT6D_PREFIX):
@@ -194,11 +203,15 @@ def _convert_state_vec(
 
 def main() -> None:
     args = parse_args()
-    raw_root = args.raw_root.expanduser().resolve()
+    raw_root = resolve_raw_root(args.raw_root)
     meta = load_meta(raw_root)
 
     features, state_names, action_names, state_rot6d, action_rot6d = build_features(meta)
-    out_root = args.out_root.expanduser().resolve() if args.out_root else raw_root.parent / f"{raw_root.name}_lerobot"
+    out_root = (
+        args.out_root.expanduser().resolve()
+        if args.out_root
+        else (Path.cwd() / "lerobot_dataset" / f"{raw_root.name}").resolve()
+    )
     out_root.parent.mkdir(parents=True, exist_ok=True)
 
     dataset = LeRobotDataset.create(

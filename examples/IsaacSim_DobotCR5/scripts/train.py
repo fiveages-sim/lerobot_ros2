@@ -17,12 +17,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+import inspect
 import json
 import logging
 from pathlib import Path
-import sys
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 from lerobot.constants import CHECKPOINTS_DIR, LAST_CHECKPOINT_LINK
@@ -41,8 +40,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "dataset_path",
         type=Path,
-        default="/home/gtengliu/lerobot_ros2/dataset/grasp_dataset_50_no_depth",
-        help="Path to the dataset directory (contains meta/data/videos)",
+        nargs="?",
+        default=None,
+        help=(
+            "Path to the dataset directory (contains meta/data/videos). "
+            "If omitted, auto-detect latest dataset under ./lerobot_dataset/"
+        ),
     )
     parser.add_argument(
         "--episodes",
@@ -52,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--policy", choices=["act", "diffusion"], default="act", help="Which policy to train.")
     # ACT-specific knobs.
-    parser.add_argument("--chunk-size", type=int, default=50, help="ACT chunk size")
-    parser.add_argument("--n-action-steps", type=int, default=50, help="ACT: action steps executed per chunk")
+    parser.add_argument("--chunk-size", type=int, default=16, help="ACT chunk size")
+    parser.add_argument("--n-action-steps", type=int, default=8, help="ACT: action steps executed per chunk")
     parser.add_argument(
         "--images-only",
         action="store_true",
@@ -87,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--diffusion-n-obs-steps", type=int, default=2, help="Diffusion: number of observation timesteps as context"
     )
-    parser.add_argument("--steps", type=int, default=10000, help="Number of optimizer steps")
+    parser.add_argument("--steps", type=int, default=20000, help="Number of optimizer steps")
     parser.add_argument("--batch-size", type=int, default=8, help="Training batch size")
     parser.add_argument("--num-workers", type=int, default=4, help="PyTorch DataLoader workers")
     parser.add_argument("--device", type=str, default="cuda", help="Training device (cuda|cpu|mps)")
@@ -97,10 +100,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tolerance-s",
         type=float,
-        default=0.5,
+        default=None,
         help=(
             "Timestamp tolerance (seconds) for video/trajectory alignment; "
-            "defaults to 1/fps - 1e-4 when not set."
+            "only applied when current DatasetConfig supports this field."
         ),
     )
     return parser.parse_args()
@@ -128,23 +131,71 @@ def _load_state_names(dataset_root: Path) -> list[str] | None:
     return list(names) if isinstance(names, list) else None
 
 
+def _resolve_dataset_path(dataset_path_arg: Path | None) -> Path:
+    if dataset_path_arg is not None:
+        dataset_path = dataset_path_arg.expanduser().resolve()
+        if not dataset_path.exists():
+            raise FileNotFoundError(dataset_path)
+        return dataset_path
+
+    dataset_parent = Path.cwd() / "lerobot_dataset"
+    if not dataset_parent.is_dir():
+        raise FileNotFoundError(
+            f"dataset_path not provided and dataset parent not found: {dataset_parent}"
+        )
+
+    candidates = [
+        p for p in dataset_parent.iterdir()
+        if p.is_dir() and (p / "meta" / "info.json").is_file()
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"No valid dataset found in {dataset_parent} (expected meta/info.json in subdirectories)"
+        )
+
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    logging.info("Auto-selected latest dataset: %s", latest)
+    return latest.resolve()
+
+
+def _resolve_output_dir(output_dir_arg: Path | None, dataset_path: Path, policy: str) -> Path:
+    if output_dir_arg is not None:
+        return output_dir_arg.expanduser().resolve()
+
+    output_parent = Path.cwd() / "outputs"
+    output_parent.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    auto_output_dir = output_parent / f"{dataset_path.name}_{policy}_{stamp}"
+    logging.info("Auto-selected output directory: %s", auto_output_dir)
+    return auto_output_dir.resolve()
+
+
 def main() -> None:
     init_logging()
     args = parse_args()
-    dataset_path = args.dataset_path.expanduser().resolve()
-    if not dataset_path.exists():
-        raise FileNotFoundError(dataset_path)
+    dataset_path = _resolve_dataset_path(args.dataset_path)
+    output_dir = _resolve_output_dir(args.output_dir, dataset_path, args.policy)
 
     episodes = _parse_episode_list(args.episodes)
     video_backend = get_safe_default_codec()
-    dataset_cfg = DatasetConfig(
-        repo_id=dataset_path.name,
-        root=str(dataset_path),
-        use_imagenet_stats=True,
-        tolerance_s=args.tolerance_s,
-        video_backend=video_backend,
-        episodes=episodes,
-    )
+    dataset_kwargs: dict[str, object] = {
+        "repo_id": dataset_path.name,
+        "root": str(dataset_path),
+        "use_imagenet_stats": True,
+    }
+    supported_dataset_fields = set(inspect.signature(DatasetConfig).parameters.keys())
+    if "video_backend" in supported_dataset_fields:
+        dataset_kwargs["video_backend"] = video_backend
+    if "episodes" in supported_dataset_fields:
+        dataset_kwargs["episodes"] = episodes
+    if args.tolerance_s is not None and "tolerance_s" in supported_dataset_fields:
+        dataset_kwargs["tolerance_s"] = args.tolerance_s
+    elif args.tolerance_s is not None and "tolerance_s" not in supported_dataset_fields:
+        logging.warning(
+            "Current DatasetConfig does not support 'tolerance_s'; ignoring --tolerance-s=%s",
+            args.tolerance_s,
+        )
+    dataset_cfg = DatasetConfig(**dataset_kwargs)
 
     if args.policy == "act":
         lr = args.act_lr if args.act_lr is not None else None
@@ -205,7 +256,7 @@ def main() -> None:
     train_cfg = TrainPipelineConfig(
         dataset=dataset_cfg,
         policy=policy_cfg,
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         num_workers=args.num_workers,
         batch_size=args.batch_size,
         steps=args.steps,
