@@ -57,3 +57,7 @@ python scripts/train.py --policy act --chunk-size 16 --n-action-steps 8   --step
 ```bash
 python scripts/inference.py
 ```
+
+https://github.com/user-attachments/assets/87a48b3b-db63-41e1-9e7b-be89aa801782
+
+
