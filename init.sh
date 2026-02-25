@@ -10,7 +10,7 @@ LEROBOT_SUBMODULE_PATH="submodules/lerobot"
 LEROBOT_PINNED_COMMIT="55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab"
 
 print_usage() {
-  echo "用法: $0 [submodules|lerobot|conda [python版本]|install|install-plugins|pypi-mirror|all [python版本]]"
+  echo "用法: $0 [submodules|lerobot|conda [python版本]|install|install-plugins|conda-runtime|pypi-mirror|all [python版本]]"
   echo
   echo "不带参数时进入交互菜单。"
   echo "未指定版本时默认使用 Python $DEFAULT_PYTHON_VERSION。"
@@ -127,6 +127,58 @@ ensure_conda_env_active() {
   with_nounset_disabled activate_target_conda_env
 }
 
+configure_conda_runtime_libs() {
+  local env_prefix=""
+  local activate_dir=""
+  local deactivate_dir=""
+  local activate_script=""
+  local deactivate_script=""
+
+  if ! command -v conda >/dev/null 2>&1; then
+    echo "未检测到 conda，请先安装并配置 conda。"
+    exit 1
+  fi
+
+  if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
+    echo "环境 '$ENV_NAME' 不存在，请先创建 conda 环境。"
+    exit 1
+  fi
+
+  ensure_conda_env_active
+  env_prefix="${CONDA_PREFIX:-}"
+  if [[ -z "$env_prefix" || ! -d "$env_prefix" ]]; then
+    echo "无法确定 conda 环境路径，请确认环境 '$ENV_NAME' 可正常激活。"
+    exit 1
+  fi
+
+  activate_dir="$env_prefix/etc/conda/activate.d"
+  deactivate_dir="$env_prefix/etc/conda/deactivate.d"
+  activate_script="$activate_dir/lerobot_ros2_runtime_libs.sh"
+  deactivate_script="$deactivate_dir/lerobot_ros2_runtime_libs.sh"
+  mkdir -p "$activate_dir" "$deactivate_dir"
+
+  cat > "$activate_script" <<'EOF'
+#!/usr/bin/env bash
+export _LEROBOT_OLD_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+export _LEROBOT_OLD_LD_PRELOAD="${LD_PRELOAD:-}"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_PRELOAD="$CONDA_PREFIX/lib/libjpeg.so.8:$CONDA_PREFIX/lib/libtiff.so.6${LD_PRELOAD:+:$LD_PRELOAD}"
+EOF
+
+  cat > "$deactivate_script" <<'EOF'
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="${_LEROBOT_OLD_LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="${_LEROBOT_OLD_LD_PRELOAD:-}"
+unset _LEROBOT_OLD_LD_LIBRARY_PATH
+unset _LEROBOT_OLD_LD_PRELOAD
+EOF
+
+  chmod +x "$activate_script" "$deactivate_script"
+  echo ">>> 已写入 conda 运行时库配置："
+  echo "    激活脚本: $activate_script"
+  echo "    反激活脚本: $deactivate_script"
+}
+
 create_conda_env() {
   local selected_python_version
   selected_python_version="$(resolve_python_version "${1:-}")"
@@ -233,6 +285,7 @@ install_plugins() {
     echo ">>> 再次确认 NumPy < 2（防止被依赖解析升级到 2.x）"
     python -m pip install "numpy<2"
   )
+  configure_conda_runtime_libs
   echo ">>> CUDA/PyTorch/ffmpeg、指定版本 lerobot 与插件安装完成。"
 }
 
@@ -282,6 +335,9 @@ main() {
     install-plugins)
       install_plugins
       ;;
+    conda-runtime)
+      configure_conda_runtime_libs
+      ;;
     pypi-mirror)
       configure_nju_pypi_mirror
       ;;
@@ -297,8 +353,9 @@ main() {
       echo "  5) 安装 lerobot 插件（含 OpenCV 兼容参数）"
       echo "  6) 全部执行"
       echo "  7) 配置 NJU PyPI 镜像"
+      echo "  8) 配置 conda 运行时库环境（LD_LIBRARY_PATH/LD_PRELOAD）"
       echo "  q) 退出"
-      read -r -p "输入选项 [1/2/3/4/5/6/7/q]: " choice
+      read -r -p "输入选项 [1/2/3/4/5/6/7/8/q]: " choice
       case "$choice" in
         1) init_submodules ;;
         2)
@@ -320,6 +377,9 @@ main() {
           ;;
         7)
           configure_nju_pypi_mirror
+          ;;
+        8)
+          configure_conda_runtime_libs
           ;;
         q|Q) echo "已退出。" ;;
         *) echo "无效选项。"; exit 1 ;;
