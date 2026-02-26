@@ -40,6 +40,11 @@ from lerobot_robot_ros2 import (
 )
 from lerobot_camera_ros2 import ROS2CameraConfig
 from grasp_config import GRASP_CFG
+
+COMMON_ISAAC_DIR = Path(__file__).resolve().parents[2] / "common"
+if str(COMMON_ISAAC_DIR) not in sys.path:
+    sys.path.append(str(COMMON_ISAAC_DIR))
+
 from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
@@ -321,13 +326,13 @@ def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> D
 
 def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMetadata) -> None:
     names = meta.features.get("observation.state", {}).get("names", [])
-    if not any(n.startswith("end_effector.rot6d_") for n in names):
+    if not any(n.startswith("left_ee.rot6d_") for n in names):
         return
     quat_vals = [
-        raw_obs.get("end_effector.orientation.x"),
-        raw_obs.get("end_effector.orientation.y"),
-        raw_obs.get("end_effector.orientation.z"),
-        raw_obs.get("end_effector.orientation.w"),
+        raw_obs.get("left_ee.quat.x"),
+        raw_obs.get("left_ee.quat.y"),
+        raw_obs.get("left_ee.quat.z"),
+        raw_obs.get("left_ee.quat.w"),
     ]
     if any(v is None for v in quat_vals):
         return
@@ -336,19 +341,19 @@ def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMe
         return
     rot6d = quat_xyzw_to_rot6d(quat)[0]
     for i in range(6):
-        raw_obs[f"end_effector.rot6d_{i}"] = float(rot6d[i])
+        raw_obs[f"left_ee.rot6d_{i}"] = float(rot6d[i])
 
 
 def _maybe_convert_rot6d_action(cmd: Dict[str, float]) -> None:
-    rot6d_keys = [f"end_effector.rot6d_{i}" for i in range(6)]
+    rot6d_keys = [f"left_ee.rot6d_{i}" for i in range(6)]
     if not all(k in cmd for k in rot6d_keys):
         return
     rot6d = np.array([cmd[k] for k in rot6d_keys], dtype=np.float32)
     quat_xyzw = rot6d_to_quat_xyzw(rot6d)[0]
-    cmd["end_effector.orientation.x"] = float(quat_xyzw[0])
-    cmd["end_effector.orientation.y"] = float(quat_xyzw[1])
-    cmd["end_effector.orientation.z"] = float(quat_xyzw[2])
-    cmd["end_effector.orientation.w"] = float(quat_xyzw[3])
+    cmd["left_ee.quat.x"] = float(quat_xyzw[0])
+    cmd["left_ee.quat.y"] = float(quat_xyzw[1])
+    cmd["left_ee.quat.z"] = float(quat_xyzw[2])
+    cmd["left_ee.quat.w"] = float(quat_xyzw[3])
     for k in rot6d_keys:
         cmd.pop(k, None)
 
@@ -477,7 +482,7 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
     print("[info] Policy reset, action queue initialized")
 
     action_names = meta.features.get("action", {}).get("names", [])
-    gripper_idx = action_names.index("gripper.position") if "gripper.position" in action_names else None
+    gripper_idx = action_names.index("left_gripper.pos") if "left_gripper.pos" in action_names else None
 
     return train_cfg, meta, policy, policy_image_feats, gripper_idx
 
@@ -574,19 +579,19 @@ def build_cmd_from_action_vec(
     cmd = build_action_dict(meta, action_vec)
 
     if args.relative:
-        cmd["end_effector.position.x"] += raw_obs.get("end_effector.position.x", 0.0)
-        cmd["end_effector.position.y"] += raw_obs.get("end_effector.position.y", 0.0)
-        cmd["end_effector.position.z"] += raw_obs.get("end_effector.position.z", 0.0)
+        cmd["left_ee.pos.x"] += raw_obs.get("left_ee.pos.x", 0.0)
+        cmd["left_ee.pos.y"] += raw_obs.get("left_ee.pos.y", 0.0)
+        cmd["left_ee.pos.z"] += raw_obs.get("left_ee.pos.z", 0.0)
 
     if gripper_idx is not None:
         action_vec[gripper_idx] = np.clip(action_vec[gripper_idx], 0.0, 1.0)
         if args.fixed_gripper is not None:
             action_vec[gripper_idx] = np.clip(args.fixed_gripper, 0.0, 1.0)
         elif args.auto_close_z is not None:
-            curr_z = raw_obs.get("end_effector.position.z")
+            curr_z = raw_obs.get("left_ee.pos.z")
             if curr_z is not None and curr_z <= args.auto_close_z:
                 action_vec[gripper_idx] = 0.0
-        cmd["gripper.position"] = float(action_vec[gripper_idx])
+        cmd["left_gripper.pos"] = float(action_vec[gripper_idx])
 
     return cmd
 
@@ -681,13 +686,13 @@ def main() -> None:
             cmd = build_cmd_from_action_vec(meta, action_vec, raw_obs, args, gripper_idx)
             _maybe_convert_rot6d_action(cmd)
 
-            curr_x = raw_obs.get("end_effector.position.x")
-            curr_y = raw_obs.get("end_effector.position.y")
-            curr_z = raw_obs.get("end_effector.position.z")
+            curr_x = raw_obs.get("left_ee.pos.x")
+            curr_y = raw_obs.get("left_ee.pos.y")
+            curr_z = raw_obs.get("left_ee.pos.z")
 
-            target_x = cmd.get("end_effector.position.x", 0.0)
-            target_y = cmd.get("end_effector.position.y", 0.0)
-            target_z = cmd.get("end_effector.position.z", 0.0)
+            target_x = cmd.get("left_ee.pos.x", 0.0)
+            target_y = cmd.get("left_ee.pos.y", 0.0)
+            target_z = cmd.get("left_ee.pos.z", 0.0)
 
             curr_xyz = None
             target_xyz = None
@@ -704,7 +709,7 @@ def main() -> None:
 
             _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, distance)
             if args.debug:
-                print(f"Gripper cmd: {cmd.get('gripper.position', 'N/A')}")
+                print(f"Gripper cmd: {cmd.get('left_gripper.pos', 'N/A')}")
             robot.send_action(cmd)
 
             elapsed = sim_time.now_seconds() - t0

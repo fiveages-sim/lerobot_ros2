@@ -12,6 +12,7 @@ base frame, then executes a grasp-transport-release-return sequence.
 import signal
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 from geometry_msgs.msg import Pose
@@ -21,9 +22,15 @@ from lerobot_robot_ros2 import (
     ROS2Robot,
     ROS2RobotConfig,
     ROS2RobotInterfaceConfig,
+    build_single_arm_grasp_transport_release_sequence,
 )
 from grasp_config import GRASP_CFG
-from grasp_motion_primitives import build_grasp_transport_release_sequence
+build_grasp_transport_release_sequence = build_single_arm_grasp_transport_release_sequence
+
+COMMON_ISAAC_DIR = Path(__file__).resolve().parents[2] / "common"
+if str(COMMON_ISAAC_DIR) not in sys.path:
+    sys.path.append(str(COMMON_ISAAC_DIR))
+
 from isaac_ros2_sim_common import (
     SimTimeHelper,
     action_from_pose,
@@ -119,13 +126,13 @@ def main() -> None:
 
         initial_obs = robot.get_observation()
         initial_pose = Pose()
-        initial_pose.position.x = initial_obs["end_effector.position.x"]
-        initial_pose.position.y = initial_obs["end_effector.position.y"]
-        initial_pose.position.z = initial_obs["end_effector.position.z"]
-        initial_pose.orientation.x = initial_obs["end_effector.orientation.x"]
-        initial_pose.orientation.y = initial_obs["end_effector.orientation.y"]
-        initial_pose.orientation.z = initial_obs["end_effector.orientation.z"]
-        initial_pose.orientation.w = initial_obs["end_effector.orientation.w"]
+        initial_pose.position.x = initial_obs["left_ee.pos.x"]
+        initial_pose.position.y = initial_obs["left_ee.pos.y"]
+        initial_pose.position.z = initial_obs["left_ee.pos.z"]
+        initial_pose.orientation.x = initial_obs["left_ee.quat.x"]
+        initial_pose.orientation.y = initial_obs["left_ee.quat.y"]
+        initial_pose.orientation.z = initial_obs["left_ee.quat.z"]
+        initial_pose.orientation.w = initial_obs["left_ee.quat.w"]
 
         print("[Info] Querying base/object pose once before grasp...")
         base_world_pos, base_world_quat = get_entity_pose_world_service(
@@ -148,10 +155,10 @@ def main() -> None:
         )
         current_obs = robot.get_observation()
         current_orientation = (
-            current_obs["end_effector.orientation.x"],
-            current_obs["end_effector.orientation.y"],
-            current_obs["end_effector.orientation.z"],
-            current_obs["end_effector.orientation.w"],
+            current_obs["left_ee.quat.x"],
+            current_obs["left_ee.quat.y"],
+            current_obs["left_ee.quat.z"],
+            current_obs["left_ee.quat.w"],
         )
         if GRASP_CFG.shared.use_object_orientation:
             orientation_vec = np.array(

@@ -34,10 +34,16 @@ from lerobot_robot_ros2 import (
     ROS2Robot,
     ROS2RobotConfig,
     ROS2RobotInterfaceConfig,
+    build_single_arm_grasp_transport_release_sequence,
 )
 from lerobot_camera_ros2 import ROS2CameraConfig
 from grasp_config import GRASP_CFG
-from grasp_motion_primitives import build_grasp_transport_release_sequence
+build_grasp_transport_release_sequence = build_single_arm_grasp_transport_release_sequence
+
+COMMON_ISAAC_DIR = Path(__file__).resolve().parents[2] / "common"
+if str(COMMON_ISAAC_DIR) not in sys.path:
+    sys.path.append(str(COMMON_ISAAC_DIR))
+
 from isaac_ros2_sim_common import (
     SimTimeHelper,
     action_from_pose,
@@ -71,13 +77,13 @@ POSE_TIMEOUT = GRASP_CFG.record.pose_timeout
 TASK_NAME = GRASP_CFG.record.task_name
 # Order used for action vectors in dataset/keypoints
 ACTION_KEYS = [
-    "end_effector.position.x",
-    "end_effector.position.y",
-    "end_effector.position.z",
-    "end_effector.orientation.x",
-    "end_effector.orientation.y",
-    "end_effector.orientation.z",
-    "end_effector.orientation.w",
+    "left_ee.pos.x",
+    "left_ee.pos.y",
+    "left_ee.pos.z",
+    "left_ee.quat.x",
+    "left_ee.quat.y",
+    "left_ee.quat.z",
+    "left_ee.quat.w",
 ]
 # 是否在关键点采集深度并生成点云，可在开头交互式询问
 ENABLE_KEYPOINT_PCD = GRASP_CFG.record.enable_keypoint_pcd
@@ -231,13 +237,13 @@ def build_robot_config() -> ROS2RobotConfig:
 
 def pose_from_observation(obs: dict[str, float]) -> Pose:
     pose = Pose()
-    pose.position.x = obs.get("end_effector.position.x", 0.0)
-    pose.position.y = obs.get("end_effector.position.y", 0.0)
-    pose.position.z = obs.get("end_effector.position.z", 0.0)
-    pose.orientation.x = obs.get("end_effector.orientation.x", 0.0)
-    pose.orientation.y = obs.get("end_effector.orientation.y", 0.0)
-    pose.orientation.z = obs.get("end_effector.orientation.z", 0.0)
-    pose.orientation.w = obs.get("end_effector.orientation.w", 1.0)
+    pose.position.x = obs.get("left_ee.pos.x", 0.0)
+    pose.position.y = obs.get("left_ee.pos.y", 0.0)
+    pose.position.z = obs.get("left_ee.pos.z", 0.0)
+    pose.orientation.x = obs.get("left_ee.quat.x", 0.0)
+    pose.orientation.y = obs.get("left_ee.quat.y", 0.0)
+    pose.orientation.z = obs.get("left_ee.quat.z", 0.0)
+    pose.orientation.w = obs.get("left_ee.quat.w", 1.0)
     return pose
 
 
@@ -252,33 +258,33 @@ def pose_error(
     pos_tol: float,
     ori_tol: float,
     grip_tol: float,
+    gripper_obs_key: str = "gripper_joint.pos",
 ) -> tuple[float, float, float]:
     """Compute position/angle/gripper errors between observation and target action dict."""
-    dx = obs.get("end_effector.position.x", 0.0) - target.get("end_effector.position.x", 0.0)
-    dy = obs.get("end_effector.position.y", 0.0) - target.get("end_effector.position.y", 0.0)
-    dz = obs.get("end_effector.position.z", 0.0) - target.get("end_effector.position.z", 0.0)
+    dx = obs.get("left_ee.pos.x", 0.0) - target.get("left_ee.pos.x", 0.0)
+    dy = obs.get("left_ee.pos.y", 0.0) - target.get("left_ee.pos.y", 0.0)
+    dz = obs.get("left_ee.pos.z", 0.0) - target.get("left_ee.pos.z", 0.0)
     pos_err = float(np.sqrt(dx * dx + dy * dy + dz * dz))
 
     # Orientation error via quaternion dot (clipped to avoid NaNs)
     qw1, qx1, qy1, qz1 = (
-        target.get("end_effector.orientation.w", 1.0),
-        target.get("end_effector.orientation.x", 0.0),
-        target.get("end_effector.orientation.y", 0.0),
-        target.get("end_effector.orientation.z", 0.0),
+        target.get("left_ee.quat.w", 1.0),
+        target.get("left_ee.quat.x", 0.0),
+        target.get("left_ee.quat.y", 0.0),
+        target.get("left_ee.quat.z", 0.0),
     )
     qw2, qx2, qy2, qz2 = (
-        obs.get("end_effector.orientation.w", 1.0),
-        obs.get("end_effector.orientation.x", 0.0),
-        obs.get("end_effector.orientation.y", 0.0),
-        obs.get("end_effector.orientation.z", 0.0),
+        obs.get("left_ee.quat.w", 1.0),
+        obs.get("left_ee.quat.x", 0.0),
+        obs.get("left_ee.quat.y", 0.0),
+        obs.get("left_ee.quat.z", 0.0),
     )
     dot = qw1 * qw2 + qx1 * qx2 + qy1 * qy2 + qz1 * qz2
     dot = float(np.clip(abs(dot), -1.0, 1.0))
     ori_err = float(2.0 * np.arccos(dot))
 
-    # Gripper observation uses "gripper_joint.pos" key from ROS2
-    obs_gripper = obs.get("gripper_joint.pos", obs.get("gripper.position", 0.0))
-    target_gripper = target.get("gripper.position", 0.0)
+    obs_gripper = obs.get(gripper_obs_key, 0.0)
+    target_gripper = target.get("left_gripper.pos", 0.0)
     grip_err = abs(obs_gripper - target_gripper)
 
     return pos_err, ori_err, grip_err
@@ -361,13 +367,13 @@ def build_state_names(robot: ROS2Robot) -> list[str]:
         names.append(f"{cfg.gripper_joint_name}.pos")
     names.extend(
         [
-            "end_effector.position.x",
-            "end_effector.position.y",
-            "end_effector.position.z",
-            "end_effector.orientation.x",
-            "end_effector.orientation.y",
-            "end_effector.orientation.z",
-            "end_effector.orientation.w",
+            "left_ee.pos.x",
+            "left_ee.pos.y",
+            "left_ee.pos.z",
+            "left_ee.quat.x",
+            "left_ee.quat.y",
+            "left_ee.quat.z",
+            "left_ee.quat.w",
         ]
     )
     return names
@@ -437,24 +443,24 @@ def extract_observation_frame(
 
     obs_state.extend(
         [
-            obs.get("end_effector.position.x", 0.0),
-            obs.get("end_effector.position.y", 0.0),
-            obs.get("end_effector.position.z", 0.0),
-            obs.get("end_effector.orientation.x", 0.0),
-            obs.get("end_effector.orientation.y", 0.0),
-            obs.get("end_effector.orientation.z", 0.0),
-            obs.get("end_effector.orientation.w", 1.0),
+            obs.get("left_ee.pos.x", 0.0),
+            obs.get("left_ee.pos.y", 0.0),
+            obs.get("left_ee.pos.z", 0.0),
+            obs.get("left_ee.quat.x", 0.0),
+            obs.get("left_ee.quat.y", 0.0),
+            obs.get("left_ee.quat.z", 0.0),
+            obs.get("left_ee.quat.w", 1.0),
         ]
     )
     #状态暂存
     ee_pose = {
-        "x": obs.get("end_effector.position.x", 0.0),
-        "y": obs.get("end_effector.position.y", 0.0),
-        "z": obs.get("end_effector.position.z", 0.0),
-        "qx": obs.get("end_effector.orientation.x", 0.0),
-        "qy": obs.get("end_effector.orientation.y", 0.0),
-        "qz": obs.get("end_effector.orientation.z", 0.0),
-        "qw": obs.get("end_effector.orientation.w", 1.0),
+        "x": obs.get("left_ee.pos.x", 0.0),
+        "y": obs.get("left_ee.pos.y", 0.0),
+        "z": obs.get("left_ee.pos.z", 0.0),
+        "qx": obs.get("left_ee.quat.x", 0.0),
+        "qy": obs.get("left_ee.quat.y", 0.0),
+        "qz": obs.get("left_ee.quat.z", 0.0),
+        "qw": obs.get("left_ee.quat.w", 1.0),
     }
   
     frame["observation.state"] = np.array(obs_state, dtype=np.float32)
@@ -561,10 +567,10 @@ def main() -> None:
 
             current_obs = robot.get_observation()
             current_orientation = (
-                current_obs["end_effector.orientation.x"],
-                current_obs["end_effector.orientation.y"],
-                current_obs["end_effector.orientation.z"],
-                current_obs["end_effector.orientation.w"],
+                current_obs["left_ee.quat.x"],
+                current_obs["left_ee.quat.y"],
+                current_obs["left_ee.quat.z"],
+                current_obs["left_ee.quat.w"],
             )
 
             orientation_vec = np.array(
@@ -616,7 +622,7 @@ def main() -> None:
             for step_name, action in sequence:
                 print(f"[Step] {step_name}")
                 robot.send_action(action)
-                cmd_gripper = action.get("gripper.position", 0.0)
+                cmd_gripper = action.get("left_gripper.pos", 0.0)
                 pending_keypoint = {
                     "command_index": command_counter,
                 }
@@ -716,7 +722,12 @@ def main() -> None:
                     recorded_count += 1
                     # 判定是否到达目标：连续 3 帧满足容差即进入下一阶段（不考虑夹爪误差）
                     pos_err, ori_err, grip_err = pose_error(
-                        obs, action, POSE_TOL_POS, POSE_TOL_ORI, GRIPPER_TOL
+                        obs,
+                        action,
+                        POSE_TOL_POS,
+                        POSE_TOL_ORI,
+                        GRIPPER_TOL,
+                        gripper_obs_key=f"{robot.config.ros2_interface.gripper_joint_name}.pos",
                     )
                     ori_ok = (ori_err <= POSE_TOL_ORI) if REQUIRE_ORIENTATION_REACH else True
                     if (pos_err <= POSE_TOL_POS) and ori_ok:

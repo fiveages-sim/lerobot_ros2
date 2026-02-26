@@ -55,3 +55,6 @@ class ROS2RobotConfig(RobotConfig):
     # Robot-specific settings
     robot_name: str = "ros2_robot"
     namespace: str = ""
+    # Gripper control settings at robot layer (independent from interface dataclass fields)
+    gripper_control_mode: str = "position"  # position | target_command
+    gripper_command_threshold: float = 0.5

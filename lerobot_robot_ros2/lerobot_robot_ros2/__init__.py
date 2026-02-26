@@ -6,6 +6,10 @@ following LeRobot's plugin naming conventions.
 """
 
 from .config import ROS2RobotConfig
+from .motion_generation import (
+    build_single_arm_grasp_transport_release_sequence,
+    compose_bimanual_synchronized_sequence,
+)
 from .robot import ROS2Robot
 
 # Re-export from ros2_robot_interface for convenience
@@ -18,4 +22,6 @@ __all__ = [
     "ROS2RobotInterfaceConfig", 
     "ControlType",
     "ROS2Robot",
+    "build_single_arm_grasp_transport_release_sequence",
+    "compose_bimanual_synchronized_sequence",
 ]

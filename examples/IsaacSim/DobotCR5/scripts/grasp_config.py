@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ros2_robot_interface import FSM_HOLD, FSM_OCS2
 
 
 @dataclass(frozen=True)
@@ -21,8 +22,8 @@ class MotionConfig:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    fsm_hold: int = 2
-    fsm_ocs2: int = 3
+    fsm_hold: int = FSM_HOLD
+    fsm_ocs2: int = FSM_OCS2
     fsm_switch_delay: float = 0.1
     post_reset_wait: float = 1.0
     object_xyz_random_offset: tuple[float, float, float] = (0.5, 0.5, 0.0)

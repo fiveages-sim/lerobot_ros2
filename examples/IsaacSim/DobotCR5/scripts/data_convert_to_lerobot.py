@@ -64,12 +64,12 @@ def resolve_raw_root(raw_root_arg: Path | None) -> Path:
     return latest.resolve()
 
 
-ROT6D_PREFIX = "end_effector.rot6d"
+ROT6D_PREFIX = "left_ee.rot6d"
 QUAT_NAMES = [
-    "end_effector.orientation.x",
-    "end_effector.orientation.y",
-    "end_effector.orientation.z",
-    "end_effector.orientation.w",
+    "left_ee.quat.x",
+    "left_ee.quat.y",
+    "left_ee.quat.z",
+    "left_ee.quat.w",
 ]
 
 
@@ -91,8 +91,8 @@ def build_features(meta: dict) -> tuple[dict, list[str], list[str], bool, bool]:
 
     state_names, state_rot6d = _replace_quat_names(list(state_names))
     action_names, action_rot6d = _replace_quat_names(list(action_keys))
-    if include_gripper and "gripper.position" not in action_names:
-        action_names.append("gripper.position")
+    if include_gripper and "left_gripper.pos" not in action_names:
+        action_names.append("left_gripper.pos")
 
     state_dim = len(state_names)
     action_dim = len(action_names)
@@ -142,9 +142,9 @@ def action_from_next(
     use_rot6d: bool,
 ) -> np.ndarray:
     action_dict = {
-        "end_effector.position.x": float(next_ee_pose[0]),
-        "end_effector.position.y": float(next_ee_pose[1]),
-        "end_effector.position.z": float(next_ee_pose[2]),
+        "left_ee.pos.x": float(next_ee_pose[0]),
+        "left_ee.pos.y": float(next_ee_pose[1]),
+        "left_ee.pos.z": float(next_ee_pose[2]),
     }
     if use_rot6d:
         rot6d = quat_xyzw_to_rot6d(next_ee_pose[3:7])
@@ -153,17 +153,17 @@ def action_from_next(
     else:
         action_dict.update(
             {
-                "end_effector.orientation.x": float(next_ee_pose[3]),
-                "end_effector.orientation.y": float(next_ee_pose[4]),
-                "end_effector.orientation.z": float(next_ee_pose[5]),
-                "end_effector.orientation.w": float(next_ee_pose[6]),
+                "left_ee.quat.x": float(next_ee_pose[3]),
+                "left_ee.quat.y": float(next_ee_pose[4]),
+                "left_ee.quat.z": float(next_ee_pose[5]),
+                "left_ee.quat.w": float(next_ee_pose[6]),
             }
         )
     if include_gripper:
-        action_dict["gripper.position"] = float(np.clip(next_cmd_gripper, 0.0, 1.0))
+        action_dict["left_gripper.pos"] = float(np.clip(next_cmd_gripper, 0.0, 1.0))
     values = [action_dict.get(k, 0.0) for k in action_keys]
     if include_gripper:
-        values.append(action_dict.get("gripper.position", 0.0))
+        values.append(action_dict.get("left_gripper.pos", 0.0))
     return np.asarray(values, dtype=np.float32)
 
 
@@ -222,7 +222,7 @@ def main() -> None:
         use_videos=True,
     )
 
-    action_keys = [name for name in action_names if name != "gripper.position"]
+    action_keys = [name for name in action_names if name != "left_gripper.pos"]
     include_gripper = bool(meta.get("include_gripper", False))
     task_name = meta.get("task_name", "grasp")
     original_state_names = meta.get("state_names") or []

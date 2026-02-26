@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Unified bimanual grasp configuration for Agibot G1 IsaacSim demos."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from ros2_robot_interface import FSM_HOLD, FSM_OCS2  # pyright: ignore[reportMissingImports]
+
+
+@dataclass(frozen=True)
+class MotionConfig:
+    approach_clearance: float = 0.2
+    grasp_clearance: float = 0.01
+    grasp_orientation: tuple[float, float, float, float] = (-0.7, 0.7, 0.0, 0.0)
+    transport_height: float = 0.35
+    left_retract_offset_y: float = 0.15
+    right_retract_offset_y: float = -0.15
+    gripper_open: float = 1.0
+    gripper_closed: float = 0.0
+    left_release_position: tuple[float, float, float] = (-0.40, 0.25, 0.30)
+    right_release_position: tuple[float, float, float] = (-0.40, -0.25, 0.30)
+    # Handover pose used after right-arm grasp
+    handover_position: tuple[float, float, float] = (
+        0.55,
+        0.0,
+        1.4,
+    )
+    handover_orientation: tuple[float, float, float, float] = (
+        -0.77,
+        0.0,
+        0.0,
+        0.77,
+    )
+    left_handover_orientation: tuple[float, float, float, float] = (
+        0.0,
+        0.77,
+        -0.77,
+        0.0,
+    )
+    left_place_position: tuple[float, float, float] = (
+        0.8570370505270081,
+        0.13321873896568778,
+        1.1128151483690991,
+    )
+    left_place_orientation: tuple[float, float, float, float] = (
+        -0.33016505084249775,
+        0.6534009839213628,
+        -0.6175486972275431,
+        0.2875618193803384,
+    )
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    joint_states_topic: str = "/joint_states"
+    left_current_pose_topic: str = "/left_current_pose"
+    right_current_pose_topic: str = "/right_current_pose"
+    left_target_topic: str = "/left_target"
+    right_target_topic: str = "/right_target"
+    left_current_target_topic: str = "/left_current_target"
+    right_current_target_topic: str = "/right_current_target"
+    left_gripper_command_topic: str = "/left_gripper_joint/position_command"
+    right_gripper_command_topic: str = "/right_gripper_joint/position_command"
+    gripper_control_mode: str = "target_command"
+    left_gripper_joint_name: str = "left_gripper_joint"
+    joint_names: tuple[str, ...] = (
+        "body_joint1",
+        "body_joint2",
+        "head_joint1",
+        "head_joint2",
+        "left_gripper_joint",
+        "left_joint1",
+        "left_joint2",
+        "left_joint3",
+        "left_joint4",
+        "left_joint5",
+        "left_joint6",
+        "left_joint7",
+        "right_gripper_joint",
+        "right_joint1",
+        "right_joint2",
+        "right_joint3",
+        "right_joint4",
+        "right_joint5",
+        "right_joint6",
+        "right_joint7",
+    )
+    fsm_hold: int = FSM_HOLD
+    fsm_ocs2: int = FSM_OCS2
+    fsm_switch_delay: float = 0.1
+    post_reset_wait: float = 1.0
+    object_xyz_random_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+@dataclass(frozen=True)
+class SceneConfig:
+    base_link_entity_path: str = "/World/Agibot_G1_ROS2/Agibot_G1/base_footprint"
+    left_object_entity_path: str = "/World/left_object"
+    right_object_entity_path: str = "/World/FinasterideTablets/tablets/tablets"
+
+
+@dataclass(frozen=True)
+class SingleDemoConfig:
+    # right_grasp_only: keep left arm in standby while right arm runs grasp pipeline
+    right_grasp_only: bool = True
+    # stop_after_grasp: execute only until grasp stage, skip later stages
+    stop_after_grasp: bool = False
+    # stop_after_lift: execute until lift stage, skip transport/release
+    stop_after_lift: bool = True
+    arrival_timeout: float = 3.0
+    arrival_poll: float = 0.05
+    gripper_action_wait: float = 0.3
+
+
+@dataclass(frozen=True)
+class GraspConfig:
+    motion: MotionConfig = MotionConfig()
+    runtime: RuntimeConfig = RuntimeConfig()
+    scene: SceneConfig = SceneConfig()
+    single: SingleDemoConfig = SingleDemoConfig()
+
+
+GRASP_CFG = GraspConfig()
