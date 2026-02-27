@@ -10,6 +10,11 @@ from .motion_generation import (
     build_single_arm_grasp_transport_release_sequence,
     compose_bimanual_synchronized_sequence,
 )
+from .demo_flows import (
+    build_single_arm_pickup_sequence,
+    build_handover_then_place_sequence_for_arms,
+    execute_stage_sequence,
+)
 from .robot import ROS2Robot
 
 # Re-export from ros2_robot_interface for convenience
@@ -24,4 +29,7 @@ __all__ = [
     "ROS2Robot",
     "build_single_arm_grasp_transport_release_sequence",
     "compose_bimanual_synchronized_sequence",
+    "build_single_arm_pickup_sequence",
+    "build_handover_then_place_sequence_for_arms",
+    "execute_stage_sequence",
 ]

@@ -33,30 +33,32 @@ https://github.com/user-attachments/assets/78cad128-95e7-475b-828f-d12a9ff4b84e
 
 核心脚本：
 
-- 配置：`scripts/grasp_config.py`
-- 执行：`scripts/grasp_single_demo.py`
+- 机器人配置：`scripts/robot_config.py`
+- 默认流程配置：`scripts/robot_config.py`（与机器人配置已合并）
+- 任务配置（handover）：`scripts/handover_demo.py`（文件内 `HANDOVER_TASK_CFG`）
+- 执行：`scripts/handover_demo.py`
 
 ## 2. 运行方式
 
 在当前目录下执行：
 
 ```bash
-python scripts/grasp_single_demo.py
+python scripts/handover_demo.py
 ```
 
 ## 3. 关键配置项
 
-在 `scripts/grasp_config.py` 中可调：
+在以下文件中可调：
 
-- 抓取参数：`grasp_orientation`、`grasp_clearance`
-- 交接位姿：
-  - `handover_position` / `handover_orientation`（右臂）
-  - `left_handover_orientation`（左臂）
-- 放置位姿：
-  - `left_place_position` / `left_place_orientation`
-- 运行参数：
-  - `arrival_timeout`、`arrival_poll`、`gripper_action_wait`
-  - `right_grasp_only`、`stop_after_grasp`、`stop_after_lift`
+- `scripts/robot_config.py`：
+  - 抓取参数：`grasp_orientation`、`grasp_clearance`
+  - 运行参数：`arrival_timeout`、`arrival_poll`、`gripper_action_wait`
+  - `initial_grasp_arm`（`left` 或 `right`）
+- `scripts/handover_demo.py`（`HANDOVER_TASK_CFG`）：
+  - 交接位姿：`handover_position`、`source_handover_orientation`、`receiver_handover_orientation`
+  - 放置位姿：`receiver_place_position` / `receiver_place_orientation`
+  - 场景位姿服务对象：`source_object_entity_path`
+
 
 ## 4. 说明
 
