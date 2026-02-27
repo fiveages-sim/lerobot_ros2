@@ -38,9 +38,9 @@ class MotionConfig:
         0.0,
     )
     left_place_position: tuple[float, float, float] = (
-        0.8570370505270081,
-        0.13321873896568778,
-        1.1128151483690991,
+        0.9,
+        0.22,
+        1.1,
     )
     left_place_orientation: tuple[float, float, float, float] = (
         -0.33016505084249775,
@@ -96,7 +96,7 @@ class RuntimeConfig:
 class SceneConfig:
     base_link_entity_path: str = "/World/Agibot_G1_ROS2/Agibot_G1/base_footprint"
     left_object_entity_path: str = "/World/left_object"
-    right_object_entity_path: str = "/World/FinasterideTablets/tablets/tablets"
+    right_object_entity_path: str = "/World/medicine_handover/FinasterideTablets/tablets/tablets"
 
 
 @dataclass(frozen=True)
