@@ -62,12 +62,12 @@ LEFT_WRIST_CAMERA_TOPIC = "/left_wrist_camera/rgb"
 RIGHT_WRIST_CAMERA_NAME = "right_wrist"
 RIGHT_WRIST_CAMERA_TOPIC = "/right_wrist_camera/rgb"
 OBJECT_TF_TOPIC = "/isaac/medicinetf"
-TARGET_FRAME_ID = "yaohe"
+TARGET_FRAME_ID = "tablets"
 USE_OBJECT_ORIENTATION = True
-APPROACH_CLEARANCE = 0.05   # Approach 高度：目标上方 50mm
-APPROACH_OFFSET_X = -0.02    # Lift 阶段 X 偏移（负值让抓取位置向x负方向偏移）
+APPROACH_CLEARANCE = 0.15   # Approach 高度：目标上方 150mm
+APPROACH_OFFSET_X = 0.03    # Lift 阶段 X 偏移（负值让抓取位置向x负方向偏移）
 APPROACH_OFFSET_Y = 0.06    # Lift 阶段 Y 偏移
-GRASP_CLEARANCE = -0.01      
+GRASP_CLEARANCE = 0.01      
 GRIPPER_OPEN = 1.0
 GRIPPER_CLOSED = 0.0
 
@@ -85,7 +85,7 @@ LEFT_RELEASE_POSITION_X = 0.4560101318359375
 LEFT_RELEASE_POSITION_Y = 0.3267540919780731
 LEFT_RELEASE_POSITION_Z = 0.17857743925383547
 LIFT_HEIGHT = 0.06          # 抬起高度（相对于抓取位置）
-HANDOVER_OFFSET_X = -0.045
+HANDOVER_OFFSET_X = -0.024
 HANDOVER_OFFSET_Y = 0.08    
 TRANSPORT_HEIGHT = 0.4     # 移动时的安全高度
 RETRACT_HEIGHT = 0.20       # 释放后撤离高度
@@ -928,7 +928,7 @@ def main() -> None:
             lift_pose_r = Pose()
             lift_pose_r.position.x = descend_pose_r.position.x
             lift_pose_r.position.y = descend_pose_r.position.y
-            lift_pose_r.position.z = descend_pose_r.position.z + LIFT_HEIGHT
+            lift_pose_r.position.z = descend_pose_r.position.z + APPROACH_CLEARANCE
             lift_pose_r.orientation = descend_pose_r.orientation
 
             # Handover pose (a small offset towards the left arm)
