@@ -1,6 +1,6 @@
-"""Agibot G1 handover-flow config."""
+"""Agibot G1 handover task config."""
 
-FLOW_CONFIG = {
+TASK_CONFIG = {
     "task_key": "handover",
     "label": "Handover",
     "kind": "handover",
@@ -32,4 +32,31 @@ FLOW_CONFIG = {
             "source_object_entity_path": "/World/ConvenienceStore01/SM_Bottle_04_85",
         },
     },
+    "record": {
+        "base_record_overrides": {
+            "task_name": "handover",
+            "fps": 30,
+            "camera_info_timeout": 10.0,
+            "enable_keypoint_pcd": False,
+            "include_depth_feature": False,
+            "image_writer_processes": 0,
+            "image_writer_threads": 8,
+            "video_encoding_batch_size": 5,
+        },
+        "profiles": [
+            {
+                "key": "default",
+                "label": "Default",
+                "overrides": {},
+            },
+            {
+                "key": "fast",
+                "label": "Fast Encode Queue",
+                "overrides": {
+                    "image_writer_threads": 12,
+                    "video_encoding_batch_size": 10,
+                },
+            },
+        ],
+    }
 }

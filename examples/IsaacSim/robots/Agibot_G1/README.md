@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/78cad128-95e7-475b-828f-d12a9ff4b84e
 核心配置：
 
 - 机器人配置：`robot_config.py`
-- 任务配置（flow）：`flow_configs/*.py`
+- 任务配置（task）：`task_configs/*.py`
 
 ## 2. 运行方式
 
@@ -52,7 +52,7 @@ python ../../run_motion_generation.py
   - 抓取参数：`grasp_orientation`、`grasp_clearance`
   - 运行参数：`arrival_timeout`、`arrival_poll`、`gripper_action_wait`
   - `initial_grasp_arm`（`left` 或 `right`）
-- `flow_configs/handover.py`：
+- `task_configs/handover.py`：
   - 交接位姿：`handover_position`、`source_handover_orientation`、`receiver_handover_orientation`
   - 放置位姿：`receiver_place_position` / `receiver_place_orientation`
   - 场景位姿服务对象：`source_object_entity_path`

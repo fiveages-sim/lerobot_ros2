@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Auto-discovery loader for IsaacSim robot manifests."""
+"""Auto-discovery loader for IsaacSim robot/task/record configs."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import importlib.util
-import json
 import sys
 from typing import Any
 
@@ -21,96 +21,100 @@ def _load_module(module_name: str, file_path: Path) -> Any:
     return module
 
 
-def _load_attr(*, script_dir: Path, module_file: str, attr: str, unique_name: str) -> Any:
-    module = _load_module(unique_name, script_dir / module_file)
-    if not hasattr(module, attr):
-        raise AttributeError(f"Module '{module_file}' has no attr '{attr}'")
-    return getattr(module, attr)
+def _ensure_package_paths(isaac_dir: Path) -> None:
+    repo_root = isaac_dir.parents[1]
+    for pkg_root in (repo_root / "lerobot_camera_ros2", repo_root / "lerobot_robot_ros2"):
+        if pkg_root.is_dir() and str(pkg_root) not in sys.path:
+            sys.path.insert(0, str(pkg_root))
+
+
+def load_motion_entries(isaac_dir: Path) -> dict[str, dict[str, Any]]:
+    _ensure_package_paths(isaac_dir)
+    robots_root = isaac_dir / "robots"
+    entries: dict[str, dict[str, Any]] = {}
+    if not robots_root.is_dir():
+        return entries
+
+    for robot_dir in sorted(p for p in robots_root.iterdir() if p.is_dir() and not p.name.startswith("__")):
+        robot_cfg_file = robot_dir / "robot_config.py"
+        task_cfg_dir = robot_dir / "task_configs"
+        if not robot_cfg_file.is_file() or not task_cfg_dir.is_dir():
+            continue
+
+        robot_mod = _load_module(f"{robot_dir.name}_robot_cfg", robot_cfg_file)
+        robot_key = getattr(robot_mod, "ROBOT_KEY", robot_dir.name.lower())
+        robot_label = getattr(robot_mod, "ROBOT_LABEL", robot_dir.name)
+        robot_cfg = getattr(robot_mod, "ROBOT_CFG")
+
+        tasks: dict[str, dict[str, Any]] = {}
+        for task_file in sorted(p for p in task_cfg_dir.glob("*.py") if p.is_file()):
+            task_mod = _load_module(f"{robot_dir.name}_{task_file.stem}_task_cfg", task_file)
+            task_cfg = getattr(task_mod, "TASK_CONFIG", None)
+            if task_cfg is None:
+                task_cfg = getattr(task_mod, "FLOW_CONFIG", None)
+            if not isinstance(task_cfg, dict):
+                continue
+            task_key = task_cfg["task_key"]
+            tasks[task_key] = dict(task_cfg)
+
+        entries[robot_key] = {
+            "label": robot_label,
+            "robot_cfg": robot_cfg,
+            "tasks": tasks,
+        }
+    return entries
 
 
 def load_robot_entries(isaac_dir: Path) -> dict[str, dict[str, Any]]:
-    robots_dir = isaac_dir / "robots"
-    manifest_files = sorted(
-        p
-        for p in robots_dir.glob("*.json")
-        if p.is_file()
+    _ensure_package_paths(isaac_dir)
+
+    motion_entries = load_motion_entries(isaac_dir)
+    common_runner_mod = _load_module(
+        "isaac_record_runner",
+        isaac_dir / "common" / "dataset_recording" / "runner.py",
     )
+    runner = getattr(common_runner_mod, "run_recording")
+    supported_kinds = set(getattr(common_runner_mod, "SUPPORTED_RECORD_KINDS", ()))
+    base_record_cfg = getattr(common_runner_mod, "DEFAULT_RECORD_CFG", None)
+    if base_record_cfg is None:
+        raise RuntimeError("dataset_recording.runner must define DEFAULT_RECORD_CFG")
     entries: dict[str, dict[str, Any]] = {}
-    for manifest_file in manifest_files:
-        data = json.loads(manifest_file.read_text(encoding="utf-8"))
-        robot_key = data["robot_key"]
-        script_dir = isaac_dir / data["script_dir"]
-        robot_cfg = _load_attr(
-            script_dir=script_dir,
-            module_file=data["robot_cfg"]["module_file"],
-            attr=data["robot_cfg"]["attr"],
-            unique_name=f"{robot_key}_robot_cfg",
-        )
+    if not motion_entries:
+        return entries
 
-        flow_tasks: dict[str, dict[str, Any]] = {}
-        for task in data.get("flow_tasks", []):
-            base_task_cfg = _load_attr(
-                script_dir=script_dir,
-                module_file=task["module_file"],
-                attr=task["base_task_cfg_attr"],
-                unique_name=f"{robot_key}_{task['task_key']}_flow",
-            )
-            if task.get("scene_presets_attr"):
-                scene_presets = _load_attr(
-                    script_dir=script_dir,
-                    module_file=task["module_file"],
-                    attr=task["scene_presets_attr"],
-                    unique_name=f"{robot_key}_{task['task_key']}_scenes",
-                )
-            else:
-                scene_presets = {"default": {}}
-
-            flow_tasks[task["task_key"]] = {
-                "label": task.get("label", task["task_key"]),
-                "kind": task["kind"],
-                "base_task_cfg": base_task_cfg,
-                "scene_presets": scene_presets,
-                "default_scene": task["default_scene"],
-                "robot_id": task["robot_id"],
-            }
-
+    for robot_key, motion_entry in motion_entries.items():
+        robot_label = motion_entry["label"]
+        robot_cfg = motion_entry["robot_cfg"]
+        flow_tasks: dict[str, dict[str, Any]] = motion_entry.get("tasks", {})
         record_entry = None
-        if data.get("record"):
-            record_cfg = _load_attr(
-                script_dir=script_dir,
-                module_file=data["record"]["record_cfg_module_file"],
-                attr=data["record"]["record_cfg_attr"],
-                unique_name=f"{robot_key}_record_cfg",
+        record_tasks: dict[str, dict[str, Any]] = {}
+        for task_key, flow_cfg in flow_tasks.items():
+            task_kind = flow_cfg.get("kind")
+            if supported_kinds and task_kind not in supported_kinds:
+                continue
+            record_cfg_section = flow_cfg.get("record", {})
+            if not record_cfg_section:
+                continue
+            base_overrides = record_cfg_section.get("base_record_overrides", {})
+            task_record_cfg = replace(base_record_cfg, **base_overrides) if base_overrides else base_record_cfg
+            profiles = record_cfg_section.get(
+                "profiles",
+                [{"key": "default", "label": "Default", "overrides": {}}],
             )
-            runner = _load_attr(
-                script_dir=script_dir,
-                module_file=data["record"]["runner_module_file"],
-                attr=data["record"]["runner_attr"],
-                unique_name=f"{robot_key}_record_runner",
-            )
-            record_tasks: dict[str, dict[str, Any]] = {}
-            for task in data["record"].get("tasks", []):
-                task_cfg = _load_attr(
-                    script_dir=script_dir,
-                    module_file=task["module_file"],
-                    attr=task["task_cfg_attr"],
-                    unique_name=f"{robot_key}_{task['task_key']}_record_task",
-                )
-                record_tasks[task["task_key"]] = {
-                    "label": task.get("label", task["task_key"]),
-                    "task_cfg": task_cfg,
-                    "runner": runner,
-                }
-            record_entry = {
-                "record_cfg": record_cfg,
-                "profiles": data["record"].get("profiles", []),
-                "tasks": record_tasks,
+            record_tasks[task_key] = {
+                "label": flow_cfg.get("label", task_key),
+                "task_cfg": flow_cfg,
+                "task_kind": task_kind,
+                "runner": runner,
+                "record_cfg": task_record_cfg,
+                "profiles": profiles,
             }
+        if record_tasks:
+            record_entry = {"tasks": record_tasks}
 
         entries[robot_key] = {
-            "label": data["label"],
+            "label": robot_label,
             "robot_cfg": robot_cfg,
-            "flow_tasks": flow_tasks,
             "record": record_entry,
         }
     return entries

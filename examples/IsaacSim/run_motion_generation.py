@@ -21,7 +21,7 @@ def _load_module(module_name: str, file_path: Path) -> Any:
     return module
 
 
-def _discover_flow_registry(isaac_dir: Path) -> dict[str, dict[str, Any]]:
+def _discover_task_registry(isaac_dir: Path) -> dict[str, dict[str, Any]]:
     robots_root = isaac_dir / "robots"
     if not robots_root.is_dir():
         return {}
@@ -29,8 +29,8 @@ def _discover_flow_registry(isaac_dir: Path) -> dict[str, dict[str, Any]]:
     registry: dict[str, dict[str, Any]] = {}
     for robot_dir in sorted(p for p in robots_root.iterdir() if p.is_dir() and not p.name.startswith("__")):
         robot_cfg_file = robot_dir / "robot_config.py"
-        flow_cfg_dir = robot_dir / "flow_configs"
-        if not robot_cfg_file.is_file() or not flow_cfg_dir.is_dir():
+        task_cfg_dir = robot_dir / "task_configs"
+        if not robot_cfg_file.is_file() or not task_cfg_dir.is_dir():
             continue
 
         robot_mod = _load_module(f"{robot_dir.name}_robot_cfg", robot_cfg_file)
@@ -39,13 +39,15 @@ def _discover_flow_registry(isaac_dir: Path) -> dict[str, dict[str, Any]]:
         robot_cfg = getattr(robot_mod, "ROBOT_CFG")
 
         tasks: dict[str, dict[str, Any]] = {}
-        for flow_file in sorted(p for p in flow_cfg_dir.glob("*.py") if p.is_file()):
-            flow_mod = _load_module(f"{robot_dir.name}_{flow_file.stem}_flow_cfg", flow_file)
-            flow_cfg = getattr(flow_mod, "FLOW_CONFIG", None)
-            if not isinstance(flow_cfg, dict):
+        for task_file in sorted(p for p in task_cfg_dir.glob("*.py") if p.is_file()):
+            task_mod = _load_module(f"{robot_dir.name}_{task_file.stem}_task_cfg", task_file)
+            task_cfg = getattr(task_mod, "TASK_CONFIG", None)
+            if task_cfg is None:
+                task_cfg = getattr(task_mod, "FLOW_CONFIG", None)
+            if not isinstance(task_cfg, dict):
                 continue
-            task_key = flow_cfg["task_key"]
-            tasks[task_key] = dict(flow_cfg)
+            task_key = task_cfg["task_key"]
+            tasks[task_key] = dict(task_cfg)
 
         if tasks:
             registry[robot_key] = {
@@ -90,18 +92,18 @@ def main() -> None:
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
 
-    from handover_demo_common import (  # pyright: ignore[reportMissingImports]
+    from motion_generation.handover import (  # pyright: ignore[reportMissingImports]
         format_handover_task_cfg_summary,
         run_handover_demo,
     )
-    from pick_place_flow_demo_common import (  # pyright: ignore[reportMissingImports]
+    from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
         PickPlaceFlowTaskConfig,
-        format_pick_place_flow_cfg_summary,
-        run_pick_place_flow_demo,
+        format_pick_place_cfg_summary,
+        run_pick_place_demo,
     )
-    from handover_demo_common import HandoverTaskConfig  # pyright: ignore[reportMissingImports]
+    from motion_generation.handover import HandoverTaskConfig  # pyright: ignore[reportMissingImports]
 
-    registry = _discover_flow_registry(isaac_dir)
+    registry = _discover_task_registry(isaac_dir)
     if not registry:
         raise RuntimeError("No motion-generation capable robot configs found under examples/IsaacSim/robots")
 
@@ -112,7 +114,7 @@ def main() -> None:
     robot_entry = registry[robot_key]
 
     task_keys = list(robot_entry["tasks"].keys())
-    default_task = "pick_place_flow" if "pick_place_flow" in task_keys else task_keys[0]
+    default_task = "pick_place" if "pick_place" in task_keys else task_keys[0]
     task_key = _select_option(title="Select task", options=task_keys, default_value=default_task)
     task_entry = robot_entry["tasks"][task_key]
 
@@ -124,8 +126,8 @@ def main() -> None:
     if task_entry["kind"] == "pick_place":
         base_task_cfg = PickPlaceFlowTaskConfig(**task_entry["base_task_overrides"])
         task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
-        print(format_pick_place_flow_cfg_summary(scene, task_cfg))
-        run_pick_place_flow_demo(
+        print(format_pick_place_cfg_summary(scene, task_cfg))
+        run_pick_place_demo(
             robot_cfg=robot_entry["robot_cfg"],
             task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],

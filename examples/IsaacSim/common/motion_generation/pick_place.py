@@ -88,7 +88,7 @@ class PickPlaceFlowTaskConfig:
     use_object_orientation: bool = False
 
 
-def resolve_pick_place_flow_cfg_from_presets(
+def resolve_pick_place_cfg_from_presets(
     *,
     base_task_cfg: PickPlaceFlowTaskConfig,
     scene_presets: dict[str, dict[str, object]],
@@ -104,7 +104,7 @@ def resolve_pick_place_flow_cfg_from_presets(
     return scene, task_cfg
 
 
-def format_pick_place_flow_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig) -> str:
+def format_pick_place_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig) -> str:
     return (
         f"[Scene] {scene} -> {task_cfg.source_object_entity_path}, "
         f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}, "
@@ -153,7 +153,7 @@ def _resolve_arm_grasp_config(
     return orientation, direction, direction_vector
 
 
-def _build_single_arm_pick_place_flow_sequence(
+def build_single_arm_pick_place_sequence(
     *,
     target_pose: Any,
     home_pose: Any,
@@ -209,7 +209,7 @@ def _build_single_arm_pick_place_flow_sequence(
     return seq
 
 
-def run_pick_place_flow_demo(
+def run_pick_place_demo(
     *,
     robot_cfg: Any,
     task_cfg: PickPlaceFlowTaskConfig,
@@ -285,7 +285,7 @@ def run_pick_place_flow_demo(
             source_grasp_orientation, source_grasp_direction, source_grasp_direction_vector = (
                 _resolve_arm_grasp_config(task_cfg, is_right=source_is_right)
             )
-            sequence = _build_single_arm_pick_place_flow_sequence(
+            sequence = build_single_arm_pick_place_sequence(
                 target_pose=source_target_pose,
                 home_pose=source_home_pose,
                 task_cfg=task_cfg,
@@ -350,7 +350,7 @@ def run_pick_place_flow_demo(
             right_grasp_orientation, right_grasp_direction, right_grasp_direction_vector = (
                 _resolve_arm_grasp_config(task_cfg, is_right=True)
             )
-            left_seq = _build_single_arm_pick_place_flow_sequence(
+            left_seq = build_single_arm_pick_place_sequence(
                 target_pose=left_target_pose,
                 home_pose=left_home_pose,
                 task_cfg=task_cfg,
@@ -362,7 +362,7 @@ def run_pick_place_flow_demo(
                 grasp_direction=left_grasp_direction,
                 grasp_direction_vector=left_grasp_direction_vector,
             )
-            right_seq = _build_single_arm_pick_place_flow_sequence(
+            right_seq = build_single_arm_pick_place_sequence(
                 target_pose=right_target_pose,
                 home_pose=right_home_pose,
                 task_cfg=task_cfg,
@@ -398,7 +398,7 @@ def run_pick_place_flow_demo(
             print("[OK] Robot disconnected")
 
 
-def run_pick_place_flow_entry(
+def run_pick_place_entry(
     *,
     robot_cfg: Any,
     base_task_cfg: PickPlaceFlowTaskConfig,
@@ -408,14 +408,14 @@ def run_pick_place_flow_entry(
     robot_id: str,
 ) -> None:
     """Thin entry wrapper for robot-specific pick-place-flow scripts."""
-    scene, task_cfg = resolve_pick_place_flow_cfg_from_presets(
+    scene, task_cfg = resolve_pick_place_cfg_from_presets(
         base_task_cfg=base_task_cfg,
         scene_presets=scene_presets,
         cli_description=cli_description,
         default_scene=default_scene,
     )
-    print(format_pick_place_flow_cfg_summary(scene, task_cfg))
-    run_pick_place_flow_demo(
+    print(format_pick_place_cfg_summary(scene, task_cfg))
+    run_pick_place_demo(
         robot_cfg=robot_cfg,
         task_cfg=task_cfg,
         robot_id=robot_id,

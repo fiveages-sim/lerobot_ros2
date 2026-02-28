@@ -42,7 +42,7 @@ python ../../record_datasets.py
 
 脚本启动后会进入交互式入口，依次选择：
 - 机器人（当前首版支持 `dobot_cr5`）
-- 任务（当前首版支持 `pick_place_flow`）
+- 任务（当前首版支持 `pick_place`）
 - 录制配置（`default` / `fast`）
 - 运行时选项（录制条数、是否录制点云、是否手动审核每条 episode）
 
@@ -51,7 +51,7 @@ python ../../record_datasets.py
 ### 2.3 训练模型
 
 ```bash
-python ../../tools/DobotCR5/train.py
+python ../../run_train.py
 ```
 
 `train.py` 已内置常用 ACT 默认参数（`chunk-size=16`、`n-action-steps=8`、`steps=20000`、`batch-size=8`、`device=cuda`）。
@@ -59,7 +59,7 @@ python ../../tools/DobotCR5/train.py
 ### 2.4 推理模型
 
 ```bash
-python ../../tools/DobotCR5/inference.py
+python ../../run_inference.py
 ```
 
 演示视频：  

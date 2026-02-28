@@ -331,9 +331,14 @@ def execute_stage_sequence(
     single_arm_part: str = "right_arm",
     left_arrival_guard_stage: str | None = None,
     warn_prefix: str = "Stage timeout",
+    on_stage_start: Callable[[str, ActionDict], None] | None = None,
+    on_stage_poll: Callable[[str, str, dict[str, Any] | None, float], None] | None = None,
+    on_stage_end: Callable[[str, dict[str, Any], dict[str, Any]], None] | None = None,
 ) -> None:
     for stage_name, action in sequence:
         print(f"[Stage] {stage_name}")
+        if on_stage_start is not None:
+            on_stage_start(stage_name, action)
         robot.send_action(action)
         if wait_both_arms:
             left_arrive = robot.ros2_interface.wait_until_arrive(
@@ -342,6 +347,11 @@ def execute_stage_sequence(
                 poll_period=arrival_poll,
                 time_now_fn=time_now_fn,
                 sleep_fn=sleep_fn,
+                on_poll=(
+                    (lambda result, elapsed: on_stage_poll(stage_name, "left_arm", result, elapsed))
+                    if on_stage_poll is not None
+                    else None
+                ),
             )
             right_arrive = robot.ros2_interface.wait_until_arrive(
                 part="right_arm",
@@ -349,6 +359,11 @@ def execute_stage_sequence(
                 poll_period=arrival_poll,
                 time_now_fn=time_now_fn,
                 sleep_fn=sleep_fn,
+                on_poll=(
+                    (lambda result, elapsed: on_stage_poll(stage_name, "right_arm", result, elapsed))
+                    if on_stage_poll is not None
+                    else None
+                ),
             )
         else:
             single_arrive = robot.ros2_interface.wait_until_arrive(
@@ -357,6 +372,11 @@ def execute_stage_sequence(
                 poll_period=arrival_poll,
                 time_now_fn=time_now_fn,
                 sleep_fn=sleep_fn,
+                on_poll=(
+                    (lambda result, elapsed: on_stage_poll(stage_name, single_arm_part, result, elapsed))
+                    if on_stage_poll is not None
+                    else None
+                ),
             )
             if single_arm_part == "left_arm":
                 left_arrive = single_arrive
@@ -377,6 +397,8 @@ def execute_stage_sequence(
             "arrived", False
         ):
             raise RuntimeError("Left arm did not arrive at guarded stage; skip subsequent grasp.")
+        if on_stage_end is not None:
+            on_stage_end(stage_name, left_arrive, right_arrive)
 
 
 __all__ = [

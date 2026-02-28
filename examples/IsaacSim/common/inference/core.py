@@ -25,7 +25,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 import tempfile
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 import numpy as np
 import torch
@@ -39,20 +39,11 @@ from lerobot_robot_ros2 import (
     ROS2RobotConfig,
 )
 
-COMMON_ISAAC_DIR = Path(__file__).resolve().parents[2] / "common"
-if str(COMMON_ISAAC_DIR) not in sys.path:
-    sys.path.append(str(COMMON_ISAAC_DIR))
-ROBOT_CFG_DIR = Path(__file__).resolve().parents[2] / "robots" / "DobotCR5"
-if str(ROBOT_CFG_DIR) not in sys.path:
-    sys.path.append(str(ROBOT_CFG_DIR))
-
 from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
 )
-from flow_configs.pick_place_flow import FLOW_CONFIG as PICK_PLACE_FLOW_FLOW_CONFIG  # pyright: ignore[reportMissingImports]
-from robot_config import ROBOT_CFG  # pyright: ignore[reportMissingImports]
 
 
 # 全局配置
@@ -63,7 +54,8 @@ USE_STATE_INPUT = True
 
 DEFAULT_DATASET = None
 DEFAULT_TRAIN_CFG = None
-PICK_PLACE_FLOW_OVERRIDES = PICK_PLACE_FLOW_FLOW_CONFIG["base_task_overrides"]
+ROBOT_CFG: Any | None = None
+PICK_PLACE_FLOW_OVERRIDES: dict[str, Any] = {}
 
 
 def parse_args() -> argparse.Namespace:
@@ -267,6 +259,8 @@ def build_robot() -> ROS2Robot:
     """
     按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
     """
+    if ROBOT_CFG is None:
+        raise RuntimeError("ROBOT_CFG is not configured. Please use examples/IsaacSim/run_inference.py.")
     camera_config = {
         name: replace(cfg, fps=FPS)
         for name, cfg in ROBOT_CFG.cameras.items()
@@ -613,6 +607,10 @@ def main() -> None:
     print("[OK] Robot connected")
 
     print("Resetting simulation state...")
+    if "source_object_entity_path" not in PICK_PLACE_FLOW_OVERRIDES:
+        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.source_object_entity_path is required for reset")
+    if "object_xyz_random_offset" not in PICK_PLACE_FLOW_OVERRIDES:
+        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_xyz_random_offset is required for reset")
     reset_simulation_and_randomize_object(
             PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"],
             xyz_offset=PICK_PLACE_FLOW_OVERRIDES["object_xyz_random_offset"],

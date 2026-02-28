@@ -101,6 +101,99 @@ def format_handover_task_cfg_summary(scene: str, task_cfg: HandoverTaskConfig) -
     )
 
 
+def build_handover_record_sequence(
+    *,
+    handover_task_cfg: HandoverTaskConfig,
+    source_target_pose: Any,
+    source_home_pose: Any,
+    receiver_home_pose: Any,
+    source_is_right: bool,
+    gripper_open: float,
+    gripper_closed: float,
+) -> list[tuple[str, dict[str, float]]]:
+    source_ee_prefix = "right_ee" if source_is_right else "left_ee"
+    source_gripper_key = "right_gripper.pos" if source_is_right else "left_gripper.pos"
+    receiver_ee_prefix = "left_ee" if source_is_right else "right_ee"
+    receiver_gripper_key = "left_gripper.pos" if source_is_right else "right_gripper.pos"
+
+    sequence: list[tuple[str, dict[str, float]]] = []
+    sequence.extend(
+        build_single_arm_pick_sequence(
+            target_pose=source_target_pose,
+            approach_clearance=handover_task_cfg.approach_clearance,
+            grasp_clearance=handover_task_cfg.grasp_clearance,
+            grasp_orientation=handover_task_cfg.grasp_orientation,
+            grasp_direction=handover_task_cfg.grasp_direction,
+            grasp_direction_vector=handover_task_cfg.grasp_direction_vector,
+            gripper_open=gripper_open,
+            gripper_closed=gripper_closed,
+            ee_prefix=source_ee_prefix,
+            gripper_key=source_gripper_key,
+            stage_prefix="Pickup",
+        )
+    )
+
+    source_handover_pose = pose_from_tuple(
+        handover_task_cfg.handover_position,
+        handover_task_cfg.source_handover_orientation,
+    )
+    receiver_handover_pose = pose_from_tuple(
+        handover_task_cfg.handover_position,
+        handover_task_cfg.receiver_handover_orientation,
+    )
+    receiver_handover_pose.position.z -= 0.02
+    receiver_handover_pose.position.y -= 0.02
+    handover_primitive = build_handover_sequence_for_arms(
+        source_handover_pose=source_handover_pose,
+        receiver_handover_pose=receiver_handover_pose,
+        source_ee_prefix=source_ee_prefix,
+        source_gripper_key=source_gripper_key,
+        receiver_ee_prefix=receiver_ee_prefix,
+        receiver_gripper_key=receiver_gripper_key,
+        gripper_open=gripper_open,
+        gripper_closed=gripper_closed,
+        stage_prefix="Handover",
+    )
+    sequence.extend(handover_primitive[:3])
+
+    if handover_task_cfg.run_place_after_handover:
+        place_primitive = build_single_arm_place_sequence(
+            place_position=handover_task_cfg.receiver_place_position,
+            place_orientation=handover_task_cfg.receiver_place_orientation,
+            post_release_retract_offset=(0.0, 0.0, 0.0),
+            gripper_open=gripper_open,
+            gripper_closed=gripper_closed,
+            ee_prefix=receiver_ee_prefix,
+            gripper_key=receiver_gripper_key,
+            stage_prefix="Place",
+            start_index=1,
+        )
+        source_home_open = action_from_pose(
+            source_home_pose,
+            gripper_open,
+            ee_prefix=source_ee_prefix,
+            gripper_key=source_gripper_key,
+        )
+        receiver_return_home = build_single_arm_return_home_sequence(
+            home_action=action_from_pose(
+                receiver_home_pose,
+                gripper_open,
+                ee_prefix=receiver_ee_prefix,
+                gripper_key=receiver_gripper_key,
+            ),
+            stage_name="Place-4-ReceiverReturnHome",
+        )
+        sequence.extend(
+            [
+                (place_primitive[0][0], _merge_actions(place_primitive[0][1], source_home_open)),
+                (place_primitive[1][0], _merge_actions(place_primitive[1][1], source_home_open)),
+                (place_primitive[2][0], _merge_actions(place_primitive[2][1], source_home_open)),
+                ("Place-4-ReceiverReturnHome", _merge_actions(receiver_return_home[0][1], source_home_open)),
+            ]
+        )
+    return sequence
+
+
 def run_handover_demo(
     *,
     robot_cfg: Any,
@@ -174,19 +267,16 @@ def run_handover_demo(
             include_orientation=False,
         )
 
-        sequence = build_single_arm_pick_sequence(
-            target_pose=source_target_pose,
-            approach_clearance=handover_task_cfg.approach_clearance,
-            grasp_clearance=handover_task_cfg.grasp_clearance,
-            grasp_orientation=handover_task_cfg.grasp_orientation,
-            grasp_direction=handover_task_cfg.grasp_direction,
-            grasp_direction_vector=handover_task_cfg.grasp_direction_vector,
+        full_sequence = build_handover_record_sequence(
+            handover_task_cfg=handover_task_cfg,
+            source_target_pose=source_target_pose,
+            source_home_pose=source_home_pose,
+            receiver_home_pose=receiver_home_pose,
+            source_is_right=source_is_right,
             gripper_open=gripper_open,
             gripper_closed=gripper_closed,
-            ee_prefix=source_ee_prefix,
-            gripper_key=source_gripper_key,
-            stage_prefix="Pickup",
         )
+        sequence = [item for item in full_sequence if item[0].startswith("Pickup-")]
         execute_stage_sequence(
             robot=robot,
             sequence=sequence,
@@ -200,81 +290,7 @@ def run_handover_demo(
             warn_prefix="Stage timeout",
         )
 
-        source_handover_pose = pose_from_tuple(
-            handover_task_cfg.handover_position,
-            handover_task_cfg.source_handover_orientation,
-        )
-        receiver_handover_pose = pose_from_tuple(
-            handover_task_cfg.handover_position,
-            handover_task_cfg.receiver_handover_orientation,
-        )
-        receiver_handover_pose.position.z -= 0.02
-        receiver_handover_pose.position.y -= 0.02
-        receiver_place_pose = pose_from_tuple(
-            handover_task_cfg.receiver_place_position,
-            handover_task_cfg.receiver_place_orientation,
-        )
-        handover_primitive = build_handover_sequence_for_arms(
-            source_handover_pose=source_handover_pose,
-            receiver_handover_pose=receiver_handover_pose,
-            source_ee_prefix=source_ee_prefix,
-            source_gripper_key=source_gripper_key,
-            receiver_ee_prefix=receiver_ee_prefix,
-            receiver_gripper_key=receiver_gripper_key,
-            gripper_open=gripper_open,
-            gripper_closed=gripper_closed,
-            stage_prefix="Handover",
-        )
-        source_home_open = action_from_pose(
-            source_home_pose,
-            gripper_open,
-            ee_prefix=source_ee_prefix,
-            gripper_key=source_gripper_key,
-        )
-        place_sequence: list[tuple[str, dict[str, float]]] = []
-        if handover_task_cfg.run_place_after_handover:
-            place_primitive = build_single_arm_place_sequence(
-                place_position=(
-                    receiver_place_pose.position.x,
-                    receiver_place_pose.position.y,
-                    receiver_place_pose.position.z,
-                ),
-                place_orientation=(
-                    receiver_place_pose.orientation.x,
-                    receiver_place_pose.orientation.y,
-                    receiver_place_pose.orientation.z,
-                    receiver_place_pose.orientation.w,
-                ),
-                post_release_retract_offset=(0.0, 0.0, 0.0),
-                gripper_open=gripper_open,
-                gripper_closed=gripper_closed,
-                ee_prefix=receiver_ee_prefix,
-                gripper_key=receiver_gripper_key,
-                stage_prefix="Place",
-                start_index=1,
-            )
-            receiver_return_home = build_single_arm_return_home_sequence(
-                home_action=action_from_pose(
-                    receiver_home_pose,
-                    gripper_open,
-                    ee_prefix=receiver_ee_prefix,
-                    gripper_key=receiver_gripper_key,
-                ),
-                stage_name="Place-4-ReceiverReturnHome",
-            )
-            place_sequence = [
-                (place_primitive[0][0], _merge_actions(place_primitive[0][1], source_home_open)),
-                (place_primitive[1][0], _merge_actions(place_primitive[1][1], source_home_open)),
-                (place_primitive[2][0], _merge_actions(place_primitive[2][1], source_home_open)),
-                ("Place-4-ReceiverReturnHome", _merge_actions(receiver_return_home[0][1], source_home_open)),
-            ]
-        else:
-            print("[Info] run_place_after_handover=False, stop after handover.")
-        handover_sequence = [
-            handover_primitive[0],
-            handover_primitive[1],
-            handover_primitive[2],
-        ]
+        handover_sequence = [item for item in full_sequence if item[0].startswith("Handover-")]
         execute_stage_sequence(
             robot=robot,
             sequence=handover_sequence,
@@ -287,6 +303,7 @@ def run_handover_demo(
             left_arrival_guard_stage="Handover-1-SyncMove" if source_is_right else None,
             warn_prefix="Handover stage timeout",
         )
+        place_sequence = [item for item in full_sequence if item[0].startswith("Place-")]
         if place_sequence:
             execute_stage_sequence(
                 robot=robot,

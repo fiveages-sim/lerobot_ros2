@@ -1,6 +1,6 @@
-"""FiveAges W2 handover-flow config."""
+"""FiveAges W2 handover task config."""
 
-FLOW_CONFIG = {
+TASK_CONFIG = {
     "task_key": "handover",
     "label": "Handover",
     "kind": "handover",
