@@ -7,12 +7,11 @@ following LeRobot's plugin naming conventions.
 
 from .config import ROS2RobotConfig
 from .motion_generation import (
-    build_single_arm_grasp_transport_release_sequence,
+    build_handover_sequence_for_arms,
+    build_single_arm_pick_sequence,
+    build_single_arm_place_sequence,
+    build_single_arm_return_home_sequence,
     compose_bimanual_synchronized_sequence,
-)
-from .demo_flows import (
-    build_single_arm_pickup_sequence,
-    build_handover_then_place_sequence_for_arms,
     execute_stage_sequence,
 )
 from .robot import ROS2Robot
@@ -27,9 +26,10 @@ __all__ = [
     "ROS2RobotInterfaceConfig", 
     "ControlType",
     "ROS2Robot",
-    "build_single_arm_grasp_transport_release_sequence",
     "compose_bimanual_synchronized_sequence",
-    "build_single_arm_pickup_sequence",
-    "build_handover_then_place_sequence_for_arms",
+    "build_single_arm_pick_sequence",
+    "build_single_arm_place_sequence",
+    "build_single_arm_return_home_sequence",
+    "build_handover_sequence_for_arms",
     "execute_stage_sequence",
 ]

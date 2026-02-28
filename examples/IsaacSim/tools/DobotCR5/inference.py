@@ -22,34 +22,37 @@ import json
 import signal
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 from typing import Callable, Dict
 
 import numpy as np
 import torch
+from ros2_robot_interface import FSM_HOLD, FSM_OCS2
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.policies.factory import make_policy
 from lerobot_robot_ros2 import (
-    ControlType,
     ROS2Robot,
     ROS2RobotConfig,
-    ROS2RobotInterfaceConfig,
 )
-from lerobot_camera_ros2 import ROS2CameraConfig
-from grasp_config import GRASP_CFG
 
 COMMON_ISAAC_DIR = Path(__file__).resolve().parents[2] / "common"
 if str(COMMON_ISAAC_DIR) not in sys.path:
     sys.path.append(str(COMMON_ISAAC_DIR))
+ROBOT_CFG_DIR = Path(__file__).resolve().parents[2] / "robots" / "DobotCR5"
+if str(ROBOT_CFG_DIR) not in sys.path:
+    sys.path.append(str(ROBOT_CFG_DIR))
 
-from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object
+from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
 )
+from flow_configs.pick_place_flow import FLOW_CONFIG as PICK_PLACE_FLOW_FLOW_CONFIG  # pyright: ignore[reportMissingImports]
+from robot_config import ROBOT_CFG  # pyright: ignore[reportMissingImports]
 
 
 # 全局配置
@@ -60,6 +63,7 @@ USE_STATE_INPUT = True
 
 DEFAULT_DATASET = None
 DEFAULT_TRAIN_CFG = None
+PICK_PLACE_FLOW_OVERRIDES = PICK_PLACE_FLOW_FLOW_CONFIG["base_task_overrides"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -263,51 +267,16 @@ def build_robot() -> ROS2Robot:
     """
     按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
     """
-    GLOBAL_CAMERA_NAME = "global"  # 改为与新数据集一致
-    WRIST_CAMERA_NAME = "wrist"
     camera_config = {
-        GLOBAL_CAMERA_NAME: ROS2CameraConfig(
-            topic_name="/global_camera/rgb",  # 话题未变
-            node_name="lerobot_global_camera",
-            width=1280,
-            height=720,
-            fps=FPS,
-            encoding="bgr8",
-        ),
-        WRIST_CAMERA_NAME: ROS2CameraConfig(
-            topic_name="/wrist_camera/rgb",
-            node_name="lerobot_wrist_camera",
-            width=1280,
-            height=720,
-            fps=FPS,
-            encoding="bgr8",
-        ),
+        name: replace(cfg, fps=FPS)
+        for name, cfg in ROBOT_CFG.cameras.items()
     }
-    ros2_interface_config = ROS2RobotInterfaceConfig(
-        joint_states_topic="/joint_states",
-        end_effector_pose_topic="/left_current_pose",
-        end_effector_target_topic="/left_target",
-        control_type=ControlType.CARTESIAN_POSE,
-        joint_names=[
-            "joint1",
-            "joint2",
-            "joint3",
-            "joint4",
-            "joint5",
-            "joint6",
-        ],
-        max_linear_velocity=0.1,
-        max_angular_velocity=0.5,
-        gripper_enabled=True,
-        gripper_joint_name="gripper_joint",
-        gripper_min_position=0.0,
-        gripper_max_position=1.0,
-        gripper_command_topic="gripper_joint/position_command",
-    )
+    ros2_interface_config = ROBOT_CFG.ros2_interface
     robot_config = ROS2RobotConfig(
-        id="ros2_grasp_robot",
+        id=f"{ROBOT_CFG.robot_id}_inference",
         cameras=camera_config,
         ros2_interface=ros2_interface_config,
+        gripper_control_mode=ROBOT_CFG.gripper_control_mode,
     )
     return ROS2Robot(robot_config)
 
@@ -628,7 +597,7 @@ def main() -> None:
         try:
             if robot_connected:
                 try:
-                    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                    robot.ros2_interface.send_fsm_command(FSM_HOLD)
                 except Exception:
                     pass
                 robot.disconnect()
@@ -645,16 +614,16 @@ def main() -> None:
 
     print("Resetting simulation state...")
     reset_simulation_and_randomize_object(
-        GRASP_CFG.shared.object_entity_path,
-        xyz_offset=GRASP_CFG.runtime.object_xyz_random_offset,
-        post_reset_wait=GRASP_CFG.runtime.post_reset_wait,
+            PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"],
+            xyz_offset=PICK_PLACE_FLOW_OVERRIDES["object_xyz_random_offset"],
+        post_reset_wait=ROBOT_CFG.post_reset_wait,
         sleep_fn=sim_time.sleep,
     )
 
     print("Switching FSM: HOLD -> OCS2 ...")
-    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
-    sim_time.sleep(GRASP_CFG.runtime.fsm_switch_delay)
-    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_ocs2)
+    robot.ros2_interface.send_fsm_command(FSM_HOLD)
+    sim_time.sleep(ROBOT_CFG.fsm_switch_delay)
+    robot.ros2_interface.send_fsm_command(FSM_OCS2)
     print("[OK] FSM switched to OCS2, starting inference loop...")
 
     period = 1.0 / args.hz
@@ -722,7 +691,7 @@ def main() -> None:
         try:
             if robot_connected:
                 print("Switching FSM to HOLD...")
-                robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                robot.ros2_interface.send_fsm_command(FSM_HOLD)
                 print("[OK] FSM switched to HOLD")
         except Exception as err:
             print(f"[WARN] Failed to switch FSM to HOLD during cleanup: {err}")

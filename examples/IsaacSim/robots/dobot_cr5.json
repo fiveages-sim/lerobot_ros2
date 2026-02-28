@@ -1,0 +1,39 @@
+{
+  "robot_key": "dobot_cr5",
+  "label": "Dobot CR5",
+  "script_dir": ".",
+  "robot_cfg": {
+    "module_file": "robots/DobotCR5/robot_config.py",
+    "attr": "ROBOT_CFG"
+  },
+  "flow_tasks": [],
+  "record": {
+    "runner_module_file": "tools/DobotCR5/grasp_record_dataset.py",
+    "runner_attr": "run_pick_place_recording",
+    "record_cfg_module_file": "tools/DobotCR5/record_config.py",
+    "record_cfg_attr": "RECORD_CFG",
+    "profiles": [
+      {
+        "key": "default",
+        "label": "Default",
+        "overrides": {}
+      },
+      {
+        "key": "fast",
+        "label": "Fast Encode Queue",
+        "overrides": {
+          "image_writer_threads": 12,
+          "video_encoding_batch_size": 10
+        }
+      }
+    ],
+    "tasks": [
+      {
+        "task_key": "pick_place_flow",
+        "label": "Pick Place Flow",
+        "module_file": "robots/DobotCR5/flow_configs/pick_place_flow.py",
+        "task_cfg_attr": "FLOW_CONFIG"
+      }
+    ]
+  }
+}

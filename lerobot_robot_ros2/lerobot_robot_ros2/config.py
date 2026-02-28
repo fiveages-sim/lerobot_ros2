@@ -5,7 +5,6 @@ Configuration classes for ROS 2 robots in LeRobot.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from lerobot.cameras import CameraConfig
 from lerobot.robots import RobotConfig
@@ -55,6 +54,6 @@ class ROS2RobotConfig(RobotConfig):
     # Robot-specific settings
     robot_name: str = "ros2_robot"
     namespace: str = ""
-    # Gripper control settings at robot layer (independent from interface dataclass fields)
+    # Gripper control settings at robot layer (independent of interface dataclass fields)
     gripper_control_mode: str = "position"  # position | target_command
     gripper_command_threshold: float = 0.5

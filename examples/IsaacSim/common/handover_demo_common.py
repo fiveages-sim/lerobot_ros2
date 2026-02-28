@@ -13,9 +13,10 @@ from ros2_robot_interface import FSM_HOLD, FSM_OCS2  # pyright: ignore[reportMis
 from lerobot_robot_ros2 import (
     ROS2Robot,
     ROS2RobotConfig,
-    ROS2RobotInterfaceConfig,
-    build_handover_then_place_sequence_for_arms,
-    build_single_arm_pickup_sequence,
+    build_handover_sequence_for_arms,
+    build_single_arm_pick_sequence,
+    build_single_arm_place_sequence,
+    build_single_arm_return_home_sequence,
     execute_stage_sequence,
 )
 from lerobot_robot_ros2.utils import action_from_pose, obs_to_pose, pose_from_tuple  # pyright: ignore[reportMissingImports]
@@ -37,10 +38,16 @@ def _resolve_gripper_open_close(mode: str) -> tuple[float, float]:
     )
 
 
+def _merge_actions(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
+    out = dict(a)
+    out.update(b)
+    return out
+
+
 def _make_robot(robot_cfg: Any, robot_id: str) -> ROS2Robot:
-    cfg = ROS2RobotInterfaceConfig.default_bimanual(
-        joint_names=list(robot_cfg.joint_names),
-    )
+    cfg = getattr(robot_cfg, "ros2_interface", None)
+    if cfg is None:
+        raise ValueError("robot_cfg must define ros2_interface (ROS2RobotInterfaceConfig)")
     return ROS2Robot(
         ROS2RobotConfig(
             id=robot_id,
@@ -65,6 +72,7 @@ class HandoverTaskConfig:
     receiver_place_orientation: tuple[float, float, float, float]
     grasp_direction: str = "top"
     grasp_direction_vector: tuple[float, float, float] | None = None
+    run_place_after_handover: bool = True
 
 
 def resolve_handover_task_cfg_from_presets(
@@ -166,7 +174,7 @@ def run_handover_demo(
             include_orientation=False,
         )
 
-        sequence = build_single_arm_pickup_sequence(
+        sequence = build_single_arm_pick_sequence(
             target_pose=source_target_pose,
             approach_clearance=handover_task_cfg.approach_clearance,
             grasp_clearance=handover_task_cfg.grasp_clearance,
@@ -177,6 +185,7 @@ def run_handover_demo(
             gripper_closed=gripper_closed,
             ee_prefix=source_ee_prefix,
             gripper_key=source_gripper_key,
+            stage_prefix="Pickup",
         )
         execute_stage_sequence(
             robot=robot,
@@ -205,19 +214,67 @@ def run_handover_demo(
             handover_task_cfg.receiver_place_position,
             handover_task_cfg.receiver_place_orientation,
         )
-        handover_sequence = build_handover_then_place_sequence_for_arms(
+        handover_primitive = build_handover_sequence_for_arms(
             source_handover_pose=source_handover_pose,
             receiver_handover_pose=receiver_handover_pose,
-            receiver_place_pose=receiver_place_pose,
-            source_home_pose=source_home_pose,
-            receiver_home_pose=receiver_home_pose,
             source_ee_prefix=source_ee_prefix,
             source_gripper_key=source_gripper_key,
             receiver_ee_prefix=receiver_ee_prefix,
             receiver_gripper_key=receiver_gripper_key,
             gripper_open=gripper_open,
             gripper_closed=gripper_closed,
+            stage_prefix="Handover",
         )
+        source_home_open = action_from_pose(
+            source_home_pose,
+            gripper_open,
+            ee_prefix=source_ee_prefix,
+            gripper_key=source_gripper_key,
+        )
+        place_sequence: list[tuple[str, dict[str, float]]] = []
+        if handover_task_cfg.run_place_after_handover:
+            place_primitive = build_single_arm_place_sequence(
+                place_position=(
+                    receiver_place_pose.position.x,
+                    receiver_place_pose.position.y,
+                    receiver_place_pose.position.z,
+                ),
+                place_orientation=(
+                    receiver_place_pose.orientation.x,
+                    receiver_place_pose.orientation.y,
+                    receiver_place_pose.orientation.z,
+                    receiver_place_pose.orientation.w,
+                ),
+                post_release_retract_offset=(0.0, 0.0, 0.0),
+                gripper_open=gripper_open,
+                gripper_closed=gripper_closed,
+                ee_prefix=receiver_ee_prefix,
+                gripper_key=receiver_gripper_key,
+                stage_prefix="Place",
+                start_index=1,
+            )
+            receiver_return_home = build_single_arm_return_home_sequence(
+                home_action=action_from_pose(
+                    receiver_home_pose,
+                    gripper_open,
+                    ee_prefix=receiver_ee_prefix,
+                    gripper_key=receiver_gripper_key,
+                ),
+                stage_name="Place-4-ReceiverReturnHome",
+            )
+            place_sequence = [
+                (place_primitive[0][0], _merge_actions(place_primitive[0][1], source_home_open)),
+                (place_primitive[1][0], _merge_actions(place_primitive[1][1], source_home_open)),
+                (place_primitive[2][0], _merge_actions(place_primitive[2][1], source_home_open)),
+                ("Place-4-ReceiverReturnHome", _merge_actions(receiver_return_home[0][1], source_home_open)),
+            ]
+        else:
+            print("[Info] run_place_after_handover=False, stop after handover.")
+        handover_sequence = [
+            handover_primitive[0],
+            handover_primitive[1],
+            handover_primitive[2],
+        ]
         execute_stage_sequence(
             robot=robot,
             sequence=handover_sequence,
@@ -230,6 +287,18 @@ def run_handover_demo(
             left_arrival_guard_stage="Handover-1-SyncMove" if source_is_right else None,
             warn_prefix="Handover stage timeout",
         )
+        if place_sequence:
+            execute_stage_sequence(
+                robot=robot,
+                sequence=place_sequence,
+                wait_both_arms=True,
+                arrival_timeout=robot_cfg.arrival_timeout,
+                arrival_poll=robot_cfg.arrival_poll,
+                time_now_fn=sim_time.now_seconds,
+                sleep_fn=sim_time.sleep,
+                gripper_action_wait=robot_cfg.gripper_action_wait,
+                warn_prefix="Place stage timeout",
+            )
 
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
         print("[OK] Bimanual grasp demo completed")

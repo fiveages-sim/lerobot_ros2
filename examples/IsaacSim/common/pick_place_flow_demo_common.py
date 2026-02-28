@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Default IsaacSim pickup-then-return demo flow."""
+"""Generic IsaacSim pick-place flow common implementation."""
 
 from __future__ import annotations
 
@@ -13,8 +13,9 @@ from ros2_robot_interface import FSM_HOLD, FSM_OCS2  # pyright: ignore[reportMis
 from lerobot_robot_ros2 import (
     ROS2Robot,
     ROS2RobotConfig,
-    ROS2RobotInterfaceConfig,
-    build_single_arm_pickup_sequence,
+    build_single_arm_pick_sequence,
+    build_single_arm_place_sequence,
+    build_single_arm_return_home_sequence,
     compose_bimanual_synchronized_sequence,
     execute_stage_sequence,
 )
@@ -33,14 +34,14 @@ def _resolve_gripper_open_close(mode: str) -> tuple[float, float]:
     if mode == "target_command":
         return 1.0, 0.0
     raise ValueError(
-        "pickup_return_demo only supports gripper_control_mode='target_command' without explicit gripper values"
+        "pick_place_flow only supports gripper_control_mode='target_command' without explicit gripper values"
     )
 
 
 def _make_robot(robot_cfg: Any, robot_id: str) -> ROS2Robot:
-    cfg = ROS2RobotInterfaceConfig.default_bimanual(
-        joint_names=list(robot_cfg.joint_names),
-    )
+    cfg = getattr(robot_cfg, "ros2_interface", None)
+    if cfg is None:
+        raise ValueError("robot_cfg must define ros2_interface (ROS2RobotInterfaceConfig)")
     return ROS2Robot(
         ROS2RobotConfig(
             id=robot_id,
@@ -51,9 +52,9 @@ def _make_robot(robot_cfg: Any, robot_id: str) -> ROS2Robot:
 
 
 @dataclass(frozen=True)
-class PickupReturnTaskConfig:
+class PickPlaceFlowTaskConfig:
     mode: str = "single_arm"  # single_arm | dual_arm
-    initial_grasp_arm: str = "right"
+    initial_grasp_arm: str = "left"
     object_xyz_random_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     target_pose_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     approach_clearance: float = 0.2
@@ -74,16 +75,26 @@ class PickupReturnTaskConfig:
     right_grasp_direction: str | None = None
     left_grasp_direction_vector: tuple[float, float, float] | None = None
     right_grasp_direction_vector: tuple[float, float, float] | None = None
+    # Optional place stage before returning home (single-arm mode)
+    run_place_before_return: bool = False
+    place_position: tuple[float, float, float] | None = None
+    place_orientation: tuple[float, float, float, float] | None = None
+    post_release_retract_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Execution tolerances for stage progression (shared by demo/record flows)
+    max_stage_duration: float = 2.0
+    pose_tol_pos: float = 0.025
+    pose_tol_ori: float = 0.08
+    require_orientation_reach: bool = False
+    use_object_orientation: bool = False
 
 
-def resolve_task_cfg_from_presets(
+def resolve_pick_place_flow_cfg_from_presets(
     *,
-    base_task_cfg: PickupReturnTaskConfig,
+    base_task_cfg: PickPlaceFlowTaskConfig,
     scene_presets: dict[str, dict[str, object]],
     cli_description: str,
     default_scene: str = "grab_medicine",
-) -> tuple[str, PickupReturnTaskConfig]:
-    """Resolve task config from CLI/interactive scene choice and a preset map."""
+) -> tuple[str, PickPlaceFlowTaskConfig]:
     scene, task_cfg = resolve_dataclass_cfg_from_presets(
         base_cfg=base_task_cfg,
         scene_presets=scene_presets,
@@ -93,8 +104,7 @@ def resolve_task_cfg_from_presets(
     return scene, task_cfg
 
 
-def format_task_cfg_summary(scene: str, task_cfg: PickupReturnTaskConfig) -> str:
-    """Build a concise startup summary for selected pickup-return config."""
+def format_pick_place_flow_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig) -> str:
     return (
         f"[Scene] {scene} -> {task_cfg.source_object_entity_path}, "
         f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}, "
@@ -120,7 +130,7 @@ def _apply_target_pose_offset(pose: Any, offset: tuple[float, float, float]) -> 
 
 
 def _resolve_arm_grasp_config(
-    task_cfg: PickupReturnTaskConfig,
+    task_cfg: PickPlaceFlowTaskConfig,
     *,
     is_right: bool,
 ) -> tuple[tuple[float, float, float, float], str, tuple[float, float, float] | None]:
@@ -143,11 +153,11 @@ def _resolve_arm_grasp_config(
     return orientation, direction, direction_vector
 
 
-def _build_single_arm_pickup_return_sequence(
+def _build_single_arm_pick_place_flow_sequence(
     *,
     target_pose: Any,
     home_pose: Any,
-    task_cfg: PickupReturnTaskConfig,
+    task_cfg: PickPlaceFlowTaskConfig,
     ee_prefix: str,
     gripper_key: str,
     gripper_open: float,
@@ -156,7 +166,7 @@ def _build_single_arm_pickup_return_sequence(
     grasp_direction: str,
     grasp_direction_vector: tuple[float, float, float] | None,
 ) -> list[tuple[str, dict[str, float]]]:
-    seq = build_single_arm_pickup_sequence(
+    seq = build_single_arm_pick_sequence(
         target_pose=target_pose,
         approach_clearance=task_cfg.approach_clearance,
         grasp_clearance=task_cfg.grasp_clearance,
@@ -169,21 +179,41 @@ def _build_single_arm_pickup_return_sequence(
         gripper_closed=gripper_closed,
         ee_prefix=ee_prefix,
         gripper_key=gripper_key,
+        stage_prefix="PickPlaceFlow",
     )
-    seq.append(
-        (
-            "PickupReturn-5-ReturnHomeHold",
-            action_from_pose(home_pose, gripper_closed, ee_prefix=ee_prefix, gripper_key=gripper_key),
+    if task_cfg.run_place_before_return:
+        if task_cfg.place_position is None or task_cfg.place_orientation is None:
+            raise ValueError("place_position and place_orientation are required when run_place_before_return=True")
+        seq.extend(
+            build_single_arm_place_sequence(
+                place_position=task_cfg.place_position,
+                place_orientation=task_cfg.place_orientation,
+                post_release_retract_offset=task_cfg.post_release_retract_offset,
+                gripper_open=gripper_open,
+                gripper_closed=gripper_closed,
+                ee_prefix=ee_prefix,
+                gripper_key=gripper_key,
+                stage_prefix="PickPlaceFlow",
+                start_index=5,
+            )
+        )
+        return_stage_name = "PickPlaceFlow-8-ReturnHomeHold"
+    else:
+        return_stage_name = "PickPlaceFlow-5-ReturnHomeHold"
+    seq.extend(
+        build_single_arm_return_home_sequence(
+            home_action=action_from_pose(home_pose, gripper_closed, ee_prefix=ee_prefix, gripper_key=gripper_key),
+            stage_name=return_stage_name,
         )
     )
     return seq
 
 
-def run_pickup_return_demo(
+def run_pick_place_flow_demo(
     *,
     robot_cfg: Any,
-    task_cfg: PickupReturnTaskConfig,
-    robot_id: str = "isaac_pickup_return",
+    task_cfg: PickPlaceFlowTaskConfig,
+    robot_id: str = "isaac_pick_place_flow",
 ) -> None:
     robot = _make_robot(robot_cfg, robot_id)
     sim_time = SimTimeHelper()
@@ -206,6 +236,8 @@ def run_pickup_return_demo(
         mode = task_cfg.mode.lower()
         if mode not in {"single_arm", "dual_arm"}:
             raise ValueError("mode must be 'single_arm' or 'dual_arm'")
+        if mode == "dual_arm" and task_cfg.run_place_before_return:
+            raise ValueError("run_place_before_return is currently only supported in single_arm mode")
 
         gripper_open, gripper_closed = _resolve_gripper_open_close(robot_cfg.gripper_control_mode)
 
@@ -214,8 +246,6 @@ def run_pickup_return_demo(
         robot.ros2_interface.send_fsm_command(FSM_OCS2)
 
         obs0 = robot.get_observation()
-        left_home_pose = obs_to_pose(obs0, "left_ee")
-        right_home_pose = obs_to_pose(obs0, "right_ee")
         base_world_pos, base_world_quat = get_entity_pose_world_service(robot_cfg.base_link_entity_path)
 
         if mode == "single_arm":
@@ -225,7 +255,7 @@ def run_pickup_return_demo(
             source_is_right = initial_arm == "right"
             source_ee_prefix = "right_ee" if source_is_right else "left_ee"
             source_gripper_key = "right_gripper.pos" if source_is_right else "left_gripper.pos"
-            source_home_pose = right_home_pose if source_is_right else left_home_pose
+            source_home_pose = obs_to_pose(obs0, source_ee_prefix)
             source_object_path = task_cfg.source_object_entity_path
             if not source_object_path:
                 raise ValueError("source_object_entity_path is required for single_arm mode")
@@ -255,7 +285,7 @@ def run_pickup_return_demo(
             source_grasp_orientation, source_grasp_direction, source_grasp_direction_vector = (
                 _resolve_arm_grasp_config(task_cfg, is_right=source_is_right)
             )
-            sequence = _build_single_arm_pickup_return_sequence(
+            sequence = _build_single_arm_pick_place_flow_sequence(
                 target_pose=source_target_pose,
                 home_pose=source_home_pose,
                 task_cfg=task_cfg,
@@ -277,9 +307,11 @@ def run_pickup_return_demo(
                 time_now_fn=sim_time.now_seconds,
                 sleep_fn=sim_time.sleep,
                 gripper_action_wait=robot_cfg.gripper_action_wait,
-                warn_prefix="PickupReturn timeout",
+                warn_prefix="PickPlaceFlow timeout",
             )
         else:
+            left_home_pose = obs_to_pose(obs0, "left_ee")
+            right_home_pose = obs_to_pose(obs0, "right_ee")
             left_object_path = task_cfg.left_object_entity_path
             right_object_path = task_cfg.right_object_entity_path
             if not left_object_path or not right_object_path:
@@ -318,7 +350,7 @@ def run_pickup_return_demo(
             right_grasp_orientation, right_grasp_direction, right_grasp_direction_vector = (
                 _resolve_arm_grasp_config(task_cfg, is_right=True)
             )
-            left_seq = _build_single_arm_pickup_return_sequence(
+            left_seq = _build_single_arm_pick_place_flow_sequence(
                 target_pose=left_target_pose,
                 home_pose=left_home_pose,
                 task_cfg=task_cfg,
@@ -330,7 +362,7 @@ def run_pickup_return_demo(
                 grasp_direction=left_grasp_direction,
                 grasp_direction_vector=left_grasp_direction_vector,
             )
-            right_seq = _build_single_arm_pickup_return_sequence(
+            right_seq = _build_single_arm_pick_place_flow_sequence(
                 target_pose=right_target_pose,
                 home_pose=right_home_pose,
                 task_cfg=task_cfg,
@@ -352,15 +384,40 @@ def run_pickup_return_demo(
                 time_now_fn=sim_time.now_seconds,
                 sleep_fn=sim_time.sleep,
                 gripper_action_wait=robot_cfg.gripper_action_wait,
-                warn_prefix="PickupReturn timeout",
+                warn_prefix="PickPlaceFlow timeout",
             )
 
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
-        print("[OK] PickupReturn demo completed")
+        print("[OK] PickPlaceFlow demo completed")
     except Exception as err:
-        print(f"[ERROR] PickupReturn failed: {err}")
+        print(f"[ERROR] PickPlaceFlow failed: {err}")
     finally:
         sim_time.shutdown()
         if robot_connected:
             robot.disconnect()
             print("[OK] Robot disconnected")
+
+
+def run_pick_place_flow_entry(
+    *,
+    robot_cfg: Any,
+    base_task_cfg: PickPlaceFlowTaskConfig,
+    scene_presets: dict[str, dict[str, object]],
+    cli_description: str,
+    default_scene: str,
+    robot_id: str,
+) -> None:
+    """Thin entry wrapper for robot-specific pick-place-flow scripts."""
+    scene, task_cfg = resolve_pick_place_flow_cfg_from_presets(
+        base_task_cfg=base_task_cfg,
+        scene_presets=scene_presets,
+        cli_description=cli_description,
+        default_scene=default_scene,
+    )
+    print(format_pick_place_flow_cfg_summary(scene, task_cfg))
+    run_pick_place_flow_demo(
+        robot_cfg=robot_cfg,
+        task_cfg=task_cfg,
+        robot_id=robot_id,
+    )
+
