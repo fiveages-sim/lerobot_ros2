@@ -185,6 +185,23 @@ def _save_pointcloud_frame(
         pickle.dump(pcd, f)
 
 
+def _flush_pending_video_batches(dataset: Any) -> None:
+    """Encode any remaining episodes when batch video encoding is enabled."""
+    try:
+        batch_size = int(getattr(dataset, "batch_encoding_size", 1))
+        pending = int(getattr(dataset, "episodes_since_last_encoding", 0))
+        total_eps = int(getattr(dataset, "num_episodes", 0))
+    except Exception:
+        return
+    if batch_size <= 1 or pending <= 0 or total_eps <= 0:
+        return
+    start_ep = max(0, total_eps - pending)
+    end_ep = total_eps
+    if hasattr(dataset, "_batch_save_episode_video"):
+        dataset._batch_save_episode_video(start_ep, end_ep)
+        dataset.episodes_since_last_encoding = 0
+
+
 def run_recording(
     *,
     robot_cfg: Any,
@@ -428,6 +445,7 @@ def run_recording(
                     task_name=record_cfg.task_name,
                 )
                 kept_episode += 1
+        _flush_pending_video_batches(dataset)
     finally:
         if depth_listener is not None:
             depth_listener.shutdown()
