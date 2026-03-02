@@ -120,6 +120,7 @@ def main() -> None:
         enable_keypoint_pcd=enable_keypoint_pcd,
         enable_manual_episode_check=enable_manual_episode_check,
         task_kind=task_entry["task_kind"],
+        task_name=task_key,
     )
 
 

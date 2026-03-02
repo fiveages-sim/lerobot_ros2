@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import pickle
+import queue
 import signal
 import sys
 import threading
@@ -51,6 +52,12 @@ class RecordConfig:
     image_writer_processes: int = 0
     image_writer_threads: int = 8
     video_encoding_batch_size: int = 5
+    # If true, switch FSM to HOLD after each episode.
+    switch_to_hold_after_episode: bool = False
+    # If true, save each kept episode in a background thread.
+    async_episode_save: bool = False
+    # Background save queue capacity; <=0 means unbounded.
+    episode_save_queue_size: int = 0
 
 
 DEFAULT_RECORD_CFG = RecordConfig()
@@ -211,11 +218,13 @@ def run_recording(
     enable_keypoint_pcd: bool,
     enable_manual_episode_check: bool,
     task_kind: str = "pick_place",
+    task_name: str | None = None,
 ) -> None:
     if task_kind not in SUPPORTED_RECORD_KINDS:
         raise NotImplementedError(f"Record runner does not support task kind: {task_kind}")
 
     gripper_open, gripper_closed = _resolve_gripper_values(robot_cfg.gripper_control_mode)
+    resolved_task_name = str(task_name if task_name else getattr(record_cfg, "task_name", task_kind))
     robot = ROS2Robot(_build_robot_config(robot_cfg=robot_cfg, record_cfg=record_cfg))
     depth_required = bool(enable_keypoint_pcd)
     default_cam_name = next(iter(robot_cfg.cameras.keys()), "")
@@ -253,6 +262,7 @@ def run_recording(
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
         time.sleep(robot_cfg.fsm_switch_delay)
         robot.ros2_interface.send_fsm_command(FSM_OCS2)
+        in_ocs2 = True
 
         intrinsics = (
             cam_info_listener.wait_for_intrinsics(timeout=record_cfg.camera_info_timeout)
@@ -274,6 +284,47 @@ def run_recording(
             image_writer_threads=record_cfg.image_writer_threads,
             batch_encoding_size=record_cfg.video_encoding_batch_size,
         )
+        write_queue: queue.Queue[tuple[list[dict[str, object]], str] | None] | None = None
+        writer_thread: threading.Thread | None = None
+        writer_error: list[BaseException] = []
+        writer_lock = threading.Lock()
+
+        def _raise_writer_error_if_any() -> None:
+            with writer_lock:
+                if writer_error:
+                    raise RuntimeError("Background episode save failed") from writer_error[0]
+
+        def _append_episode_records(records_to_save: list[dict[str, object]], task_to_save: str) -> None:
+            DatasetRecorder.append_episode_to_dataset(
+                dataset=dataset,
+                records=records_to_save,
+                action_names=action_names,
+                include_gripper=include_gripper,
+                task_name=task_to_save,
+            )
+
+        def _writer_loop() -> None:
+            assert write_queue is not None
+            while True:
+                item = write_queue.get()
+                try:
+                    if item is None:
+                        return
+                    records_to_save, task_to_save = item
+                    _append_episode_records(records_to_save, task_to_save)
+                except BaseException as exc:  # noqa: BLE001
+                    with writer_lock:
+                        if not writer_error:
+                            writer_error.append(exc)
+                    return
+                finally:
+                    write_queue.task_done()
+
+        if bool(getattr(record_cfg, "async_episode_save", False)):
+            queue_size = int(getattr(record_cfg, "episode_save_queue_size", 0))
+            write_queue = queue.Queue(maxsize=max(0, queue_size))
+            writer_thread = threading.Thread(target=_writer_loop, daemon=True)
+            writer_thread.start()
 
         initial_obs = robot.get_observation()
         source_is_right = False
@@ -291,6 +342,10 @@ def run_recording(
 
         kept_episode = 0
         while kept_episode < loops:
+            _raise_writer_error_if_any()
+            if not in_ocs2:
+                robot.ros2_interface.send_fsm_command(FSM_OCS2)
+                in_ocs2 = True
             episode_index = kept_episode
             reset_simulation_and_randomize_object(
                 task_cfg.source_object_entity_path,
@@ -423,6 +478,9 @@ def run_recording(
             episode_records = recorder.finish_sequence()
             if not episode_records:
                 raise RuntimeError("No frames captured during sequence.")
+            if record_cfg.switch_to_hold_after_episode and in_ocs2:
+                robot.ros2_interface.send_fsm_command(FSM_HOLD)
+                in_ocs2 = False
 
             keep_episode = True
             if enable_manual_episode_check:
@@ -437,16 +495,24 @@ def run_recording(
                                 import shutil
                                 shutil.rmtree(path, ignore_errors=True)
             if keep_episode:
-                DatasetRecorder.append_episode_to_dataset(
-                    dataset=dataset,
-                    records=episode_records,
-                    action_names=action_names,
-                    include_gripper=include_gripper,
-                    task_name=record_cfg.task_name,
-                )
+                if write_queue is not None:
+                    write_queue.put((episode_records, resolved_task_name))
+                else:
+                    _append_episode_records(episode_records, resolved_task_name)
                 kept_episode += 1
+        if write_queue is not None:
+            write_queue.put(None)
+            write_queue.join()
+            if writer_thread is not None:
+                writer_thread.join(timeout=5.0)
+            _raise_writer_error_if_any()
         _flush_pending_video_batches(dataset)
     finally:
+        try:
+            if robot.is_connected:
+                robot.ros2_interface.send_fsm_command(FSM_HOLD)
+        except Exception:
+            pass
         if depth_listener is not None:
             depth_listener.shutdown()
         if cam_info_listener is not None:
