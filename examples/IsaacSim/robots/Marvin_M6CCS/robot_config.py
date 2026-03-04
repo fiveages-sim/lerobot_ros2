@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Robot profile config for Tianji M6CCS IsaacSim demos."""
+"""Robot profile config for Marvin M6CCS IsaacSim demos."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from ros2_robot_interface import ROS2RobotInterfaceConfig  # pyright: ignore[reportMissingImports]
 
 
-ROBOT_KEY = "tianji_m6ccs"
-ROBOT_LABEL = "Tianji M6CCS"
+ROBOT_KEY = "marvin_m6ccs"
+ROBOT_LABEL = "Marvin M6CCS"
 
 
 @dataclass(frozen=True)

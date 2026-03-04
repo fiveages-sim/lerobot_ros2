@@ -11,7 +11,7 @@ TASK_CONFIG = {
         "initial_grasp_arm": "right",
         "object_xyz_random_offset": (0.0, 0.0, 0.0),
         "approach_clearance": 0.2,
-        "grasp_clearance": 0.05,
+        "grasp_clearance": 0.01,
         "source_object_entity_path": "/World/medicine_handover/FinasterideTablets/tablets/tablets",
         "grasp_orientation": (1.0, 0.0, 0.0, 0.0),
     },

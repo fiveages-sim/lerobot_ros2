@@ -1,16 +1,16 @@
-"""Tianji M6CCS handover task config."""
+"""Marvin M6CCS handover task config."""
 
 TASK_CONFIG = {
     "task_key": "handover",
     "label": "Handover",
     "kind": "handover",
-    "robot_id": "tianji_m6ccs_bimanual_handover",
+    "robot_id": "marvin_m6ccs_bimanual_handover",
     "default_scene": "grab_medicine",
     "base_task_overrides": {
         "initial_grasp_arm": "right",
         "grasp_orientation": (1.0, 0.0, 0.0, 0.0),
         "object_xyz_random_offset": (0.0, 0.0, 0.0),
-        "approach_clearance": 0.1,
+        "approach_clearance": 0.25,
         "grasp_clearance": 0.01,
         "source_object_entity_path": "/World/medicine_handover/FinasterideTablets/tablets/tablets",
         "handover_position": (0.55, 0.0, 0.9),
