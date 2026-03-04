@@ -70,5 +70,7 @@ ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationS
 
 ## 4. 机器人专有文档
 
-- Dobot CR5：[`DobotCR5/README.md`](DobotCR5/README.md)
-- Agibot G1：[`Agibot_G1/README.md`](Agibot_G1/README.md)
+- [Dobot CR5](robots/DobotCR5/README.md) — 单臂协作机器人
+- [Agibot G1](robots/Agibot_G1/README.md) — 双臂人形机器人
+- [FiveAges W2](robots/FiveAges_W2/README.md) — 双臂人形机器人
+- [Marvin M6CCS](robots/Marvin_M6CCS/README.md) — 双臂机器人
