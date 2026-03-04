@@ -17,7 +17,7 @@ TASK_CONFIG = {
         "handover_position": (0.55, 0.0, 1.4),
         "source_handover_orientation": (-0.77, 0.0, 0.0, 0.77),
         "receiver_handover_orientation": (0.0, 0.77, -0.77, 0.0),
-        "receiver_place_position": (0.9, 0.22, 1.1),
+        "receiver_place_position": (0.9, 0.25, 1.1),
         "receiver_place_orientation": (
             -0.33016505084249775,
             0.6534009839213628,
