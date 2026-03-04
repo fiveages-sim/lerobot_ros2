@@ -10,3 +10,12 @@
 
 - `robot_config.py` — 机器人参数（关节、阈值等）
 - `task_configs/handover.py` — 双臂交接任务配置
+
+ROS2夹爪控制器参数：
+```yaml
+right_gripper_controller:
+  ros__parameters:
+    joint: right_gripper_joint
+    force_feedback_ratio: 0.05
+    force_threshold: 0.05
+```
