@@ -19,3 +19,8 @@ right_gripper_controller:
     force_feedback_ratio: 0.05
     force_threshold: 0.05
 ```
+
+
+
+https://github.com/user-attachments/assets/c11167b6-c935-4386-9a65-252192247d9d
+
