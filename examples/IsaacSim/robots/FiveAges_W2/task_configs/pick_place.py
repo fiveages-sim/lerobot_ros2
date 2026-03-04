@@ -28,7 +28,7 @@ TASK_CONFIG = {
             "approach_clearance": 0.2,
             "grasp_clearance": -0.02,
             "retreat_direction_extra": 0.0,
-            "retreat_raise_z": 0.1,
+            "retreat_offset": (0.0, 0.0, 0.1),
         },
     },
 }

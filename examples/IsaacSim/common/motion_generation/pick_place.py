@@ -8,18 +8,26 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from ros2_robot_interface import FSM_HOLD, FSM_OCS2  # pyright: ignore[reportMissingImports]
-
-from lerobot_robot_ros2 import (
-    ROS2Robot,
-    ROS2RobotConfig,
+from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
+    FSM_HOLD,
+    FSM_OCS2,
+    ArmSide,
+    ArmStage,
+    ArmTarget,
+    StageTarget,
+    assign_to_arm,
     build_single_arm_pick_sequence,
     build_single_arm_place_sequence,
     build_single_arm_return_home_sequence,
     compose_bimanual_synchronized_sequence,
     execute_stage_sequence,
 )
-from lerobot_robot_ros2.utils import action_from_pose, obs_to_pose  # pyright: ignore[reportMissingImports]
+
+from lerobot_robot_ros2 import (
+    ROS2Robot,
+    ROS2RobotConfig,
+)
+from lerobot_robot_ros2.utils import obs_to_pose  # pyright: ignore[reportMissingImports]
 
 from isaac_ros2_sim_common import (
     SimTimeHelper,
@@ -59,28 +67,25 @@ class PickPlaceFlowTaskConfig:
     target_pose_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     approach_clearance: float = 0.2
     grasp_clearance: float = 0.01
+    grasp_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     retreat_direction_extra: float = 0.0
-    retreat_raise_z: float = 0.0
+    retreat_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     source_object_entity_path: str = ""
     left_object_entity_path: str | None = None
     right_object_entity_path: str | None = None
-    # Shared defaults (single-arm mode only needs these three)
     grasp_orientation: tuple[float, float, float, float] = (-0.7, 0.7, 0.0, 0.0)
     grasp_direction: str = "top"
     grasp_direction_vector: tuple[float, float, float] | None = None
-    # Optional per-arm overrides (mainly for dual-arm mode)
     left_grasp_orientation: tuple[float, float, float, float] | None = None
     right_grasp_orientation: tuple[float, float, float, float] | None = None
     left_grasp_direction: str | None = None
     right_grasp_direction: str | None = None
     left_grasp_direction_vector: tuple[float, float, float] | None = None
     right_grasp_direction_vector: tuple[float, float, float] | None = None
-    # Optional place stage before returning home (single-arm mode)
     run_place_before_return: bool = False
     place_position: tuple[float, float, float] | None = None
     place_orientation: tuple[float, float, float, float] | None = None
     post_release_retract_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    # Execution tolerances for stage progression (shared by demo/record flows)
     max_stage_duration: float = 2.0
     pose_tol_pos: float = 0.025
     pose_tol_ori: float = 0.08
@@ -111,14 +116,8 @@ def format_pick_place_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig)
         f"orientation={task_cfg.grasp_orientation}, "
         f"approach_clearance={task_cfg.approach_clearance}, grasp_clearance={task_cfg.grasp_clearance}, "
         f"target_pose_offset={task_cfg.target_pose_offset}, "
-        f"retreat_direction_extra={task_cfg.retreat_direction_extra}, retreat_raise_z={task_cfg.retreat_raise_z}"
+        f"retreat_direction_extra={task_cfg.retreat_direction_extra}, retreat_offset={task_cfg.retreat_offset}"
     )
-
-
-def _merge_actions(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
-    out = dict(a)
-    out.update(b)
-    return out
 
 
 def _apply_target_pose_offset(pose: Any, offset: tuple[float, float, float]) -> Any:
@@ -158,41 +157,38 @@ def build_single_arm_pick_place_sequence(
     target_pose: Any,
     home_pose: Any,
     task_cfg: PickPlaceFlowTaskConfig,
-    ee_prefix: str,
-    gripper_key: str,
+    arm_side: ArmSide,
     gripper_open: float,
     gripper_closed: float,
     grasp_orientation: tuple[float, float, float, float],
     grasp_direction: str,
     grasp_direction_vector: tuple[float, float, float] | None,
-) -> list[tuple[str, dict[str, float]]]:
-    seq = build_single_arm_pick_sequence(
+) -> list[StageTarget]:
+    """Build a single-arm pick (+ optional place) + return-home sequence."""
+    arm_seq: list[ArmStage] = list(build_single_arm_pick_sequence(
         target_pose=target_pose,
         approach_clearance=task_cfg.approach_clearance,
         grasp_clearance=task_cfg.grasp_clearance,
         grasp_orientation=grasp_orientation,
         grasp_direction=grasp_direction,
         grasp_direction_vector=grasp_direction_vector,
+        grasp_offset=task_cfg.grasp_offset,
         retreat_direction_extra=task_cfg.retreat_direction_extra,
-        retreat_raise_z=task_cfg.retreat_raise_z,
+        retreat_offset=task_cfg.retreat_offset,
         gripper_open=gripper_open,
         gripper_closed=gripper_closed,
-        ee_prefix=ee_prefix,
-        gripper_key=gripper_key,
         stage_prefix="PickPlaceFlow",
-    )
+    ))
     if task_cfg.run_place_before_return:
         if task_cfg.place_position is None or task_cfg.place_orientation is None:
             raise ValueError("place_position and place_orientation are required when run_place_before_return=True")
-        seq.extend(
+        arm_seq.extend(
             build_single_arm_place_sequence(
                 place_position=task_cfg.place_position,
                 place_orientation=task_cfg.place_orientation,
                 post_release_retract_offset=task_cfg.post_release_retract_offset,
                 gripper_open=gripper_open,
                 gripper_closed=gripper_closed,
-                ee_prefix=ee_prefix,
-                gripper_key=gripper_key,
                 stage_prefix="PickPlaceFlow",
                 start_index=5,
             )
@@ -200,13 +196,14 @@ def build_single_arm_pick_place_sequence(
         return_stage_name = "PickPlaceFlow-8-ReturnHomeHold"
     else:
         return_stage_name = "PickPlaceFlow-5-ReturnHomeHold"
-    seq.extend(
+    arm_seq.extend(
         build_single_arm_return_home_sequence(
-            home_action=action_from_pose(home_pose, gripper_closed, ee_prefix=ee_prefix, gripper_key=gripper_key),
+            home_pose=home_pose,
+            gripper=gripper_closed,
             stage_name=return_stage_name,
         )
     )
-    return seq
+    return assign_to_arm(arm_seq, arm_side)
 
 
 def run_pick_place_demo(
@@ -253,8 +250,8 @@ def run_pick_place_demo(
             if initial_arm not in {"left", "right"}:
                 raise ValueError("initial_grasp_arm must be 'left' or 'right'")
             source_is_right = initial_arm == "right"
+            arm_side = ArmSide.RIGHT if source_is_right else ArmSide.LEFT
             source_ee_prefix = "right_ee" if source_is_right else "left_ee"
-            source_gripper_key = "right_gripper.pos" if source_is_right else "left_gripper.pos"
             source_home_pose = obs_to_pose(obs0, source_ee_prefix)
             source_object_path = task_cfg.source_object_entity_path
             if not source_object_path:
@@ -266,14 +263,21 @@ def run_pick_place_demo(
                 post_reset_wait=robot_cfg.post_reset_wait,
                 sleep_fn=sim_time.sleep,
             )
-            pregrasp_action = action_from_pose(
-                source_home_pose,
-                gripper_open,
-                ee_prefix=source_ee_prefix,
-                gripper_key=source_gripper_key,
+
+            # Pre-grasp: open gripper at home position
+            pregrasp_target = ArmTarget(pose=source_home_pose, gripper=gripper_open)
+            pregrasp_stage = assign_to_arm(
+                [("pregrasp", pregrasp_target)], arm_side,
             )
-            robot.send_action(pregrasp_action)
-            sim_time.sleep(robot_cfg.gripper_action_wait)
+            execute_stage_sequence(
+                interface=robot.ros2_interface,
+                sequence=pregrasp_stage,
+                arrival_timeout=robot_cfg.arrival_timeout,
+                arrival_poll=robot_cfg.arrival_poll,
+                time_now_fn=sim_time.now_seconds,
+                sleep_fn=sim_time.sleep,
+                gripper_action_wait=robot_cfg.gripper_action_wait,
+            )
 
             source_target_pose = get_object_pose_from_service(
                 base_world_pos,
@@ -289,8 +293,7 @@ def run_pick_place_demo(
                 target_pose=source_target_pose,
                 home_pose=source_home_pose,
                 task_cfg=task_cfg,
-                ee_prefix=source_ee_prefix,
-                gripper_key=source_gripper_key,
+                arm_side=arm_side,
                 gripper_open=gripper_open,
                 gripper_closed=gripper_closed,
                 grasp_orientation=source_grasp_orientation,
@@ -298,10 +301,8 @@ def run_pick_place_demo(
                 grasp_direction_vector=source_grasp_direction_vector,
             )
             execute_stage_sequence(
-                robot=robot,
+                interface=robot.ros2_interface,
                 sequence=sequence,
-                wait_both_arms=False,
-                single_arm_part="right_arm" if source_is_right else "left_arm",
                 arrival_timeout=robot_cfg.arrival_timeout,
                 arrival_poll=robot_cfg.arrival_poll,
                 time_now_fn=sim_time.now_seconds,
@@ -329,12 +330,22 @@ def run_pick_place_demo(
                 post_reset_wait=robot_cfg.post_reset_wait,
                 sleep_fn=sim_time.sleep,
             )
-            pregrasp_action = _merge_actions(
-                action_from_pose(left_home_pose, gripper_open, ee_prefix="left_ee", gripper_key="left_gripper.pos"),
-                action_from_pose(right_home_pose, gripper_open, ee_prefix="right_ee", gripper_key="right_gripper.pos"),
+
+            # Pre-grasp: open both grippers at home positions
+            pregrasp_stage = [StageTarget(
+                name="pregrasp",
+                left=ArmTarget(pose=left_home_pose, gripper=gripper_open),
+                right=ArmTarget(pose=right_home_pose, gripper=gripper_open),
+            )]
+            execute_stage_sequence(
+                interface=robot.ros2_interface,
+                sequence=pregrasp_stage,
+                arrival_timeout=robot_cfg.arrival_timeout,
+                arrival_poll=robot_cfg.arrival_poll,
+                time_now_fn=sim_time.now_seconds,
+                sleep_fn=sim_time.sleep,
+                gripper_action_wait=robot_cfg.gripper_action_wait,
             )
-            robot.send_action(pregrasp_action)
-            sim_time.sleep(robot_cfg.gripper_action_wait)
 
             left_target_pose = get_object_pose_from_service(
                 base_world_pos, base_world_quat, left_object_path, include_orientation=False
@@ -354,8 +365,7 @@ def run_pick_place_demo(
                 target_pose=left_target_pose,
                 home_pose=left_home_pose,
                 task_cfg=task_cfg,
-                ee_prefix="left_ee",
-                gripper_key="left_gripper.pos",
+                arm_side=ArmSide.LEFT,
                 gripper_open=gripper_open,
                 gripper_closed=gripper_closed,
                 grasp_orientation=left_grasp_orientation,
@@ -366,19 +376,20 @@ def run_pick_place_demo(
                 target_pose=right_target_pose,
                 home_pose=right_home_pose,
                 task_cfg=task_cfg,
-                ee_prefix="right_ee",
-                gripper_key="right_gripper.pos",
+                arm_side=ArmSide.RIGHT,
                 gripper_open=gripper_open,
                 gripper_closed=gripper_closed,
                 grasp_orientation=right_grasp_orientation,
                 grasp_direction=right_grasp_direction,
                 grasp_direction_vector=right_grasp_direction_vector,
             )
-            merged_seq = compose_bimanual_synchronized_sequence(left_seq, right_seq)
+            # Extract ArmStage lists for bimanual composition
+            left_arm_stages: list[ArmStage] = [(s.name, s.left) for s in left_seq if s.left]  # type: ignore[misc]
+            right_arm_stages: list[ArmStage] = [(s.name, s.right) for s in right_seq if s.right]  # type: ignore[misc]
+            merged_seq = compose_bimanual_synchronized_sequence(left_arm_stages, right_arm_stages)
             execute_stage_sequence(
-                robot=robot,
+                interface=robot.ros2_interface,
                 sequence=merged_seq,
-                wait_both_arms=True,
                 arrival_timeout=robot_cfg.arrival_timeout,
                 arrival_poll=robot_cfg.arrival_poll,
                 time_now_fn=sim_time.now_seconds,
@@ -420,4 +431,3 @@ def run_pick_place_entry(
         task_cfg=task_cfg,
         robot_id=robot_id,
     )
-

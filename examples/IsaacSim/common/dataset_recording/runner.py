@@ -20,13 +20,18 @@ from geometry_msgs.msg import Pose
 from rclpy.executors import SingleThreadedExecutor
 from sensor_msgs.msg import CameraInfo, Image
 
-from ros2_robot_interface import FSM_HOLD, FSM_OCS2  # pyright: ignore[reportMissingImports]
+from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
+    FSM_HOLD,
+    FSM_OCS2,
+    ArmSide,
+    StageTarget,
+    execute_stage_sequence,
+)
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2 import (  # pyright: ignore[reportMissingImports]
     ROS2Robot,
     ROS2RobotConfig,
-    execute_stage_sequence,
 )
 from dataset_recording.recorder import DatasetRecorder  # pyright: ignore[reportMissingImports]
 from motion_generation.handover import build_handover_record_sequence  # pyright: ignore[reportMissingImports]
@@ -48,15 +53,11 @@ class RecordConfig:
     task_name: str = "pick_place"
     enable_keypoint_pcd: bool = False
     include_depth_feature: bool = False
-    # LeRobot dataset write/encode tuning (does not change frame alignment semantics)
     image_writer_processes: int = 0
     image_writer_threads: int = 8
     video_encoding_batch_size: int = 5
-    # If true, switch FSM to HOLD after each episode.
     switch_to_hold_after_episode: bool = False
-    # If true, save each kept episode in a background thread.
     async_episode_save: bool = False
-    # Background save queue capacity; <=0 means unbounded.
     episode_save_queue_size: int = 0
 
 
@@ -207,6 +208,16 @@ def _flush_pending_video_batches(dataset: Any) -> None:
     if hasattr(dataset, "_batch_save_episode_video"):
         dataset._batch_save_episode_video(start_ep, end_ep)
         dataset.episodes_since_last_encoding = 0
+
+
+def _make_recorder_stage_start_bridge(
+    recorder: DatasetRecorder,
+) -> Any:
+    """Bridge StageTarget callback to recorder's ActionDict callback."""
+    def on_stage_start(stage_name: str, target: StageTarget) -> None:
+        action_dict = target.to_action_dict()
+        recorder.on_stage_start(stage_name, action_dict)
+    return on_stage_start
 
 
 def run_recording(
@@ -375,8 +386,7 @@ def run_recording(
                     target_pose=target_pose,
                     task_cfg=task_cfg,
                     home_pose=_pose_from_observation(initial_obs),
-                    ee_prefix="left_ee",
-                    gripper_key="left_gripper.pos",
+                    arm_side=ArmSide.LEFT,
                     gripper_open=gripper_open,
                     gripper_closed=gripper_closed,
                     grasp_orientation=task_cfg.grasp_orientation,
@@ -412,69 +422,35 @@ def run_recording(
                 save_pointcloud_frame_fn=_save_pointcloud_frame,
             )
             recorder.start_sequence()
+            stage_start_bridge = _make_recorder_stage_start_bridge(recorder)
+
             if task_kind == "pick_place":
                 execute_stage_sequence(
-                    robot=robot,
+                    interface=robot.ros2_interface,
                     sequence=sequence,
-                    wait_both_arms=False,
-                    single_arm_part="left_arm",
                     arrival_timeout=robot_cfg.arrival_timeout,
                     arrival_poll=robot_cfg.arrival_poll,
                     time_now_fn=sim_time.now_seconds,
                     sleep_fn=sim_time.sleep,
                     gripper_action_wait=robot_cfg.gripper_action_wait,
                     warn_prefix="PickPlace stage timeout",
-                    on_stage_start=recorder.on_stage_start,
+                    on_stage_start=stage_start_bridge,
                     on_stage_poll=recorder.on_stage_poll,
                 )
             elif task_kind == "handover":
-                pickup_sequence = [item for item in sequence if item[0].startswith("Pickup-")]
-                handover_sequence = [item for item in sequence if item[0].startswith("Handover-")]
-                place_sequence = [item for item in sequence if item[0].startswith("Place-")]
-                if pickup_sequence:
-                    execute_stage_sequence(
-                        robot=robot,
-                        sequence=pickup_sequence,
-                        wait_both_arms=False,
-                        single_arm_part="right_arm" if source_is_right else "left_arm",
-                        arrival_timeout=robot_cfg.arrival_timeout,
-                        arrival_poll=robot_cfg.arrival_poll,
-                        time_now_fn=sim_time.now_seconds,
-                        sleep_fn=sim_time.sleep,
-                        gripper_action_wait=robot_cfg.gripper_action_wait,
-                        warn_prefix="Pickup stage timeout",
-                        on_stage_start=recorder.on_stage_start,
-                        on_stage_poll=recorder.on_stage_poll,
-                    )
-                if handover_sequence:
-                    execute_stage_sequence(
-                        robot=robot,
-                        sequence=handover_sequence,
-                        wait_both_arms=True,
-                        arrival_timeout=robot_cfg.arrival_timeout,
-                        arrival_poll=robot_cfg.arrival_poll,
-                        time_now_fn=sim_time.now_seconds,
-                        sleep_fn=sim_time.sleep,
-                        gripper_action_wait=robot_cfg.gripper_action_wait,
-                        left_arrival_guard_stage="Handover-1-SyncMove" if source_is_right else None,
-                        warn_prefix="Handover stage timeout",
-                        on_stage_start=recorder.on_stage_start,
-                        on_stage_poll=recorder.on_stage_poll,
-                    )
-                if place_sequence:
-                    execute_stage_sequence(
-                        robot=robot,
-                        sequence=place_sequence,
-                        wait_both_arms=True,
-                        arrival_timeout=robot_cfg.arrival_timeout,
-                        arrival_poll=robot_cfg.arrival_poll,
-                        time_now_fn=sim_time.now_seconds,
-                        sleep_fn=sim_time.sleep,
-                        gripper_action_wait=robot_cfg.gripper_action_wait,
-                        warn_prefix="Place stage timeout",
-                        on_stage_start=recorder.on_stage_start,
-                        on_stage_poll=recorder.on_stage_poll,
-                    )
+                execute_stage_sequence(
+                    interface=robot.ros2_interface,
+                    sequence=sequence,
+                    arrival_timeout=robot_cfg.arrival_timeout,
+                    arrival_poll=robot_cfg.arrival_poll,
+                    time_now_fn=sim_time.now_seconds,
+                    sleep_fn=sim_time.sleep,
+                    gripper_action_wait=robot_cfg.gripper_action_wait,
+                    left_arrival_guard_stage="Handover-1-SyncMove" if source_is_right else None,
+                    warn_prefix="Handover stage timeout",
+                    on_stage_start=stage_start_bridge,
+                    on_stage_poll=recorder.on_stage_poll,
+                )
             episode_records = recorder.finish_sequence()
             if not episode_records:
                 raise RuntimeError("No frames captured during sequence.")
