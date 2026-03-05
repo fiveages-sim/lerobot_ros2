@@ -113,13 +113,13 @@ def main():
         return
     
     # Extract current end-effector position from observation
-    current_x = current_obs["end_effector.position.x"]
-    current_y = current_obs["end_effector.position.y"]
-    current_z = current_obs["end_effector.position.z"]
-    current_qx = current_obs["end_effector.orientation.x"]
-    current_qy = current_obs["end_effector.orientation.y"]
-    current_qz = current_obs["end_effector.orientation.z"]
-    current_qw = current_obs["end_effector.orientation.w"]
+    current_x = current_obs["left_ee.pos.x"]
+    current_y = current_obs["left_ee.pos.y"]
+    current_z = current_obs["left_ee.pos.z"]
+    current_qx = current_obs["left_ee.quat.x"]
+    current_qy = current_obs["left_ee.quat.y"]
+    current_qz = current_obs["left_ee.quat.z"]
+    current_qw = current_obs["left_ee.quat.w"]
     
     print(f"Current observation keys: {list(current_obs.keys())}")
     print(f"Current end-effector position: x={current_x:.3f}, y={current_y:.3f}, z={current_z:.3f}")
@@ -134,37 +134,38 @@ def main():
     
     # Display gripper state (if enabled)
     if robot.config.ros2_interface.gripper_enabled:
-        gripper_joint_name = robot.config.ros2_interface.gripper_joint_name
-        gripper_pos = current_obs.get(f"{gripper_joint_name}.pos", 0.0)
+        gripper_obs_key = f"{robot.config.ros2_interface.gripper_joint_name}.pos"
+        gripper_pos = current_obs.get(gripper_obs_key, 0.0)
         print(f"\nGripper State:")
-        print(f"  {gripper_joint_name}: pos={gripper_pos:.3f}")
+        print(f"  {gripper_obs_key}={gripper_pos:.3f}")
     
     # Create target action (x + 0.1) with gripper open
+    gripper_action_key = "left_gripper.pos"
     target_action = {
-        "end_effector.position.x": current_x + 0.1,
-        "end_effector.position.y": current_y,
-        "end_effector.position.z": current_z,
-        "end_effector.orientation.x": current_qx,
-        "end_effector.orientation.y": current_qy,
-        "end_effector.orientation.z": current_qz,
-        "end_effector.orientation.w": current_qw,
-        "gripper.position": 1.0  # Open gripper
+        "left_ee.pos.x": current_x + 0.1,
+        "left_ee.pos.y": current_y,
+        "left_ee.pos.z": current_z,
+        "left_ee.quat.x": current_qx,
+        "left_ee.quat.y": current_qy,
+        "left_ee.quat.z": current_qz,
+        "left_ee.quat.w": current_qw,
+        gripper_action_key: 1.0  # Open gripper
     }
     
     # Create current action (back to original position) with gripper closed
     current_action = {
-        "end_effector.position.x": current_x,
-        "end_effector.position.y": current_y,
-        "end_effector.position.z": current_z,
-        "end_effector.orientation.x": current_qx,
-        "end_effector.orientation.y": current_qy,
-        "end_effector.orientation.z": current_qz,
-        "end_effector.orientation.w": current_qw,
-        "gripper.position": 0.0  # Close gripper
+        "left_ee.pos.x": current_x,
+        "left_ee.pos.y": current_y,
+        "left_ee.pos.z": current_z,
+        "left_ee.quat.x": current_qx,
+        "left_ee.quat.y": current_qy,
+        "left_ee.quat.z": current_qz,
+        "left_ee.quat.w": current_qw,
+        gripper_action_key: 0.0  # Close gripper
     }
     
-    print(f"Target action: x={target_action['end_effector.position.x']:.3f}, y={target_action['end_effector.position.y']:.3f}, z={target_action['end_effector.position.z']:.3f}, gripper={target_action['gripper.position']:.1f}")
-    print(f"Current action: x={current_action['end_effector.position.x']:.3f}, y={current_action['end_effector.position.y']:.3f}, z={current_action['end_effector.position.z']:.3f}, gripper={current_action['gripper.position']:.1f}")
+    print(f"Target action: x={target_action['left_ee.pos.x']:.3f}, y={target_action['left_ee.pos.y']:.3f}, z={target_action['left_ee.pos.z']:.3f}, gripper={target_action[gripper_action_key]:.1f}")
+    print(f"Current action: x={current_action['left_ee.pos.x']:.3f}, y={current_action['left_ee.pos.y']:.3f}, z={current_action['left_ee.pos.z']:.3f}, gripper={current_action[gripper_action_key]:.1f}")
     
     # Flag to track if robot is already disconnected
     robot_disconnected = False
@@ -200,7 +201,7 @@ def main():
                 print(f"Cycle {cycle_count}: Moving to TARGET position (x + 0.1) with gripper OPEN")
                 try:
                     sent_action = robot.send_action(target_action)
-                    print(f"✓ Action sent successfully: gripper={sent_action.get('gripper.position', 'N/A')}")
+                    print(f"✓ Action sent successfully: gripper={sent_action.get(gripper_action_key, 'N/A')}")
                 except Exception as e:
                     print(f"❌ Failed to send action: {e}")
                     break
@@ -210,7 +211,7 @@ def main():
                 print(f"Cycle {cycle_count}: Moving to CURRENT position with gripper CLOSED")
                 try:
                     sent_action = robot.send_action(current_action)
-                    print(f"✓ Action sent successfully: gripper={sent_action.get('gripper.position', 'N/A')}")
+                    print(f"✓ Action sent successfully: gripper={sent_action.get(gripper_action_key, 'N/A')}")
                 except Exception as e:
                     print(f"❌ Failed to send action: {e}")
                     break
@@ -220,9 +221,9 @@ def main():
             # Get current observation to monitor robot state
             try:
                 current_obs = robot.get_observation()
-                current_x = current_obs["end_effector.position.x"]
-                current_y = current_obs["end_effector.position.y"]
-                current_z = current_obs["end_effector.position.z"]
+                current_x = current_obs["left_ee.pos.x"]
+                current_y = current_obs["left_ee.pos.y"]
+                current_z = current_obs["left_ee.pos.z"]
                 print(f"Current robot position: x={current_x:.3f}, y={current_y:.3f}, z={current_z:.3f}")
                 
                 # Display joint states during movement
@@ -235,9 +236,9 @@ def main():
                 
                 # Display gripper state during movement (if enabled)
                 if robot.config.ros2_interface.gripper_enabled:
-                    gripper_joint_name = robot.config.ros2_interface.gripper_joint_name
-                    gripper_pos = current_obs.get(f"{gripper_joint_name}.pos", 0.0)
-                    print(f"  {gripper_joint_name}: pos={gripper_pos:.3f}")
+                    gripper_obs_key = f"{robot.config.ros2_interface.gripper_joint_name}.pos"
+                    gripper_pos = current_obs.get(gripper_obs_key, 0.0)
+                    print(f"  {gripper_obs_key}={gripper_pos:.3f}")
             except Exception as e:
                 print(f"⚠️ Could not get current observation: {e}")
             

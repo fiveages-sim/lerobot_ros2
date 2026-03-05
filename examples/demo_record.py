@@ -175,13 +175,13 @@ def main():
     
     try:
         obs = robot.get_observation()    
-        origin_x = obs.get("end_effector.position.x", 0.0)
-        origin_y = obs.get("end_effector.position.y", 0.0)
-        origin_z = obs.get("end_effector.position.z", 0.0)
-        origin_o_x = obs.get("end_effector.orientation.x", 0.0)
-        origin_o_y = obs.get("end_effector.orientation.y", 0.0)
-        origin_o_z = obs.get("end_effector.orientation.z", 0.0)
-        origin_o_w = obs.get("end_effector.orientation.z", 0.0)
+        origin_x = obs.get("left_ee.pos.x", 0.0)
+        origin_y = obs.get("left_ee.pos.y", 0.0)
+        origin_z = obs.get("left_ee.pos.z", 0.0)
+        origin_o_x = obs.get("left_ee.quat.x", 0.0)
+        origin_o_y = obs.get("left_ee.quat.y", 0.0)
+        origin_o_z = obs.get("left_ee.quat.z", 0.0)
+        origin_o_w = obs.get("left_ee.quat.w", 1.0)
         for episode in range(NUM_EPISODES):
             print(f"\nEpisode {episode + 1}/{NUM_EPISODES}")
             
@@ -199,9 +199,9 @@ def main():
                     
                     # Generate simple action (small movement)
                 
-                    current_x = obs.get("end_effector.position.x", 0.0)
-                    current_y = obs.get("end_effector.position.y", 0.0)
-                    current_z = obs.get("end_effector.position.z", 0.0)
+                    current_x = obs.get("left_ee.pos.x", 0.0)
+                    current_y = obs.get("left_ee.pos.y", 0.0)
+                    current_z = obs.get("left_ee.pos.z", 0.0)
                     
                   
                     #print(current_x,current_y,current_z)
@@ -210,19 +210,14 @@ def main():
                     amplitude = 0.1  # 2cm
                     
                     action = {
-                        "end_effector.position.x": current_x +amplitude * np.sin(t),
-                        "end_effector.position.y": current_y +amplitude * np.cos(t),
-                        "end_effector.position.z": current_z,
-                        "end_effector.orientation.x": obs.get("end_effector.orientation.x", 0.0),
-                        "end_effector.orientation.y": obs.get("end_effector.orientation.y", 0.0),
-                        "end_effector.orientation.z": obs.get("end_effector.orientation.z", 0.0),
-                        "end_effector.orientation.w": obs.get("end_effector.orientation.w", 1.0)
+                        "left_ee.pos.x": current_x + amplitude * np.sin(t),
+                        "left_ee.pos.y": current_y + amplitude * np.cos(t),
+                        "left_ee.pos.z": current_z,
+                        "left_ee.quat.x": obs.get("left_ee.quat.x", 0.0),
+                        "left_ee.quat.y": obs.get("left_ee.quat.y", 0.0),
+                        "left_ee.quat.z": obs.get("left_ee.quat.z", 0.0),
+                        "left_ee.quat.w": obs.get("left_ee.quat.w", 1.0)
                 
-
-                        #"end_effector.orientation.x": obs.get("end_effector.orientation.x", 0.0),
-                        #"end_effector.orientation.y": obs.get("end_effector.orientation.y", 0.0),
-                        #"end_effector.orientation.z": obs.get("end_effector.orientation.z", 0.0),
-                        #"end_effector.orientation.w": obs.get("end_effector.orientation.w", 1.0)
                         #pose.orientation.x=0.7077044621721283
                         #pose.orientation.y=0.7065080817531944
                         #pose.orientation.z=0.000848011543394921
@@ -249,17 +244,17 @@ def main():
                         obs_state.append(obs.get(f"{joint_name}.effort", 0.0))
                     # Gripper position (if enabled)
                     if robot.config.ros2_interface.gripper_enabled:
-                        gripper_joint_name = robot.config.ros2_interface.gripper_joint_name
-                        obs_state.append(obs.get(f"{gripper_joint_name}.pos", 0.0))
+                        gripper_obs_key = f"{robot.config.ros2_interface.gripper_joint_name}.pos"
+                        obs_state.append(obs.get(gripper_obs_key, 0.0))
                     # End-effector pose
                     obs_state.extend([
-                        obs.get("end_effector.position.x", 0.0),
-                        obs.get("end_effector.position.y", 0.0),
-                        obs.get("end_effector.position.z", 0.0),
-                        obs.get("end_effector.orientation.x", 0.0),
-                        obs.get("end_effector.orientation.y", 0.0),
-                        obs.get("end_effector.orientation.z", 0.0),
-                        obs.get("end_effector.orientation.w", 1.0)
+                        obs.get("left_ee.pos.x", 0.0),
+                        obs.get("left_ee.pos.y", 0.0),
+                        obs.get("left_ee.pos.z", 0.0),
+                        obs.get("left_ee.quat.x", 0.0),
+                        obs.get("left_ee.quat.y", 0.0),
+                        obs.get("left_ee.quat.z", 0.0),
+                        obs.get("left_ee.quat.w", 1.0)
                     ])
                     frame["observation.state"] = np.array(obs_state, dtype=np.float32)
                     
@@ -270,16 +265,16 @@ def main():
                     
                     # Add action (all float features combined)
                     action_state = [
-                        sent_action.get("end_effector.position.x", 0.0),
-                        sent_action.get("end_effector.position.y", 0.0),
-                        sent_action.get("end_effector.position.z", 0.0),
-                        sent_action.get("end_effector.orientation.x", 0.0),
-                        sent_action.get("end_effector.orientation.y", 0.0),
-                        sent_action.get("end_effector.orientation.z", 0.0),
-                        sent_action.get("end_effector.orientation.w", 1.0),
+                        sent_action.get("left_ee.pos.x", 0.0),
+                        sent_action.get("left_ee.pos.y", 0.0),
+                        sent_action.get("left_ee.pos.z", 0.0),
+                        sent_action.get("left_ee.quat.x", 0.0),
+                        sent_action.get("left_ee.quat.y", 0.0),
+                        sent_action.get("left_ee.quat.z", 0.0),
+                        sent_action.get("left_ee.quat.w", 1.0),
                     ]
                     if robot.config.ros2_interface.gripper_enabled:
-                        action_state.append(sent_action.get("gripper.position", 0.0))
+                        action_state.append(sent_action.get("left_gripper.pos", 0.0))
                     frame["action"] = np.array(action_state, dtype=np.float32)
                     
                     # Debug: Print frame info for first few frames
@@ -330,13 +325,13 @@ def main():
             if episode < NUM_EPISODES - 1:
                 print("Resetting...")
                 reset_action = {
-                    "end_effector.position.x": origin_x,
-                    "end_effector.position.y": origin_y,
-                    "end_effector.position.z": origin_z,
-                    "end_effector.orientation.x": origin_o_x,
-                    "end_effector.orientation.y": origin_o_y,
-                    "end_effector.orientation.z": origin_o_z,
-                    "end_effector.orientation.w": origin_o_w
+                    "left_ee.pos.x": origin_x,
+                    "left_ee.pos.y": origin_y,
+                    "left_ee.pos.z": origin_z,
+                    "left_ee.quat.x": origin_o_x,
+                    "left_ee.quat.y": origin_o_y,
+                    "left_ee.quat.z": origin_o_z,
+                    "left_ee.quat.w": origin_o_w
                 }
                 robot.send_action(reset_action)
                 time.sleep(3)

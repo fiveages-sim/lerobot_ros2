@@ -216,20 +216,20 @@ def main() -> None:
             state_names = _load_state_names(dataset_path)
             if state_names:
                 drop_names = [
-                    "gripper_joint.pos",
-                    "end_effector.position.x",
-                    "end_effector.position.y",
-                    "end_effector.position.z",
-                    "end_effector.orientation.x",
-                    "end_effector.orientation.y",
-                    "end_effector.orientation.z",
-                    "end_effector.orientation.w",
-                    "end_effector.rot6d_0",
-                    "end_effector.rot6d_1",
-                    "end_effector.rot6d_2",
-                    "end_effector.rot6d_3",
-                    "end_effector.rot6d_4",
-                    "end_effector.rot6d_5",
+                    "left_gripper.pos",
+                    "left_ee.pos.x",
+                    "left_ee.pos.y",
+                    "left_ee.pos.z",
+                    "left_ee.quat.x",
+                    "left_ee.quat.y",
+                    "left_ee.quat.z",
+                    "left_ee.quat.w",
+                    "left_ee.rot6d_0",
+                    "left_ee.rot6d_1",
+                    "left_ee.rot6d_2",
+                    "left_ee.rot6d_3",
+                    "left_ee.rot6d_4",
+                    "left_ee.rot6d_5",
                 ]
                 policy_cfg.drop_state_indices = [i for i, n in enumerate(state_names) if n in drop_names]
             else:

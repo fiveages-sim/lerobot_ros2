@@ -22,25 +22,24 @@ import json
 import signal
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 import tempfile
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 import numpy as np
 import torch
+from ros2_robot_interface import FSM_HOLD, FSM_OCS2
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.policies.factory import make_policy
 from lerobot_robot_ros2 import (
-    ControlType,
     ROS2Robot,
     ROS2RobotConfig,
-    ROS2RobotInterfaceConfig,
 )
-from lerobot_camera_ros2 import ROS2CameraConfig
-from grasp_config import GRASP_CFG
-from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object
+
+from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
@@ -55,6 +54,8 @@ USE_STATE_INPUT = True
 
 DEFAULT_DATASET = None
 DEFAULT_TRAIN_CFG = None
+ROBOT_CFG: Any | None = None
+PICK_PLACE_FLOW_OVERRIDES: dict[str, Any] = {}
 
 
 def parse_args() -> argparse.Namespace:
@@ -258,51 +259,18 @@ def build_robot() -> ROS2Robot:
     """
     按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
     """
-    GLOBAL_CAMERA_NAME = "global"  # 改为与新数据集一致
-    WRIST_CAMERA_NAME = "wrist"
+    if ROBOT_CFG is None:
+        raise RuntimeError("ROBOT_CFG is not configured. Please use examples/IsaacSim/run_inference.py.")
     camera_config = {
-        GLOBAL_CAMERA_NAME: ROS2CameraConfig(
-            topic_name="/global_camera/rgb",  # 话题未变
-            node_name="lerobot_global_camera",
-            width=1280,
-            height=720,
-            fps=FPS,
-            encoding="bgr8",
-        ),
-        WRIST_CAMERA_NAME: ROS2CameraConfig(
-            topic_name="/wrist_camera/rgb",
-            node_name="lerobot_wrist_camera",
-            width=1280,
-            height=720,
-            fps=FPS,
-            encoding="bgr8",
-        ),
+        name: replace(cfg, fps=FPS)
+        for name, cfg in ROBOT_CFG.cameras.items()
     }
-    ros2_interface_config = ROS2RobotInterfaceConfig(
-        joint_states_topic="/joint_states",
-        end_effector_pose_topic="/left_current_pose",
-        end_effector_target_topic="/left_target",
-        control_type=ControlType.CARTESIAN_POSE,
-        joint_names=[
-            "joint1",
-            "joint2",
-            "joint3",
-            "joint4",
-            "joint5",
-            "joint6",
-        ],
-        max_linear_velocity=0.1,
-        max_angular_velocity=0.5,
-        gripper_enabled=True,
-        gripper_joint_name="gripper_joint",
-        gripper_min_position=0.0,
-        gripper_max_position=1.0,
-        gripper_command_topic="gripper_joint/position_command",
-    )
+    ros2_interface_config = ROBOT_CFG.ros2_interface
     robot_config = ROS2RobotConfig(
-        id="ros2_grasp_robot",
+        id=f"{ROBOT_CFG.robot_id}_inference",
         cameras=camera_config,
         ros2_interface=ros2_interface_config,
+        gripper_control_mode=ROBOT_CFG.gripper_control_mode,
     )
     return ROS2Robot(robot_config)
 
@@ -321,13 +289,13 @@ def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> D
 
 def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMetadata) -> None:
     names = meta.features.get("observation.state", {}).get("names", [])
-    if not any(n.startswith("end_effector.rot6d_") for n in names):
+    if not any(n.startswith("left_ee.rot6d_") for n in names):
         return
     quat_vals = [
-        raw_obs.get("end_effector.orientation.x"),
-        raw_obs.get("end_effector.orientation.y"),
-        raw_obs.get("end_effector.orientation.z"),
-        raw_obs.get("end_effector.orientation.w"),
+        raw_obs.get("left_ee.quat.x"),
+        raw_obs.get("left_ee.quat.y"),
+        raw_obs.get("left_ee.quat.z"),
+        raw_obs.get("left_ee.quat.w"),
     ]
     if any(v is None for v in quat_vals):
         return
@@ -336,19 +304,19 @@ def _maybe_inject_rot6d_in_obs(raw_obs: Dict[str, float], meta: LeRobotDatasetMe
         return
     rot6d = quat_xyzw_to_rot6d(quat)[0]
     for i in range(6):
-        raw_obs[f"end_effector.rot6d_{i}"] = float(rot6d[i])
+        raw_obs[f"left_ee.rot6d_{i}"] = float(rot6d[i])
 
 
 def _maybe_convert_rot6d_action(cmd: Dict[str, float]) -> None:
-    rot6d_keys = [f"end_effector.rot6d_{i}" for i in range(6)]
+    rot6d_keys = [f"left_ee.rot6d_{i}" for i in range(6)]
     if not all(k in cmd for k in rot6d_keys):
         return
     rot6d = np.array([cmd[k] for k in rot6d_keys], dtype=np.float32)
     quat_xyzw = rot6d_to_quat_xyzw(rot6d)[0]
-    cmd["end_effector.orientation.x"] = float(quat_xyzw[0])
-    cmd["end_effector.orientation.y"] = float(quat_xyzw[1])
-    cmd["end_effector.orientation.z"] = float(quat_xyzw[2])
-    cmd["end_effector.orientation.w"] = float(quat_xyzw[3])
+    cmd["left_ee.quat.x"] = float(quat_xyzw[0])
+    cmd["left_ee.quat.y"] = float(quat_xyzw[1])
+    cmd["left_ee.quat.z"] = float(quat_xyzw[2])
+    cmd["left_ee.quat.w"] = float(quat_xyzw[3])
     for k in rot6d_keys:
         cmd.pop(k, None)
 
@@ -477,7 +445,7 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
     print("[info] Policy reset, action queue initialized")
 
     action_names = meta.features.get("action", {}).get("names", [])
-    gripper_idx = action_names.index("gripper.position") if "gripper.position" in action_names else None
+    gripper_idx = action_names.index("left_gripper.pos") if "left_gripper.pos" in action_names else None
 
     return train_cfg, meta, policy, policy_image_feats, gripper_idx
 
@@ -574,19 +542,19 @@ def build_cmd_from_action_vec(
     cmd = build_action_dict(meta, action_vec)
 
     if args.relative:
-        cmd["end_effector.position.x"] += raw_obs.get("end_effector.position.x", 0.0)
-        cmd["end_effector.position.y"] += raw_obs.get("end_effector.position.y", 0.0)
-        cmd["end_effector.position.z"] += raw_obs.get("end_effector.position.z", 0.0)
+        cmd["left_ee.pos.x"] += raw_obs.get("left_ee.pos.x", 0.0)
+        cmd["left_ee.pos.y"] += raw_obs.get("left_ee.pos.y", 0.0)
+        cmd["left_ee.pos.z"] += raw_obs.get("left_ee.pos.z", 0.0)
 
     if gripper_idx is not None:
         action_vec[gripper_idx] = np.clip(action_vec[gripper_idx], 0.0, 1.0)
         if args.fixed_gripper is not None:
             action_vec[gripper_idx] = np.clip(args.fixed_gripper, 0.0, 1.0)
         elif args.auto_close_z is not None:
-            curr_z = raw_obs.get("end_effector.position.z")
+            curr_z = raw_obs.get("left_ee.pos.z")
             if curr_z is not None and curr_z <= args.auto_close_z:
                 action_vec[gripper_idx] = 0.0
-        cmd["gripper.position"] = float(action_vec[gripper_idx])
+        cmd["left_gripper.pos"] = float(action_vec[gripper_idx])
 
     return cmd
 
@@ -623,7 +591,7 @@ def main() -> None:
         try:
             if robot_connected:
                 try:
-                    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                    robot.ros2_interface.send_fsm_command(FSM_HOLD)
                 except Exception:
                     pass
                 robot.disconnect()
@@ -639,17 +607,21 @@ def main() -> None:
     print("[OK] Robot connected")
 
     print("Resetting simulation state...")
+    if "source_object_entity_path" not in PICK_PLACE_FLOW_OVERRIDES:
+        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.source_object_entity_path is required for reset")
+    if "object_xyz_random_offset" not in PICK_PLACE_FLOW_OVERRIDES:
+        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_xyz_random_offset is required for reset")
     reset_simulation_and_randomize_object(
-        GRASP_CFG.shared.object_entity_path,
-        xyz_offset=GRASP_CFG.runtime.object_xyz_random_offset,
-        post_reset_wait=GRASP_CFG.runtime.post_reset_wait,
+            PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"],
+            xyz_offset=PICK_PLACE_FLOW_OVERRIDES["object_xyz_random_offset"],
+        post_reset_wait=ROBOT_CFG.post_reset_wait,
         sleep_fn=sim_time.sleep,
     )
 
     print("Switching FSM: HOLD -> OCS2 ...")
-    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
-    sim_time.sleep(GRASP_CFG.runtime.fsm_switch_delay)
-    robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_ocs2)
+    robot.ros2_interface.send_fsm_command(FSM_HOLD)
+    sim_time.sleep(ROBOT_CFG.fsm_switch_delay)
+    robot.ros2_interface.send_fsm_command(FSM_OCS2)
     print("[OK] FSM switched to OCS2, starting inference loop...")
 
     period = 1.0 / args.hz
@@ -681,13 +653,13 @@ def main() -> None:
             cmd = build_cmd_from_action_vec(meta, action_vec, raw_obs, args, gripper_idx)
             _maybe_convert_rot6d_action(cmd)
 
-            curr_x = raw_obs.get("end_effector.position.x")
-            curr_y = raw_obs.get("end_effector.position.y")
-            curr_z = raw_obs.get("end_effector.position.z")
+            curr_x = raw_obs.get("left_ee.pos.x")
+            curr_y = raw_obs.get("left_ee.pos.y")
+            curr_z = raw_obs.get("left_ee.pos.z")
 
-            target_x = cmd.get("end_effector.position.x", 0.0)
-            target_y = cmd.get("end_effector.position.y", 0.0)
-            target_z = cmd.get("end_effector.position.z", 0.0)
+            target_x = cmd.get("left_ee.pos.x", 0.0)
+            target_y = cmd.get("left_ee.pos.y", 0.0)
+            target_z = cmd.get("left_ee.pos.z", 0.0)
 
             curr_xyz = None
             target_xyz = None
@@ -704,7 +676,7 @@ def main() -> None:
 
             _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, distance)
             if args.debug:
-                print(f"Gripper cmd: {cmd.get('gripper.position', 'N/A')}")
+                print(f"Gripper cmd: {cmd.get('left_gripper.pos', 'N/A')}")
             robot.send_action(cmd)
 
             elapsed = sim_time.now_seconds() - t0
@@ -717,7 +689,7 @@ def main() -> None:
         try:
             if robot_connected:
                 print("Switching FSM to HOLD...")
-                robot.ros2_interface.send_fsm_command(GRASP_CFG.runtime.fsm_hold)
+                robot.ros2_interface.send_fsm_command(FSM_HOLD)
                 print("[OK] FSM switched to HOLD")
         except Exception as err:
             print(f"[WARN] Failed to switch FSM to HOLD during cleanup: {err}")

@@ -1,0 +1,66 @@
+"""Agibot G1 handover task config."""
+
+TASK_CONFIG = {
+    "task_key": "handover",
+    "label": "Handover",
+    "kind": "handover",
+    "robot_id": "agibot_g1_bimanual_handover",
+    "default_scene": "grab_medicine",
+    "base_task_overrides": {
+        "initial_grasp_arm": "right",
+        "grasp_orientation": (-0.7, 0.7, 0.0, 0.0),
+        "object_xyz_random_offset": (0.0, 0.0, 0.0),
+        "approach_clearance": 0.2,
+        "grasp_clearance": 0.012,
+        "receiver_handover_offset": (0.0, -0.02, -0.02),
+        "source_object_entity_path": "/World/medicine_handover/FinasterideTablets/tablets/tablets",
+        "handover_position": (0.55, 0.0, 1.4),
+        "source_handover_orientation": (-0.77, 0.0, 0.0, 0.77),
+        "receiver_handover_orientation": (0.0, 0.77, -0.77, 0.0),
+        "receiver_place_position": (0.9, 0.25, 1.1),
+        "receiver_place_orientation": (
+            -0.33016505084249775,
+            0.6534009839213628,
+            -0.6175486972275431,
+            0.2875618193803384,
+        ),
+    },
+    "scene_presets": {
+        "grab_medicine": {
+            "source_object_entity_path": "/World/medicine_handover/FinasterideTablets/tablets/tablets",
+        },
+        "grab_bottle": {
+            "source_object_entity_path": "/World/ConvenienceStore01/SM_Bottle_04_85",
+        },
+    },
+    "record": {
+        "base_record_overrides": {
+            "task_name": "handover",
+            "fps": 30,
+            "camera_info_timeout": 10.0,
+            "switch_to_hold_after_episode": True,
+            "async_episode_save": True,
+            "episode_save_queue_size": 2,
+            "enable_keypoint_pcd": False,
+            "include_depth_feature": False,
+            "image_writer_processes": 0,
+            "image_writer_threads": 8,
+            "video_encoding_batch_size": 5,
+        },
+        "profiles": [
+            {
+                "key": "default",
+                "label": "Default",
+                "overrides": {},
+            },
+            {
+                "key": "fast",
+                "label": "Fast Encode Queue",
+                "overrides": {
+                    "image_writer_threads": 12,
+                    "video_encoding_batch_size": 10,
+                },
+            },
+        ],
+    }
+}

@@ -6,18 +6,47 @@ import numpy as np
 from geometry_msgs.msg import Pose
 
 
-def action_from_pose(pose: Pose, gripper: float) -> dict[str, float]:
-    """Build standard LeRobot ROS2 action dict from a pose."""
+def action_from_pose(
+    pose: Pose,
+    gripper: float,
+    ee_prefix: str = "left_ee",
+    gripper_key: str = "left_gripper.pos",
+) -> dict[str, float]:
+    """Build LeRobot ROS2 action dict from a pose."""
     return {
-        "end_effector.position.x": pose.position.x,
-        "end_effector.position.y": pose.position.y,
-        "end_effector.position.z": pose.position.z,
-        "end_effector.orientation.x": pose.orientation.x,
-        "end_effector.orientation.y": pose.orientation.y,
-        "end_effector.orientation.z": pose.orientation.z,
-        "end_effector.orientation.w": pose.orientation.w,
-        "gripper.position": float(np.clip(gripper, 0.0, 1.0)),
+        f"{ee_prefix}.pos.x": pose.position.x,
+        f"{ee_prefix}.pos.y": pose.position.y,
+        f"{ee_prefix}.pos.z": pose.position.z,
+        f"{ee_prefix}.quat.x": pose.orientation.x,
+        f"{ee_prefix}.quat.y": pose.orientation.y,
+        f"{ee_prefix}.quat.z": pose.orientation.z,
+        f"{ee_prefix}.quat.w": pose.orientation.w,
+        gripper_key: float(np.clip(gripper, 0.0, 1.0)),
     }
+
+
+def obs_to_pose(obs: dict[str, float], ee_prefix: str = "left_ee") -> Pose:
+    """Build a Pose from LeRobot ROS2 observation keys."""
+    pose = Pose()
+    pose.position.x = obs[f"{ee_prefix}.pos.x"]
+    pose.position.y = obs[f"{ee_prefix}.pos.y"]
+    pose.position.z = obs[f"{ee_prefix}.pos.z"]
+    pose.orientation.x = obs[f"{ee_prefix}.quat.x"]
+    pose.orientation.y = obs[f"{ee_prefix}.quat.y"]
+    pose.orientation.z = obs[f"{ee_prefix}.quat.z"]
+    pose.orientation.w = obs[f"{ee_prefix}.quat.w"]
+    return pose
+
+
+def pose_from_tuple(
+    position: tuple[float, float, float],
+    orientation: tuple[float, float, float, float],
+) -> Pose:
+    """Build a Pose from position and orientation tuples."""
+    pose = Pose()
+    pose.position.x, pose.position.y, pose.position.z = position
+    pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w = orientation
+    return pose
 
 
 def quat_multiply(
