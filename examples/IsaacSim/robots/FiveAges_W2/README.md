@@ -28,3 +28,8 @@ right_gripper_controller:
 
 https://github.com/user-attachments/assets/87fb7c00-027f-4e23-ad9b-9f2610029a94
 
+
+
+https://github.com/user-attachments/assets/012bd4f9-c59b-4c3c-ac9a-66959adbb9ac
+
+
