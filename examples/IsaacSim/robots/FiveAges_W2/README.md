@@ -6,12 +6,14 @@
 |------|------|----------|----------|
 | Pick Place | 单臂抓取放置 | `grab_medicine`、`grab_bottle` | - |
 | Handover | 双臂交接 | `grab_medicine`、`grab_bottle` | - |
+| Bimanual Carry | 双臂同步搬运 | `grab_medicine` | - |
 
 配置文件：
 
 - `robot_config.py` — 机器人参数（关节、阈值等）
 - `task_configs/pick_place.py` — 抓取放置任务配置
 - `task_configs/handover.py` — 双臂交接任务配置
+- `task_configs/bimanual_carry.py` — 双臂搬运任务配置
 
 ROS2夹爪控制器参数：
 ```yaml

@@ -102,6 +102,11 @@ def main() -> None:
         run_pick_place_demo,
     )
     from motion_generation.handover import HandoverTaskConfig  # pyright: ignore[reportMissingImports]
+    from motion_generation.bimanual_carry import (  # pyright: ignore[reportMissingImports]
+        BimanualCarryTaskConfig,
+        format_bimanual_carry_task_cfg_summary,
+        run_bimanual_carry_demo,
+    )
 
     registry = _discover_task_registry(isaac_dir)
     if not registry:
@@ -123,6 +128,12 @@ def main() -> None:
     default_scene = task_entry["default_scene"]
     scene = _select_option(title="Select config", options=scene_names, default_value=default_scene)
 
+    reset_env = _select_option(
+        title="Reset environment & randomize object?",
+        options=["yes", "no"],
+        default_value="yes",
+    ) == "yes"
+
     if task_entry["kind"] == "pick_place":
         base_task_cfg = PickPlaceFlowTaskConfig(**task_entry["base_task_overrides"])
         task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
@@ -131,6 +142,7 @@ def main() -> None:
             robot_cfg=robot_entry["robot_cfg"],
             task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],
+            reset_env=reset_env,
         )
         return
 
@@ -142,6 +154,19 @@ def main() -> None:
             robot_cfg=robot_entry["robot_cfg"],
             handover_task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],
+            reset_env=reset_env,
+        )
+        return
+
+    if task_entry["kind"] == "bimanual_carry":
+        base_task_cfg = BimanualCarryTaskConfig(**task_entry["base_task_overrides"])
+        task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
+        print(format_bimanual_carry_task_cfg_summary(scene, task_cfg))
+        run_bimanual_carry_demo(
+            robot_cfg=robot_entry["robot_cfg"],
+            carry_task_cfg=task_cfg,
+            robot_id=task_entry["robot_id"],
+            reset_env=reset_env,
         )
         return
 

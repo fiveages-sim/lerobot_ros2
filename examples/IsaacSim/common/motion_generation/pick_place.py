@@ -211,6 +211,7 @@ def run_pick_place_demo(
     robot_cfg: Any,
     task_cfg: PickPlaceFlowTaskConfig,
     robot_id: str = "isaac_pick_place_flow",
+    reset_env: bool = True,
 ) -> None:
     robot = _make_robot(robot_cfg, robot_id)
     sim_time = SimTimeHelper()
@@ -257,12 +258,13 @@ def run_pick_place_demo(
             if not source_object_path:
                 raise ValueError("source_object_entity_path is required for single_arm mode")
 
-            reset_simulation_and_randomize_object(
-                source_object_path,
-                xyz_offset=task_cfg.object_xyz_random_offset,
-                post_reset_wait=robot_cfg.post_reset_wait,
-                sleep_fn=sim_time.sleep,
-            )
+            if reset_env:
+                reset_simulation_and_randomize_object(
+                    source_object_path,
+                    xyz_offset=task_cfg.object_xyz_random_offset,
+                    post_reset_wait=robot_cfg.post_reset_wait,
+                    sleep_fn=sim_time.sleep,
+                )
 
             # Pre-grasp: open gripper at home position
             pregrasp_target = ArmTarget(pose=source_home_pose, gripper=gripper_open)
@@ -318,18 +320,19 @@ def run_pick_place_demo(
             if not left_object_path or not right_object_path:
                 raise ValueError("left_object_entity_path and right_object_entity_path are required for dual_arm mode")
 
-            reset_simulation_and_randomize_object(
-                left_object_path,
-                xyz_offset=task_cfg.object_xyz_random_offset,
-                post_reset_wait=robot_cfg.post_reset_wait,
-                sleep_fn=sim_time.sleep,
-            )
-            reset_simulation_and_randomize_object(
-                right_object_path,
-                xyz_offset=task_cfg.object_xyz_random_offset,
-                post_reset_wait=robot_cfg.post_reset_wait,
-                sleep_fn=sim_time.sleep,
-            )
+            if reset_env:
+                reset_simulation_and_randomize_object(
+                    left_object_path,
+                    xyz_offset=task_cfg.object_xyz_random_offset,
+                    post_reset_wait=robot_cfg.post_reset_wait,
+                    sleep_fn=sim_time.sleep,
+                )
+                reset_simulation_and_randomize_object(
+                    right_object_path,
+                    xyz_offset=task_cfg.object_xyz_random_offset,
+                    post_reset_wait=robot_cfg.post_reset_wait,
+                    sleep_fn=sim_time.sleep,
+                )
 
             # Pre-grasp: open both grippers at home positions
             pregrasp_stage = [StageTarget(

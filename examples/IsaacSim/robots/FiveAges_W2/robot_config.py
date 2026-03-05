@@ -15,7 +15,7 @@ ROBOT_LABEL = "FiveAges W2"
 @dataclass(frozen=True)
 class RobotConfig:
     gripper_control_mode: str = "target_command"
-    pose_position_threshold: float = 0.02
+    pose_position_threshold: float = 0.03
     pose_orientation_threshold: float = 0.05
     ros2_interface: ROS2RobotInterfaceConfig = field(default=None)  # type: ignore[assignment]
 

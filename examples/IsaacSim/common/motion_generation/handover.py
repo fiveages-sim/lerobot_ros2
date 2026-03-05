@@ -202,6 +202,7 @@ def run_handover_demo(
     robot_cfg: Any,
     handover_task_cfg: HandoverTaskConfig,
     robot_id: str = "isaac_bimanual_handover",
+    reset_env: bool = True,
 ) -> None:
     """Run default IsaacSim handover flow with robot-specific config."""
     robot = _make_robot(robot_cfg, robot_id)
@@ -232,12 +233,13 @@ def run_handover_demo(
         )
         frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1]
 
-        reset_simulation_and_randomize_object(
-            handover_task_cfg.source_object_entity_path,
-            xyz_offset=handover_task_cfg.object_xyz_random_offset,
-            post_reset_wait=robot_cfg.post_reset_wait,
-            sleep_fn=sim_time.sleep,
-        )
+        if reset_env:
+            reset_simulation_and_randomize_object(
+                handover_task_cfg.source_object_entity_path,
+                xyz_offset=handover_task_cfg.object_xyz_random_offset,
+                post_reset_wait=robot_cfg.post_reset_wait,
+                sleep_fn=sim_time.sleep,
+            )
 
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
         sim_time.sleep(robot_cfg.fsm_switch_delay)
