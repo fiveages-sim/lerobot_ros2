@@ -203,6 +203,7 @@ def run_handover_demo(
     handover_task_cfg: HandoverTaskConfig,
     robot_id: str = "isaac_bimanual_handover",
     reset_env: bool = True,
+    use_stamped: bool = True,
 ) -> None:
     """Run default IsaacSim handover flow with robot-specific config."""
     robot = _make_robot(robot_cfg, robot_id)
@@ -231,7 +232,7 @@ def run_handover_demo(
         gripper_open, gripper_closed = _resolve_gripper_open_close(
             robot_cfg.gripper_control_mode
         )
-        frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1]
+        frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1] if use_stamped else "arm_base"
 
         if reset_env:
             reset_simulation_and_randomize_object(
@@ -252,7 +253,13 @@ def run_handover_demo(
         receiver_home_pose = left_home_pose if source_is_right else right_home_pose
         source_ee_prefix = "right_ee" if source_is_right else "left_ee"
 
-        # Pre-grasp: open source gripper at home position (single-arm stamped)
+        # Pre-grasp: open source gripper at home position.
+        # Use the frame_id from the ee pose topic (observation frame).
+        source_handler = (
+            robot.ros2_interface.right_arm_handler if source_is_right
+            else robot.ros2_interface.left_arm_handler
+        )
+        ee_frame_id = (source_handler.frame_id if source_handler else None) or frame_id
         pregrasp_stage = assign_to_arm(
             [("pregrasp", ArmTarget(pose=source_home_pose, gripper=gripper_open))],
             source_arm,
@@ -260,8 +267,8 @@ def run_handover_demo(
         execute_stage_sequence(
             interface=robot.ros2_interface,
             sequence=pregrasp_stage,
-            send_mode=SendMode.STAMPED,
-            frame_id=frame_id,
+            send_mode=SendMode.STAMPED if use_stamped else SendMode.UNSTAMPED,
+            frame_id=ee_frame_id,
             arrival_timeout=robot_cfg.arrival_timeout,
             arrival_poll=robot_cfg.arrival_poll,
             time_now_fn=sim_time.now_seconds,
@@ -293,6 +300,11 @@ def run_handover_demo(
         pickup_stages = [s for s in full_sequence if s.name.startswith("Pickup-")]
         bimanual_stages = [s for s in full_sequence if not s.name.startswith("Pickup-")]
 
+        if use_stamped:
+            for stage in bimanual_stages:
+                if "ReturnHome" in stage.name:
+                    stage.frame_id = ee_frame_id
+
         common_kw = dict(
             interface=robot.ros2_interface,
             frame_id=frame_id,
@@ -307,7 +319,7 @@ def run_handover_demo(
             execute_stage_sequence(
                 **common_kw,
                 sequence=pickup_stages,
-                send_mode=SendMode.STAMPED,
+                send_mode=SendMode.STAMPED if use_stamped else SendMode.UNSTAMPED,
                 warn_prefix="Pickup stage timeout",
             )
 
@@ -315,7 +327,7 @@ def run_handover_demo(
             execute_stage_sequence(
                 **common_kw,
                 sequence=bimanual_stages,
-                send_mode=SendMode.DUAL_ARM_STAMPED,
+                send_mode=SendMode.DUAL_ARM_STAMPED if use_stamped else SendMode.UNSTAMPED,
                 left_arrival_guard_stage="Handover-1-SyncMove" if source_is_right else None,
                 warn_prefix="Handover stage timeout",
             )

@@ -126,6 +126,7 @@ def run_bimanual_carry_demo(
     carry_task_cfg: BimanualCarryTaskConfig,
     robot_id: str = "isaac_bimanual_carry",
     reset_env: bool = True,
+    use_stamped: bool = True,
 ) -> None:
     """Run default IsaacSim bimanual carry flow with robot-specific config."""
     robot = _make_robot(robot_cfg, robot_id)
@@ -149,7 +150,7 @@ def run_bimanual_carry_demo(
         gripper_open, gripper_closed = _resolve_gripper_open_close(
             robot_cfg.gripper_control_mode
         )
-        frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1]
+        frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1] if use_stamped else "arm_base"
 
         if reset_env:
             reset_simulation_and_randomize_object(
@@ -167,7 +168,13 @@ def run_bimanual_carry_demo(
         left_home_pose = obs_to_pose(obs0, "left_ee")
         right_home_pose = obs_to_pose(obs0, "right_ee")
 
-        # Pre-carry: open both grippers at home position
+        # Pre-carry: open both grippers at home position.
+        # Use the frame_id from the ee pose topic (observation frame).
+        ee_frame_id = (
+            (robot.ros2_interface.left_arm_handler.frame_id
+             if robot.ros2_interface.left_arm_handler else None)
+            or frame_id
+        )
         pregrasp_sequence = [
             StageTarget(
                 name="pregrasp",
@@ -178,8 +185,8 @@ def run_bimanual_carry_demo(
         execute_stage_sequence(
             interface=robot.ros2_interface,
             sequence=pregrasp_sequence,
-            send_mode=SendMode.DUAL_ARM_STAMPED,
-            frame_id=frame_id,
+            send_mode=SendMode.DUAL_ARM_STAMPED if use_stamped else SendMode.UNSTAMPED,
+            frame_id=ee_frame_id,
             arrival_timeout=robot_cfg.arrival_timeout,
             arrival_poll=robot_cfg.arrival_poll,
             time_now_fn=sim_time.now_seconds,
@@ -207,7 +214,7 @@ def run_bimanual_carry_demo(
         execute_stage_sequence(
             interface=robot.ros2_interface,
             sequence=carry_sequence,
-            send_mode=SendMode.DUAL_ARM_STAMPED,
+            send_mode=SendMode.DUAL_ARM_STAMPED if use_stamped else SendMode.UNSTAMPED,
             frame_id=frame_id,
             arrival_timeout=robot_cfg.arrival_timeout,
             arrival_poll=robot_cfg.arrival_poll,

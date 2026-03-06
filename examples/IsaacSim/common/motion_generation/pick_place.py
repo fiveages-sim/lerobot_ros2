@@ -14,6 +14,7 @@ from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
     ArmSide,
     ArmStage,
     ArmTarget,
+    SendMode,
     StageTarget,
     assign_to_arm,
     build_single_arm_pick_sequence,
@@ -212,6 +213,7 @@ def run_pick_place_demo(
     task_cfg: PickPlaceFlowTaskConfig,
     robot_id: str = "isaac_pick_place_flow",
     reset_env: bool = True,
+    use_stamped: bool = False,
 ) -> None:
     robot = _make_robot(robot_cfg, robot_id)
     sim_time = SimTimeHelper()
@@ -238,6 +240,7 @@ def run_pick_place_demo(
             raise ValueError("run_place_before_return is currently only supported in single_arm mode")
 
         gripper_open, gripper_closed = _resolve_gripper_open_close(robot_cfg.gripper_control_mode)
+        frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1] if use_stamped else "arm_base"
 
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
         sim_time.sleep(robot_cfg.fsm_switch_delay)
@@ -266,7 +269,14 @@ def run_pick_place_demo(
                     sleep_fn=sim_time.sleep,
                 )
 
-            # Pre-grasp: open gripper at home position
+            # Pre-grasp: open gripper at home position.
+            # Use the frame_id from the ee pose topic (observation frame),
+            # NOT from base_link_entity_path.
+            source_handler = (
+                robot.ros2_interface.right_arm_handler if source_is_right
+                else robot.ros2_interface.left_arm_handler
+            )
+            ee_frame_id = (source_handler.frame_id if source_handler else None) or frame_id
             pregrasp_target = ArmTarget(pose=source_home_pose, gripper=gripper_open)
             pregrasp_stage = assign_to_arm(
                 [("pregrasp", pregrasp_target)], arm_side,
@@ -274,6 +284,8 @@ def run_pick_place_demo(
             execute_stage_sequence(
                 interface=robot.ros2_interface,
                 sequence=pregrasp_stage,
+                send_mode=SendMode.STAMPED if use_stamped else SendMode.UNSTAMPED,
+                frame_id=ee_frame_id,
                 arrival_timeout=robot_cfg.arrival_timeout,
                 arrival_poll=robot_cfg.arrival_poll,
                 time_now_fn=sim_time.now_seconds,
@@ -302,9 +314,15 @@ def run_pick_place_demo(
                 grasp_direction=source_grasp_direction,
                 grasp_direction_vector=source_grasp_direction_vector,
             )
+            if use_stamped:
+                for stage in sequence:
+                    if "ReturnHome" in stage.name:
+                        stage.frame_id = ee_frame_id
             execute_stage_sequence(
                 interface=robot.ros2_interface,
                 sequence=sequence,
+                send_mode=SendMode.STAMPED if use_stamped else SendMode.UNSTAMPED,
+                frame_id=frame_id,
                 arrival_timeout=robot_cfg.arrival_timeout,
                 arrival_poll=robot_cfg.arrival_poll,
                 time_now_fn=sim_time.now_seconds,
@@ -335,6 +353,12 @@ def run_pick_place_demo(
                 )
 
             # Pre-grasp: open both grippers at home positions
+            # Use ee pose frame_id (observation frame) for stamped pregrasp
+            ee_frame_id = (
+                (robot.ros2_interface.left_arm_handler.frame_id
+                 if robot.ros2_interface.left_arm_handler else None)
+                or frame_id
+            )
             pregrasp_stage = [StageTarget(
                 name="pregrasp",
                 left=ArmTarget(pose=left_home_pose, gripper=gripper_open),
@@ -343,6 +367,8 @@ def run_pick_place_demo(
             execute_stage_sequence(
                 interface=robot.ros2_interface,
                 sequence=pregrasp_stage,
+                send_mode=SendMode.DUAL_ARM_STAMPED if use_stamped else SendMode.UNSTAMPED,
+                frame_id=ee_frame_id,
                 arrival_timeout=robot_cfg.arrival_timeout,
                 arrival_poll=robot_cfg.arrival_poll,
                 time_now_fn=sim_time.now_seconds,
@@ -390,9 +416,15 @@ def run_pick_place_demo(
             left_arm_stages: list[ArmStage] = [(s.name, s.left) for s in left_seq if s.left]  # type: ignore[misc]
             right_arm_stages: list[ArmStage] = [(s.name, s.right) for s in right_seq if s.right]  # type: ignore[misc]
             merged_seq = compose_bimanual_synchronized_sequence(left_arm_stages, right_arm_stages)
+            if use_stamped:
+                for stage in merged_seq:
+                    if "ReturnHome" in stage.name:
+                        stage.frame_id = ee_frame_id
             execute_stage_sequence(
                 interface=robot.ros2_interface,
                 sequence=merged_seq,
+                send_mode=SendMode.DUAL_ARM_STAMPED if use_stamped else SendMode.UNSTAMPED,
+                frame_id=frame_id,
                 arrival_timeout=robot_cfg.arrival_timeout,
                 arrival_poll=robot_cfg.arrival_poll,
                 time_now_fn=sim_time.now_seconds,

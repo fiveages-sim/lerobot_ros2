@@ -4,6 +4,7 @@ TASK_CONFIG = {
     "task_key": "pick_place",
     "label": "Pick Place",
     "kind": "pick_place",
+    "use_stamped": False,
     "robot_id": "dobot_cr5_pick_place",
     "default_scene": "default",
     "base_task_overrides": {

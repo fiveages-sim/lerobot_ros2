@@ -134,6 +134,8 @@ def main() -> None:
         default_value="yes",
     ) == "yes"
 
+    use_stamped = task_entry.get("use_stamped", True)
+
     if task_entry["kind"] == "pick_place":
         base_task_cfg = PickPlaceFlowTaskConfig(**task_entry["base_task_overrides"])
         task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
@@ -143,6 +145,7 @@ def main() -> None:
             task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],
             reset_env=reset_env,
+            use_stamped=use_stamped,
         )
         return
 
@@ -155,6 +158,7 @@ def main() -> None:
             handover_task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],
             reset_env=reset_env,
+            use_stamped=use_stamped,
         )
         return
 
@@ -167,6 +171,7 @@ def main() -> None:
             carry_task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],
             reset_env=reset_env,
+            use_stamped=use_stamped,
         )
         return
 

@@ -4,6 +4,7 @@ TASK_CONFIG = {
     "task_key": "handover",
     "label": "Handover",
     "kind": "handover",
+    "use_stamped": True,
     "robot_id": "agibot_g1_bimanual_handover",
     "default_scene": "grab_medicine",
     "base_task_overrides": {

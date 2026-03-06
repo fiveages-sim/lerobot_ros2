@@ -4,6 +4,7 @@ TASK_CONFIG = {
     "task_key": "pick_place",
     "label": "Pick Place",
     "kind": "pick_place",
+    "use_stamped": True,
     "robot_id": "agibot_g1_pick_place",
     "default_scene": "grab_medicine",
     "base_task_overrides": {

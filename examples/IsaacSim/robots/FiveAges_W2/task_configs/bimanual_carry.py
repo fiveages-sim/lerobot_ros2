@@ -4,6 +4,7 @@ TASK_CONFIG = {
     "task_key": "bimanual_carry",
     "label": "Bimanual Carry",
     "kind": "bimanual_carry",
+    "use_stamped": True,
     "robot_id": "fiveages_w2_bimanual_carry",
     "default_scene": "grab_medicine",
     "base_task_overrides": {

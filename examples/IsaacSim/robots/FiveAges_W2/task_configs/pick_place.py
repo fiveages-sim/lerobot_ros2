@@ -4,6 +4,7 @@ TASK_CONFIG = {
     "task_key": "pick_place",
     "label": "Pick Place",
     "kind": "pick_place",
+    "use_stamped": True,
     "robot_id": "fiveages_w2_pick_place",
     "default_scene": "grab_medicine",
     "base_task_overrides": {
@@ -29,6 +30,17 @@ TASK_CONFIG = {
             "grasp_clearance": -0.02,
             "retreat_direction_extra": 0.0,
             "retreat_offset": (0.0, 0.0, 0.1),
+        },
+        "ptc-pick-24": {
+            "source_object_entity_path": "/World/scene/trolley/sr15_24/SR15_10",
+            "initial_grasp_arm": "right",
+            "grasp_direction": "front",
+            "grasp_orientation": (0.0, 0.91, 0.0, 0.39),
+            "target_pose_offset": (-0.038, 0.028, 0.005),
+            "approach_clearance": 0.3,
+            "grasp_clearance": 0.00,
+            "retreat_direction_extra": 0.0,
+            "retreat_offset": (0.0, 0.0, 0.3),
         },
     },
 }
