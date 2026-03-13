@@ -33,6 +33,10 @@ from isaac_ros2_sim_common import (
     reset_simulation_and_randomize_object,
 )
 from demo_preset_utils import resolve_dataclass_cfg_from_presets
+from motion_generation.movej_return import (
+    capture_initial_arm_joint_positions,
+    movej_return_to_initial_state,
+)
 
 
 def _resolve_gripper_open_close(mode: str) -> tuple[float, float]:
@@ -147,6 +151,7 @@ def run_bimanual_carry_demo(
         robot.connect()
         robot_connected = True
         print("[OK] Robot connected")
+        left_initial_joint_positions, right_initial_joint_positions = capture_initial_arm_joint_positions(robot)
         gripper_open, gripper_closed = _resolve_gripper_open_close(
             robot_cfg.gripper_control_mode
         )
@@ -224,6 +229,16 @@ def run_bimanual_carry_demo(
             warn_prefix="Carry stage timeout",
         )
 
+        moved_by_movej = movej_return_to_initial_state(
+            robot=robot,
+            left_initial_positions=left_initial_joint_positions,
+            right_initial_positions=right_initial_joint_positions,
+            arrival_timeout=robot_cfg.arrival_timeout,
+            arrival_poll=robot_cfg.arrival_poll,
+            sim_time=sim_time,
+        )
+        if not moved_by_movej:
+            print("[WARN] MoveJ return-to-initial skipped: no valid initial arm joints.")
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
         print("[OK] Bimanual carry demo completed")
     except Exception as err:

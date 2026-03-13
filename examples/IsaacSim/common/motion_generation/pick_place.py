@@ -37,6 +37,10 @@ from isaac_ros2_sim_common import (
     reset_simulation_and_randomize_object,
 )
 from demo_preset_utils import resolve_dataclass_cfg_from_presets
+from motion_generation.movej_return import (
+    capture_initial_arm_joint_positions,
+    movej_return_to_initial_state,
+)
 
 
 def _resolve_gripper_open_close(mode: str) -> tuple[float, float]:
@@ -233,6 +237,7 @@ def run_pick_place_demo(
         robot.connect()
         robot_connected = True
         print("[OK] Robot connected")
+        left_initial_joint_positions, right_initial_joint_positions = capture_initial_arm_joint_positions(robot)
         mode = task_cfg.mode.lower()
         if mode not in {"single_arm", "dual_arm"}:
             raise ValueError("mode must be 'single_arm' or 'dual_arm'")
@@ -433,6 +438,16 @@ def run_pick_place_demo(
                 warn_prefix="PickPlaceFlow timeout",
             )
 
+        moved_by_movej = movej_return_to_initial_state(
+            robot=robot,
+            left_initial_positions=left_initial_joint_positions,
+            right_initial_positions=right_initial_joint_positions,
+            arrival_timeout=robot_cfg.arrival_timeout,
+            arrival_poll=robot_cfg.arrival_poll,
+            sim_time=sim_time,
+        )
+        if not moved_by_movej:
+            print("[WARN] MoveJ return-to-initial skipped: no valid initial arm joints.")
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
         print("[OK] PickPlaceFlow demo completed")
     except Exception as err:

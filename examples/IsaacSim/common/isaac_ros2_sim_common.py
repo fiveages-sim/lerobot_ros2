@@ -273,6 +273,12 @@ def reset_simulation_and_randomize_object(
     retry_delay: float = SERVICE_RETRY_DELAY,
     post_reset_wait: float = 1.0,
     sleep_fn: Callable[[float], None] | None = None,
+    enable_settle_wait: bool = True,
+    settle_entity_path: str | None = None,
+    settle_max_wait: float = 2.0,
+    settle_sample_interval: float = 0.05,
+    settle_stable_samples: int = 3,
+    settle_position_epsilon: float = 0.002,
 ) -> None:
     set_simulation_state(
         sim_state_reset,
@@ -296,6 +302,79 @@ def reset_simulation_and_randomize_object(
         retry_delay=retry_delay,
     )
     (sleep_fn or time.sleep)(post_reset_wait)
+    if enable_settle_wait:
+        target_entity = settle_entity_path or object_entity_path
+        wait_entity_position_stable(
+            target_entity,
+            max_wait=settle_max_wait,
+            sample_interval=settle_sample_interval,
+            stable_samples=settle_stable_samples,
+            position_epsilon=settle_position_epsilon,
+            timeout=sim_service_timeout,
+            retries=retries,
+            retry_delay=retry_delay,
+            sleep_fn=sleep_fn,
+        )
+
+
+def wait_entity_position_stable(
+    entity: str,
+    *,
+    max_wait: float = 2.0,
+    sample_interval: float = 0.05,
+    stable_samples: int = 3,
+    position_epsilon: float = 0.002,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+    sleep_fn: Callable[[float], None] | None = None,
+) -> bool:
+    """Wait until entity world position changes remain within tolerance."""
+    required_stable = max(1, int(stable_samples))
+    interval = max(0.0, float(sample_interval))
+    settle_deadline = time.monotonic() + max(0.0, float(max_wait))
+    sleep = sleep_fn or time.sleep
+
+    try:
+        (prev_x, prev_y, prev_z), _ = get_entity_pose_world_service(
+            entity, timeout=timeout, retries=retries, retry_delay=retry_delay
+        )
+    except Exception as exc:
+        print(f"[WARN] Failed to read initial pose for settle check '{entity}': {exc}")
+        return False
+
+    stable_count = 0
+    while time.monotonic() < settle_deadline:
+        sleep(interval)
+        try:
+            (cur_x, cur_y, cur_z), _ = get_entity_pose_world_service(
+                entity, timeout=timeout, retries=retries, retry_delay=retry_delay
+            )
+        except Exception:
+            stable_count = 0
+            continue
+
+        dx = cur_x - prev_x
+        dy = cur_y - prev_y
+        dz = cur_z - prev_z
+        dist = float(np.sqrt(dx * dx + dy * dy + dz * dz))
+        prev_x, prev_y, prev_z = cur_x, cur_y, cur_z
+        if dist <= position_epsilon:
+            stable_count += 1
+            if stable_count >= required_stable:
+                print(
+                    f"[OK] Entity pose settled: '{entity}', "
+                    f"delta<={position_epsilon:.4f}m for {required_stable} samples"
+                )
+                return True
+        else:
+            stable_count = 0
+
+    print(
+        f"[WARN] Entity pose not fully settled within {max_wait:.2f}s: '{entity}' "
+        f"(threshold={position_epsilon:.4f}m, samples={required_stable})"
+    )
+    return False
 
 
 def get_entity_pose_world_service(

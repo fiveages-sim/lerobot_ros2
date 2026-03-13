@@ -42,5 +42,43 @@ TASK_CONFIG = {
             "retreat_direction_extra": 0.0,
             "retreat_offset": (0.0, 0.0, 0.3),
         },
+        "ptc-pick-23": {
+            "source_object_entity_path": "/World/scene/trolley/sr15_23/SR15_10",
+            "initial_grasp_arm": "right",
+            "grasp_direction": "front",
+            "grasp_orientation": (0.0, 0.91, 0.0, 0.39),
+            "target_pose_offset": (-0.038, 0.01, 0.005),
+            "approach_clearance": 0.3,
+            "grasp_clearance": 0.00,
+            "retreat_direction_extra": 0.0,
+            "retreat_offset": (0.0, 0.0, 0.3),
+        },
+    },
+    "record": {
+        "base_record_overrides": {
+            "task_name": "pick_place",
+            "fps": 30,
+            "camera_info_timeout": 10.0,
+            "enable_keypoint_pcd": False,
+            "include_depth_feature": False,
+            "image_writer_processes": 0,
+            "image_writer_threads": 8,
+            "video_encoding_batch_size": 5,
+        },
+        "profiles": [
+            {
+                "key": "default",
+                "label": "Default",
+                "overrides": {},
+            },
+            {
+                "key": "fast",
+                "label": "Fast Encode Queue",
+                "overrides": {
+                    "image_writer_threads": 12,
+                    "video_encoding_batch_size": 10,
+                },
+            },
+        ],
     },
 }

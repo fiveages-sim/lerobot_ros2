@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,22 @@ def _build_task_config(task_entry_cfg: Any) -> Any:
 
         return HandoverTaskConfig(**task_entry_cfg["base_task_overrides"])
     return task_entry_cfg
+
+
+def _apply_task_preset(base_cfg: Any, preset: dict[str, object]) -> Any:
+    if not preset:
+        return base_cfg
+    if not hasattr(type(base_cfg), "__dataclass_fields__"):
+        if isinstance(base_cfg, dict):
+            merged = dict(base_cfg)
+            merged.update(preset)
+            return merged
+        return base_cfg
+    valid_fields = {f.name for f in fields(type(base_cfg))}
+    unknown_keys = [k for k in preset if k not in valid_fields]
+    if unknown_keys:
+        raise ValueError(f"Unknown preset keys for {type(base_cfg).__name__}: {unknown_keys}")
+    return replace(base_cfg, **preset)
 
 
 def _pointcloud_supported(robot_cfg: Any) -> bool:
@@ -95,6 +111,21 @@ def main() -> None:
     )
     task_entry = robot_entry["tasks"][task_key]
     task_cfg = _build_task_config(task_entry["task_cfg"])
+    scene_presets: dict[str, dict[str, object]] = task_entry["task_cfg"].get("scene_presets", {})
+    default_scene = task_entry["task_cfg"].get("default_scene")
+    if scene_presets:
+        scene_keys = list(scene_presets.keys())
+        if default_scene not in scene_presets:
+            default_scene = scene_keys[0]
+        scene_options = {scene: {"label": scene} for scene in scene_keys}
+        scene_key = select_option(
+            title="Select scene",
+            options=scene_options,
+            default_key=default_scene,
+        )
+        task_cfg = _apply_task_preset(task_cfg, scene_presets.get(scene_key, {}))
+    else:
+        scene_key = "default"
 
     profile_keys = list(task_entry["record_profiles"].keys())
     default_profile = "default" if "default" in task_entry["record_profiles"] else profile_keys[0]
@@ -110,7 +141,7 @@ def main() -> None:
         default_enable_keypoint_pcd=False,
     )
     print(
-        f"[Selection] robot={robot_key}, task={task_key}, profile={profile_key}, "
+        f"[Selection] robot={robot_key}, task={task_key}, scene={scene_key}, profile={profile_key}, "
         f"episodes={loops}, pointcloud={enable_keypoint_pcd}, manual_review={enable_manual_episode_check}"
     )
     task_entry["runner"](

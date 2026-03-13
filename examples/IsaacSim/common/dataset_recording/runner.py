@@ -36,6 +36,10 @@ from lerobot_robot_ros2 import (  # pyright: ignore[reportMissingImports]
 )
 from dataset_recording.recorder import DatasetRecorder  # pyright: ignore[reportMissingImports]
 from motion_generation.handover import build_handover_record_sequence  # pyright: ignore[reportMissingImports]
+from motion_generation.movej_return import (  # pyright: ignore[reportMissingImports]
+    capture_initial_arm_joint_positions,
+    movej_return_to_initial_state,
+)
 from motion_generation.pick_place import build_single_arm_pick_place_sequence  # pyright: ignore[reportMissingImports]
 from isaac_ros2_sim_common import (  # pyright: ignore[reportMissingImports]
     SimTimeHelper,
@@ -159,6 +163,38 @@ def _pose_from_observation(obs: dict[str, float], *, ee_prefix: str = "left_ee")
     return pose
 
 
+def _apply_target_pose_offset(pose: Pose, offset: tuple[float, float, float]) -> Pose:
+    ox, oy, oz = offset
+    pose.position.x += ox
+    pose.position.y += oy
+    pose.position.z += oz
+    return pose
+
+
+def _resolve_arm_grasp_config(
+    task_cfg: Any,
+    *,
+    is_right: bool,
+) -> tuple[tuple[float, float, float, float], str, tuple[float, float, float] | None]:
+    if is_right:
+        orientation = getattr(task_cfg, "right_grasp_orientation", None) or task_cfg.grasp_orientation
+        direction = getattr(task_cfg, "right_grasp_direction", None) or task_cfg.grasp_direction
+        direction_vector = (
+            getattr(task_cfg, "right_grasp_direction_vector", None)
+            if getattr(task_cfg, "right_grasp_direction_vector", None) is not None
+            else task_cfg.grasp_direction_vector
+        )
+    else:
+        orientation = getattr(task_cfg, "left_grasp_orientation", None) or task_cfg.grasp_orientation
+        direction = getattr(task_cfg, "left_grasp_direction", None) or task_cfg.grasp_direction
+        direction_vector = (
+            getattr(task_cfg, "left_grasp_direction_vector", None)
+            if getattr(task_cfg, "left_grasp_direction_vector", None) is not None
+            else task_cfg.grasp_direction_vector
+        )
+    return orientation, direction, direction_vector
+
+
 def _save_pointcloud_frame(
     dataset_dir: Path,
     episode_index: int,
@@ -274,8 +310,9 @@ def run_recording(
     try:
         robot.connect()
         robot.ros2_interface.send_fsm_command(FSM_HOLD)
-        time.sleep(robot_cfg.fsm_switch_delay)
+        sim_time.sleep(robot_cfg.fsm_switch_delay)
         robot.ros2_interface.send_fsm_command(FSM_OCS2)
+        sim_time.sleep(robot_cfg.fsm_switch_delay)
         in_ocs2 = True
 
         intrinsics = (
@@ -341,9 +378,31 @@ def run_recording(
             writer_thread.start()
 
         initial_obs = robot.get_observation()
+        left_initial_joint_positions, right_initial_joint_positions = capture_initial_arm_joint_positions(robot)
+        pick_source_is_right = False
+        pick_source_ee_prefix = "left_ee"
+        pick_source_home_pose: Pose | None = None
+        pick_source_ee_frame_id = frame_id
+        if task_kind == "pick_place":
+            pick_initial_arm = task_cfg.initial_grasp_arm.lower()
+            if pick_initial_arm not in {"left", "right"}:
+                raise ValueError("initial_grasp_arm must be 'left' or 'right'")
+            pick_source_is_right = pick_initial_arm == "right"
+            pick_source_ee_prefix = "right_ee" if pick_source_is_right else "left_ee"
+            pick_source_home_pose = _pose_from_observation(initial_obs, ee_prefix=pick_source_ee_prefix)
+            pick_source_handler = (
+                robot.ros2_interface.right_arm_handler
+                if pick_source_is_right
+                else robot.ros2_interface.left_arm_handler
+            )
+            pick_source_ee_frame_id = (
+                (pick_source_handler.frame_id if pick_source_handler else None) or frame_id
+            )
+
         source_is_right = False
         source_home_pose: Pose | None = None
         receiver_home_pose: Pose | None = None
+        handover_source_ee_frame_id = frame_id
         if task_kind == "handover":
             initial_arm = task_cfg.initial_grasp_arm.lower()
             if initial_arm not in {"left", "right"}:
@@ -353,12 +412,22 @@ def run_recording(
             receiver_ee_prefix = "left_ee" if source_is_right else "right_ee"
             source_home_pose = _pose_from_observation(initial_obs, ee_prefix=source_ee_prefix)
             receiver_home_pose = _pose_from_observation(initial_obs, ee_prefix=receiver_ee_prefix)
+            source_handler = (
+                robot.ros2_interface.right_arm_handler
+                if source_is_right
+                else robot.ros2_interface.left_arm_handler
+            )
+            handover_source_ee_frame_id = (
+                (source_handler.frame_id if source_handler else None) or frame_id
+            )
 
         kept_episode = 0
         while kept_episode < loops:
             _raise_writer_error_if_any()
             if not in_ocs2:
+                print("[FSM] Re-enter OCS2 before next episode")
                 robot.ros2_interface.send_fsm_command(FSM_OCS2)
+                sim_time.sleep(robot_cfg.fsm_switch_delay)
                 in_ocs2 = True
             episode_index = kept_episode
             reset_simulation_and_randomize_object(
@@ -377,25 +446,40 @@ def run_recording(
 
             if task_kind == "pick_place":
                 current_obs = robot.get_observation()
+                target_pose = _apply_target_pose_offset(
+                    target_pose,
+                    getattr(task_cfg, "target_pose_offset", (0.0, 0.0, 0.0)),
+                )
                 orientation_vec = np.array(
                     [target_pose.orientation.x, target_pose.orientation.y, target_pose.orientation.z, target_pose.orientation.w]
                 )
                 if not getattr(task_cfg, "use_object_orientation", False) or np.linalg.norm(orientation_vec) < 1e-3:
-                    target_pose.orientation.x = current_obs["left_ee.quat.x"]
-                    target_pose.orientation.y = current_obs["left_ee.quat.y"]
-                    target_pose.orientation.z = current_obs["left_ee.quat.z"]
-                    target_pose.orientation.w = current_obs["left_ee.quat.w"]
+                    target_pose.orientation.x = current_obs[f"{pick_source_ee_prefix}.quat.x"]
+                    target_pose.orientation.y = current_obs[f"{pick_source_ee_prefix}.quat.y"]
+                    target_pose.orientation.z = current_obs[f"{pick_source_ee_prefix}.quat.z"]
+                    target_pose.orientation.w = current_obs[f"{pick_source_ee_prefix}.quat.w"]
+                source_grasp_orientation, source_grasp_direction, source_grasp_direction_vector = (
+                    _resolve_arm_grasp_config(task_cfg, is_right=pick_source_is_right)
+                )
                 sequence = build_single_arm_pick_place_sequence(
                     target_pose=target_pose,
                     task_cfg=task_cfg,
-                    home_pose=_pose_from_observation(initial_obs),
-                    arm_side=ArmSide.LEFT,
+                    home_pose=(
+                        pick_source_home_pose
+                        if pick_source_home_pose is not None
+                        else _pose_from_observation(initial_obs, ee_prefix=pick_source_ee_prefix)
+                    ),
+                    arm_side=ArmSide.RIGHT if pick_source_is_right else ArmSide.LEFT,
                     gripper_open=gripper_open,
                     gripper_closed=gripper_closed,
-                    grasp_orientation=task_cfg.grasp_orientation,
-                    grasp_direction=task_cfg.grasp_direction,
-                    grasp_direction_vector=task_cfg.grasp_direction_vector,
+                    grasp_orientation=source_grasp_orientation,
+                    grasp_direction=source_grasp_direction,
+                    grasp_direction_vector=source_grasp_direction_vector,
                 )
+                if use_stamped:
+                    for stage in sequence:
+                        if "ReturnHome" in stage.name:
+                            stage.frame_id = pick_source_ee_frame_id
             elif task_kind == "handover":
                 if source_home_pose is None or receiver_home_pose is None:
                     raise RuntimeError("Failed to initialize handover home poses")
@@ -408,6 +492,10 @@ def run_recording(
                     gripper_open=gripper_open,
                     gripper_closed=gripper_closed,
                 )
+                if use_stamped:
+                    for stage in sequence:
+                        if "ReturnHome" in stage.name:
+                            stage.frame_id = handover_source_ee_frame_id
             else:
                 raise NotImplementedError(f"Unsupported task kind: {task_kind}")
             recorder = DatasetRecorder(
@@ -461,6 +549,26 @@ def run_recording(
             episode_records = recorder.finish_sequence()
             if not episode_records:
                 raise RuntimeError("No frames captured during sequence.")
+            try:
+                moved_by_movej = False
+                for retry_idx in range(2):
+                    moved_by_movej = movej_return_to_initial_state(
+                        robot=robot,
+                        left_initial_positions=left_initial_joint_positions,
+                        right_initial_positions=right_initial_joint_positions,
+                        arrival_timeout=robot_cfg.arrival_timeout,
+                        arrival_poll=robot_cfg.arrival_poll,
+                        sim_time=sim_time,
+                    )
+                    if moved_by_movej:
+                        break
+                    if retry_idx == 0:
+                        print("[MoveJ] Retry once: return-to-initial was not successful.")
+                if moved_by_movej:
+                    # MoveJ changes FSM state; force OCS2 re-enter before next episode.
+                    in_ocs2 = False
+            except Exception as err:
+                print(f"[WARN] MoveJ return-to-initial failed: {err}")
             if record_cfg.switch_to_hold_after_episode and in_ocs2:
                 robot.ros2_interface.send_fsm_command(FSM_HOLD)
                 in_ocs2 = False

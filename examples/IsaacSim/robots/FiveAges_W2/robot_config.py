@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from lerobot_camera_ros2 import ROS2CameraConfig  # pyright: ignore[reportMissingImports]
 from ros2_robot_interface import ROS2RobotInterfaceConfig  # pyright: ignore[reportMissingImports]
 
 
@@ -55,6 +56,22 @@ class RobotConfig:
     arrival_timeout: float = 3.0
     arrival_poll: float = 0.05
     gripper_action_wait: float = 0.3
+    cameras: dict[str, ROS2CameraConfig] = field(
+        default_factory=lambda: {
+            "head_camera": ROS2CameraConfig(
+                topic_name="/head_camera/rgb",
+                node_name="lerobot_head_camera",
+            ),
+            "left_hand_camera": ROS2CameraConfig(
+                topic_name="/left_hand_camera/rgb",
+                node_name="lerobot_left_hand_camera",
+            ),
+            "right_hand_camera": ROS2CameraConfig(
+                topic_name="/right_hand_camera/rgb",
+                node_name="lerobot_right_hand_camera",
+            ),
+        }
+    )
 
 
 ROBOT_CFG = RobotConfig()
