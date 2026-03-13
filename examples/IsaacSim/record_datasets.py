@@ -67,6 +67,7 @@ def main() -> None:
                 "label": task_entry.get("label", task_key),
                 "task_cfg": task_entry["task_cfg"],
                 "task_kind": task_entry.get("task_kind", task_entry.get("task_cfg", {}).get("kind")),
+                "use_stamped": task_entry.get("use_stamped", True),
                 "runner": task_entry["runner"],
                 "record_profiles": profiles,
             }
@@ -121,6 +122,7 @@ def main() -> None:
         enable_manual_episode_check=enable_manual_episode_check,
         task_kind=task_entry["task_kind"],
         task_name=task_key,
+        use_stamped=bool(task_entry.get("use_stamped", True)),
     )
 
 

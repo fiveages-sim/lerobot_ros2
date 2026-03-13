@@ -105,6 +105,7 @@ def load_robot_entries(isaac_dir: Path) -> dict[str, dict[str, Any]]:
                 "label": flow_cfg.get("label", task_key),
                 "task_cfg": flow_cfg,
                 "task_kind": task_kind,
+                "use_stamped": flow_cfg.get("use_stamped", True),
                 "runner": runner,
                 "record_cfg": task_record_cfg,
                 "profiles": profiles,

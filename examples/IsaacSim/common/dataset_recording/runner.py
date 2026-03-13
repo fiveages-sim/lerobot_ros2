@@ -24,6 +24,7 @@ from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
     FSM_HOLD,
     FSM_OCS2,
     ArmSide,
+    SendMode,
     StageTarget,
     execute_stage_sequence,
 )
@@ -230,12 +231,14 @@ def run_recording(
     enable_manual_episode_check: bool,
     task_kind: str = "pick_place",
     task_name: str | None = None,
+    use_stamped: bool = True,
 ) -> None:
     if task_kind not in SUPPORTED_RECORD_KINDS:
         raise NotImplementedError(f"Record runner does not support task kind: {task_kind}")
 
     gripper_open, gripper_closed = _resolve_gripper_values(robot_cfg.gripper_control_mode)
     resolved_task_name = str(task_name if task_name else getattr(record_cfg, "task_name", task_kind))
+    frame_id = robot_cfg.base_link_entity_path.rsplit("/", 1)[-1] if use_stamped else "arm_base"
     robot = ROS2Robot(_build_robot_config(robot_cfg=robot_cfg, record_cfg=record_cfg))
     depth_required = bool(enable_keypoint_pcd)
     default_cam_name = next(iter(robot_cfg.cameras.keys()), "")
@@ -428,6 +431,8 @@ def run_recording(
                 execute_stage_sequence(
                     interface=robot.ros2_interface,
                     sequence=sequence,
+                    send_mode=SendMode.STAMPED if use_stamped else SendMode.UNSTAMPED,
+                    frame_id=frame_id,
                     arrival_timeout=robot_cfg.arrival_timeout,
                     arrival_poll=robot_cfg.arrival_poll,
                     time_now_fn=sim_time.now_seconds,
@@ -441,6 +446,8 @@ def run_recording(
                 execute_stage_sequence(
                     interface=robot.ros2_interface,
                     sequence=sequence,
+                    send_mode=SendMode.DUAL_ARM_STAMPED if use_stamped else SendMode.UNSTAMPED,
+                    frame_id=frame_id,
                     arrival_timeout=robot_cfg.arrival_timeout,
                     arrival_poll=robot_cfg.arrival_poll,
                     time_now_fn=sim_time.now_seconds,
