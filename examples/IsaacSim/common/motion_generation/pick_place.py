@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import signal
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
@@ -88,6 +88,11 @@ class PickPlaceFlowTaskConfig:
     left_grasp_direction_vector: tuple[float, float, float] | None = None
     right_grasp_direction_vector: tuple[float, float, float] | None = None
     run_place_before_return: bool = False
+    place_object_entity_path: str = ""
+    place_pose_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    place_direction: str = "top"
+    place_direction_vector: tuple[float, float, float] | None = None
+    place_approach_clearance: float = 0.0
     place_position: tuple[float, float, float] | None = None
     place_orientation: tuple[float, float, float, float] | None = None
     post_release_retract_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -115,14 +120,21 @@ def resolve_pick_place_cfg_from_presets(
 
 
 def format_pick_place_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig) -> str:
-    return (
-        f"[Scene] {scene} -> {task_cfg.source_object_entity_path}, "
-        f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}, "
-        f"orientation={task_cfg.grasp_orientation}, "
-        f"approach_clearance={task_cfg.approach_clearance}, grasp_clearance={task_cfg.grasp_clearance}, "
-        f"target_pose_offset={task_cfg.target_pose_offset}, "
-        f"retreat_direction_extra={task_cfg.retreat_direction_extra}, retreat_offset={task_cfg.retreat_offset}"
-    )
+    parts = [
+        f"[Scene] {scene} -> {task_cfg.source_object_entity_path}",
+        f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}",
+        f"orientation={task_cfg.grasp_orientation}",
+        f"approach_clearance={task_cfg.approach_clearance}, grasp_clearance={task_cfg.grasp_clearance}",
+        f"target_pose_offset={task_cfg.target_pose_offset}",
+        f"retreat_direction_extra={task_cfg.retreat_direction_extra}, retreat_offset={task_cfg.retreat_offset}",
+    ]
+    if task_cfg.run_place_before_return:
+        if task_cfg.place_object_entity_path:
+            parts.append(f"place_object={task_cfg.place_object_entity_path}, place_offset={task_cfg.place_pose_offset}")
+        else:
+            parts.append(f"place_position={task_cfg.place_position}")
+        parts.append(f"place_orientation={task_cfg.place_orientation}")
+    return ", ".join(parts)
 
 
 def _apply_target_pose_offset(pose: Any, offset: tuple[float, float, float]) -> Any:
@@ -187,18 +199,20 @@ def build_single_arm_pick_place_sequence(
     if task_cfg.run_place_before_return:
         if task_cfg.place_position is None or task_cfg.place_orientation is None:
             raise ValueError("place_position and place_orientation are required when run_place_before_return=True")
-        arm_seq.extend(
-            build_single_arm_place_sequence(
-                place_position=task_cfg.place_position,
-                place_orientation=task_cfg.place_orientation,
-                post_release_retract_offset=task_cfg.post_release_retract_offset,
-                gripper_open=gripper_open,
-                gripper_closed=gripper_closed,
-                stage_prefix="PickPlaceFlow",
-                start_index=5,
-            )
+        place_stages = build_single_arm_place_sequence(
+            place_position=task_cfg.place_position,
+            place_orientation=task_cfg.place_orientation,
+            place_direction=task_cfg.place_direction,
+            place_direction_vector=task_cfg.place_direction_vector,
+            place_approach_clearance=task_cfg.place_approach_clearance,
+            post_release_retract_offset=task_cfg.post_release_retract_offset,
+            gripper_open=gripper_open,
+            gripper_closed=gripper_closed,
+            stage_prefix="PickPlaceFlow",
+            start_index=5,
         )
-        return_stage_name = "PickPlaceFlow-8-ReturnHomeHold"
+        arm_seq.extend(place_stages)
+        return_stage_name = f"PickPlaceFlow-{5 + len(place_stages)}-ReturnHomeHold"
     else:
         return_stage_name = "PickPlaceFlow-5-ReturnHomeHold"
     arm_seq.extend(
@@ -253,6 +267,22 @@ def run_pick_place_demo(
 
         obs0 = robot.get_observation()
         base_world_pos, base_world_quat = get_entity_pose_world_service(robot_cfg.base_link_entity_path)
+
+        if task_cfg.place_object_entity_path and task_cfg.run_place_before_return:
+            place_pose = get_object_pose_from_service(
+                base_world_pos,
+                base_world_quat,
+                task_cfg.place_object_entity_path,
+                include_orientation=False,
+            )
+            place_pose = _apply_target_pose_offset(place_pose, task_cfg.place_pose_offset)
+            resolved_place_position = (
+                place_pose.position.x,
+                place_pose.position.y,
+                place_pose.position.z,
+            )
+            task_cfg = replace(task_cfg, place_position=resolved_place_position)
+            print(f"[Place] Resolved place position from {task_cfg.place_object_entity_path}: {resolved_place_position}")
 
         if mode == "single_arm":
             initial_arm = task_cfg.initial_grasp_arm.lower()

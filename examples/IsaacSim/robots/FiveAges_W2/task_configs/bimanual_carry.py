@@ -16,11 +16,15 @@ TASK_CONFIG = {
         "left_orientation": (-0.5, 0.5, -0.5, 0.5),
         "right_orientation": (-0.5, 0.5, -0.5, 0.5),
         "lift_offset": (0.0, 0.0, 0.1),
-        "retreat_offset": (-0.3, 0.0, 0.0),
+        "retreat_offset": (-0.2, 0.0, 0.0),
     },
     "scene_presets": {
         "box01": {
             "source_object_entity_path": "/World/lift_box/LogisticBox_01/box/box",
+        },
+        "warehouse_box01": {
+            "source_object_entity_path": "/World/lift_box_warehouse/LogisticBox_01/box/box",
+            "retreat_offset": (-0.3, 0.0, 0.0),
         },
     },
 }
