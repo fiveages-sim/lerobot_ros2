@@ -222,6 +222,35 @@ def set_prim_translate_local(
         )
 
 
+def set_prim_orientation_local(
+    path: str,
+    quat_wxyz: tuple[float, float, float, float],
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+) -> None:
+    w, x, y, z = quat_wxyz
+    request = SetPrimAttribute.Request()
+    request.path = path
+    request.attribute = "xformOp:orient"
+    request.value = f"[{w}, {x}, {y}, {z}]"
+    result = _call_service_with_retry(
+        lambda: _call_service_once(
+            SetPrimAttribute,
+            "/set_prim_attribute",
+            request,
+            timeout=timeout,
+        ),
+        f"set_prim_translate_local('{path}')",
+        retries=retries,
+        retry_delay=retry_delay,
+    )
+    if not result.success:
+        raise RuntimeError(
+            f"set_prim_attribute unsuccessful for '{path}': {result.message or 'unknown error'}"
+        )
+    
+
 def randomize_object_xyz_after_reset(
     object_entity_path: str,
     enabled: bool = True,

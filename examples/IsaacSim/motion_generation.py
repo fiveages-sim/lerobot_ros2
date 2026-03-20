@@ -101,6 +101,11 @@ def main() -> None:
         format_pick_place_cfg_summary,
         run_pick_place_demo,
     )
+    from motion_generation.drawer import (  # pyright: ignore[reportMissingImports]
+        PickPlaceFlowTaskConfig,
+        format_pick_place_cfg_summary,
+        run_drawer_demo,
+    )
     from motion_generation.handover import HandoverTaskConfig  # pyright: ignore[reportMissingImports]
     from motion_generation.bimanual_carry import (  # pyright: ignore[reportMissingImports]
         BimanualCarryTaskConfig,
@@ -141,6 +146,19 @@ def main() -> None:
         task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
         print(format_pick_place_cfg_summary(scene, task_cfg))
         run_pick_place_demo(
+            robot_cfg=robot_entry["robot_cfg"],
+            task_cfg=task_cfg,
+            robot_id=task_entry["robot_id"],
+            reset_env=reset_env,
+            use_stamped=use_stamped,
+        )
+        return
+    
+    if task_entry["kind"] == "drawer":
+        base_task_cfg = PickPlaceFlowTaskConfig(**task_entry["base_task_overrides"])
+        task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
+        print(format_pick_place_cfg_summary(scene, task_cfg))
+        run_drawer_demo(
             robot_cfg=robot_entry["robot_cfg"],
             task_cfg=task_cfg,
             robot_id=task_entry["robot_id"],
