@@ -6,7 +6,7 @@ from __future__ import annotations
 import signal
 import sys
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Mapping
 
 from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
     FSM_HOLD,
@@ -68,6 +68,7 @@ def _make_robot(robot_cfg: Any, robot_id: str) -> ROS2Robot:
 class PickPlaceFlowTaskConfig:
     mode: str = "single_arm"  # single_arm | dual_arm
     initial_grasp_arm: str = "left"
+    # Per-axis half-width for uniform local xyz jitter after reset (see isaac_ros2_sim_common).
     object_xyz_random_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     target_pose_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     approach_clearance: float = 0.2
@@ -93,6 +94,8 @@ class PickPlaceFlowTaskConfig:
     place_direction: str = "top"
     place_direction_vector: tuple[float, float, float] | None = None
     place_approach_clearance: float = 0.0
+    # Final offset along place_direction (like grasp_clearance for pick); 0 = nominal target.
+    place_insert_clearance: float = 0.0
     place_position: tuple[float, float, float] | None = None
     place_orientation: tuple[float, float, float, float] | None = None
     post_release_retract_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -103,6 +106,31 @@ class PickPlaceFlowTaskConfig:
     use_object_orientation: bool = False
 
 
+def flatten_pick_place_task_overrides(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Merge optional nested ``pick`` / ``place`` dicts into flat override kwargs.
+
+    Order of precedence for duplicate keys: top-level (excluding ``pick``/``place``) <
+    ``pick`` < ``place`` (later wins).
+
+    This keeps task config files readable while :class:`PickPlaceFlowTaskConfig` and
+    dataclass ``replace`` still receive a flat mapping.
+    """
+    if not isinstance(raw, Mapping):
+        raise TypeError(f"pick_place overrides must be a mapping, got {type(raw).__name__}")
+    merged: dict[str, Any] = {k: v for k, v in raw.items() if k not in ("pick", "place")}
+    pick = raw.get("pick")
+    place = raw.get("place")
+    if pick is not None:
+        if not isinstance(pick, Mapping):
+            raise TypeError(f'"pick" must be a mapping, got {type(pick).__name__}')
+        merged.update(dict(pick))
+    if place is not None:
+        if not isinstance(place, Mapping):
+            raise TypeError(f'"place" must be a mapping, got {type(place).__name__}')
+        merged.update(dict(place))
+    return merged
+
+
 def resolve_pick_place_cfg_from_presets(
     *,
     base_task_cfg: PickPlaceFlowTaskConfig,
@@ -110,9 +138,12 @@ def resolve_pick_place_cfg_from_presets(
     cli_description: str,
     default_scene: str = "grab_medicine",
 ) -> tuple[str, PickPlaceFlowTaskConfig]:
+    flat_presets: dict[str, dict[str, object]] = {
+        name: flatten_pick_place_task_overrides(preset) for name, preset in scene_presets.items()
+    }
     scene, task_cfg = resolve_dataclass_cfg_from_presets(
         base_cfg=base_task_cfg,
-        scene_presets=scene_presets,
+        scene_presets=flat_presets,
         cli_description=cli_description,
         default_scene=default_scene,
     )
@@ -134,6 +165,10 @@ def format_pick_place_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig)
         else:
             parts.append(f"place_position={task_cfg.place_position}")
         parts.append(f"place_orientation={task_cfg.place_orientation}")
+        parts.append(
+            f"place_dir={task_cfg.place_direction}, place_approach={task_cfg.place_approach_clearance}, "
+            f"place_insert={task_cfg.place_insert_clearance}"
+        )
     return ", ".join(parts)
 
 
@@ -143,6 +178,54 @@ def _apply_target_pose_offset(pose: Any, offset: tuple[float, float, float]) -> 
     pose.position.y += oy
     pose.position.z += oz
     return pose
+
+
+def resolve_pick_place_place_from_entity(
+    task_cfg: PickPlaceFlowTaskConfig,
+    *,
+    base_world_pos: Any,
+    base_world_quat: Any,
+    current_obs: dict[str, Any] | None = None,
+    ee_prefix_for_orientation_fallback: str = "left_ee",
+) -> PickPlaceFlowTaskConfig:
+    """When ``run_place_before_return`` and ``place_object_entity_path`` are set, fill
+    ``place_position`` from the Isaac entity service (plus ``place_pose_offset``).
+
+    If ``place_orientation`` is still ``None``, copy the current EE quaternion from
+    ``current_obs`` (same idea as aligning pick target orientation to the arm).
+    """
+    if not task_cfg.run_place_before_return or not task_cfg.place_object_entity_path:
+        return task_cfg
+    place_pose = get_object_pose_from_service(
+        base_world_pos,
+        base_world_quat,
+        task_cfg.place_object_entity_path,
+        include_orientation=False,
+    )
+    place_pose = _apply_target_pose_offset(place_pose, task_cfg.place_pose_offset)
+    resolved_place_position = (
+        place_pose.position.x,
+        place_pose.position.y,
+        place_pose.position.z,
+    )
+    place_orientation = task_cfg.place_orientation
+    if place_orientation is None and current_obs is not None:
+        px = f"{ee_prefix_for_orientation_fallback}.quat.x"
+        py = f"{ee_prefix_for_orientation_fallback}.quat.y"
+        pz = f"{ee_prefix_for_orientation_fallback}.quat.z"
+        pw = f"{ee_prefix_for_orientation_fallback}.quat.w"
+        if px in current_obs and py in current_obs and pz in current_obs and pw in current_obs:
+            place_orientation = (
+                float(current_obs[px]),
+                float(current_obs[py]),
+                float(current_obs[pz]),
+                float(current_obs[pw]),
+            )
+    return replace(
+        task_cfg,
+        place_position=resolved_place_position,
+        place_orientation=place_orientation,
+    )
 
 
 def _resolve_arm_grasp_config(
@@ -205,6 +288,7 @@ def build_single_arm_pick_place_sequence(
             place_direction=task_cfg.place_direction,
             place_direction_vector=task_cfg.place_direction_vector,
             place_approach_clearance=task_cfg.place_approach_clearance,
+            place_insert_clearance=task_cfg.place_insert_clearance,
             post_release_retract_offset=task_cfg.post_release_retract_offset,
             gripper_open=gripper_open,
             gripper_closed=gripper_closed,
@@ -269,20 +353,16 @@ def run_pick_place_demo(
         base_world_pos, base_world_quat = get_entity_pose_world_service(robot_cfg.base_link_entity_path)
 
         if task_cfg.place_object_entity_path and task_cfg.run_place_before_return:
-            place_pose = get_object_pose_from_service(
-                base_world_pos,
-                base_world_quat,
-                task_cfg.place_object_entity_path,
-                include_orientation=False,
+            task_cfg = resolve_pick_place_place_from_entity(
+                task_cfg,
+                base_world_pos=base_world_pos,
+                base_world_quat=base_world_quat,
+                current_obs=None,
             )
-            place_pose = _apply_target_pose_offset(place_pose, task_cfg.place_pose_offset)
-            resolved_place_position = (
-                place_pose.position.x,
-                place_pose.position.y,
-                place_pose.position.z,
+            print(
+                f"[Place] Resolved place pose from {task_cfg.place_object_entity_path}: "
+                f"pos={task_cfg.place_position}, ori_set={task_cfg.place_orientation is not None}"
             )
-            task_cfg = replace(task_cfg, place_position=resolved_place_position)
-            print(f"[Place] Resolved place position from {task_cfg.place_object_entity_path}: {resolved_place_position}")
 
         if mode == "single_arm":
             initial_arm = task_cfg.initial_grasp_arm.lower()

@@ -30,6 +30,12 @@ def _ensure_package_paths(isaac_dir: Path) -> None:
 
 def load_motion_entries(isaac_dir: Path) -> dict[str, dict[str, Any]]:
     _ensure_package_paths(isaac_dir)
+    common_dir = isaac_dir / "common"
+    if str(common_dir) not in sys.path:
+        sys.path.insert(0, str(common_dir))
+
+    from task_config_io import discover_task_configs  # pyright: ignore[reportMissingImports]
+
     robots_root = isaac_dir / "robots"
     entries: dict[str, dict[str, Any]] = {}
     if not robots_root.is_dir():
@@ -46,16 +52,7 @@ def load_motion_entries(isaac_dir: Path) -> dict[str, dict[str, Any]]:
         robot_label = getattr(robot_mod, "ROBOT_LABEL", robot_dir.name)
         robot_cfg = getattr(robot_mod, "ROBOT_CFG")
 
-        tasks: dict[str, dict[str, Any]] = {}
-        for task_file in sorted(p for p in task_cfg_dir.glob("*.py") if p.is_file()):
-            task_mod = _load_module(f"{robot_dir.name}_{task_file.stem}_task_cfg", task_file)
-            task_cfg = getattr(task_mod, "TASK_CONFIG", None)
-            if task_cfg is None:
-                task_cfg = getattr(task_mod, "FLOW_CONFIG", None)
-            if not isinstance(task_cfg, dict):
-                continue
-            task_key = task_cfg["task_key"]
-            tasks[task_key] = dict(task_cfg)
+        tasks = discover_task_configs(task_cfg_dir, robot_dir_name=robot_dir.name)
 
         entries[robot_key] = {
             "label": robot_label,

@@ -35,6 +35,9 @@ def main() -> None:
             sys.path.insert(0, str(path))
 
     from dataset_recording.launcher import select_option  # pyright: ignore[reportMissingImports]
+    from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
+        flatten_pick_place_task_overrides,
+    )
     from robots.registry_loader import load_motion_entries  # pyright: ignore[reportMissingImports]
 
     launcher_args, core_args = _parse_launcher_args()
@@ -57,6 +60,7 @@ def main() -> None:
         key: value
         for key, value in robot_entry.get("tasks", {}).items()
         if isinstance(value.get("base_task_overrides"), dict)
+        and value.get("kind") == "pick_place"
     }
     if not task_options:
         raise RuntimeError(f"No task configs found for robot: {robot_key}")
@@ -72,7 +76,7 @@ def main() -> None:
         raise ValueError(f"Unknown task key: {task_key}")
 
     task_cfg = task_options[task_key]
-    base_task_overrides = task_cfg.get("base_task_overrides", {})
+    base_task_overrides = flatten_pick_place_task_overrides(task_cfg.get("base_task_overrides", {}))
     required_keys = {"source_object_entity_path", "object_xyz_random_offset"}
     if not required_keys.issubset(base_task_overrides.keys()):
         raise ValueError(

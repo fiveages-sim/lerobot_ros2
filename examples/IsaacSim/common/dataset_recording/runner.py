@@ -40,7 +40,10 @@ from motion_generation.movej_return import (  # pyright: ignore[reportMissingImp
     capture_initial_arm_joint_positions,
     movej_return_to_initial_state,
 )
-from motion_generation.pick_place import build_single_arm_pick_place_sequence  # pyright: ignore[reportMissingImports]
+from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
+    build_single_arm_pick_place_sequence,
+    resolve_pick_place_place_from_entity,
+)
 from isaac_ros2_sim_common import (  # pyright: ignore[reportMissingImports]
     SimTimeHelper,
     get_entity_pose_world_service,
@@ -446,6 +449,13 @@ def run_recording(
 
             if task_kind == "pick_place":
                 current_obs = robot.get_observation()
+                task_cfg = resolve_pick_place_place_from_entity(
+                    task_cfg,
+                    base_world_pos=base_world_pos,
+                    base_world_quat=base_world_quat,
+                    current_obs=current_obs,
+                    ee_prefix_for_orientation_fallback=pick_source_ee_prefix,
+                )
                 target_pose = _apply_target_pose_offset(
                     target_pose,
                     getattr(task_cfg, "target_pose_offset", (0.0, 0.0, 0.0)),

@@ -259,6 +259,13 @@ def randomize_object_xyz_after_reset(
     retries: int = SERVICE_CALL_RETRIES,
     retry_delay: float = SERVICE_RETRY_DELAY,
 ) -> None:
+    """Apply a small random **local** translation to the object prim after reset.
+
+    Each axis uses an **independent uniform** draw in ``[-w, +w]`` added to the
+    current local translation, where ``w`` is the corresponding component of
+    ``xyz_offset`` (or the scalar for x/y and 0 for z when ``xyz_offset`` is a float).
+    This is **not** a Gaussian / normal distribution.
+    """
     if not enabled:
         return
     if isinstance(xyz_offset, tuple):
@@ -273,6 +280,7 @@ def randomize_object_xyz_after_reset(
         retries=retries,
         retry_delay=retry_delay,
     )
+    # Uniform on each axis (not Gaussian).
     new_x = cur_x + random.uniform(-off_x, off_x)
     new_y = cur_y + random.uniform(-off_y, off_y)
     new_z = cur_z + random.uniform(-off_z, off_z)
@@ -309,6 +317,10 @@ def reset_simulation_and_randomize_object(
     settle_stable_samples: int = 3,
     settle_position_epsilon: float = 0.002,
 ) -> None:
+    """Reset/play sim then optionally randomize object pose.
+
+    Object position jitter uses :func:`randomize_object_xyz_after_reset` (uniform per axis).
+    """
     set_simulation_state(
         sim_state_reset,
         timeout=sim_service_timeout,

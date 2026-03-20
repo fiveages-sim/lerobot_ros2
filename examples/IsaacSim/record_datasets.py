@@ -16,13 +16,27 @@ def _build_task_config(task_entry_cfg: Any) -> Any:
     if task_kind == "pick_place":
         from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
             PickPlaceFlowTaskConfig,
+            flatten_pick_place_task_overrides,
         )
 
-        return PickPlaceFlowTaskConfig(**task_entry_cfg["base_task_overrides"])
+        flat = flatten_pick_place_task_overrides(task_entry_cfg["base_task_overrides"])
+        return PickPlaceFlowTaskConfig(**flat)
     if task_kind == "handover":
-        from motion_generation.handover import HandoverTaskConfig  # pyright: ignore[reportMissingImports]
+        from motion_generation.handover import (  # pyright: ignore[reportMissingImports]
+            HandoverTaskConfig,
+            flatten_handover_task_overrides,
+        )
 
-        return HandoverTaskConfig(**task_entry_cfg["base_task_overrides"])
+        flat = flatten_handover_task_overrides(task_entry_cfg["base_task_overrides"])
+        return HandoverTaskConfig(**flat)
+    if task_kind == "bimanual_carry":
+        from motion_generation.bimanual_carry import (  # pyright: ignore[reportMissingImports]
+            BimanualCarryTaskConfig,
+            flatten_bimanual_carry_task_overrides,
+        )
+
+        flat = flatten_bimanual_carry_task_overrides(task_entry_cfg["base_task_overrides"])
+        return BimanualCarryTaskConfig(**flat)
     return task_entry_cfg
 
 
@@ -123,7 +137,26 @@ def main() -> None:
             options=scene_options,
             default_key=default_scene,
         )
-        task_cfg = _apply_task_preset(task_cfg, scene_presets.get(scene_key, {}))
+        preset_raw: dict[str, object] = scene_presets.get(scene_key, {})
+        if task_entry.get("task_kind") == "pick_place":
+            from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
+                flatten_pick_place_task_overrides,
+            )
+
+            preset_raw = flatten_pick_place_task_overrides(preset_raw)
+        elif task_entry.get("task_kind") == "handover":
+            from motion_generation.handover import (  # pyright: ignore[reportMissingImports]
+                flatten_handover_task_overrides,
+            )
+
+            preset_raw = flatten_handover_task_overrides(preset_raw)
+        elif task_entry.get("task_kind") == "bimanual_carry":
+            from motion_generation.bimanual_carry import (  # pyright: ignore[reportMissingImports]
+                flatten_bimanual_carry_task_overrides,
+            )
+
+            preset_raw = flatten_bimanual_carry_task_overrides(preset_raw)
+        task_cfg = _apply_task_preset(task_cfg, preset_raw)
     else:
         scene_key = "default"
 

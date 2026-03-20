@@ -1,15 +1,31 @@
 #!/usr/bin/env python3
-"""Generic IsaacSim pick-place flow common implementation."""
+"""IsaacSim **drawer + pick-place** composite flow (action template).
+
+This extends :mod:`motion_generation.pick_place` with a fixed **phase** model:
+
+1. **Open drawer** — grasp handle / pull (drawer-specific clearance & handle geometry).
+2. **Pick & place** — same semantic stages as core pick-place (apple or general object).
+3. **Close drawer** — push drawer / release.
+4. **Retreat** — return arm toward home near the handle frame.
+
+Configuration is a :class:`DrawerPickPlaceTaskConfig` — a **subclass** of
+:class:`~motion_generation.pick_place.PickPlaceFlowTaskConfig` with extra fields
+only for drawer phases. Task YAML/``TASK_CONFIG`` may use optional nested keys:
+
+- ``pick`` / ``place`` — merged via :func:`motion_generation.pick_place.flatten_pick_place_task_overrides`
+- ``drawer`` — merged last via :func:`flatten_drawer_pick_place_task_overrides`
+"""
 
 from __future__ import annotations
 
 import signal
 import sys
-from dataclasses import dataclass
-from typing import Any
-import numpy as np
 import time
 import random
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+import numpy as np
 
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_conjugate,
@@ -21,7 +37,6 @@ from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissi
 from ros2_robot_interface import (  # pyright: ignore[reportMissingImports]
     FSM_HOLD,
     FSM_OCS2,
-    FSM_HOME,
     ArmSide,
     ArmStage,
     ArmTarget,
@@ -50,6 +65,11 @@ from isaac_ros2_sim_common import (
     set_prim_orientation_local,
 )
 from demo_preset_utils import resolve_dataclass_cfg_from_presets
+
+from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
+    PickPlaceFlowTaskConfig,
+    flatten_pick_place_task_overrides,
+)
 
 def euler_to_quaternion(roll, pitch, yaw):
     """
@@ -91,54 +111,42 @@ def _make_robot(robot_cfg: Any, robot_id: str) -> ROS2Robot:
     )
 
 
+def flatten_drawer_pick_place_task_overrides(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Like :func:`~motion_generation.pick_place.flatten_pick_place_task_overrides` but also
+    merges an optional top-level ``drawer`` mapping (drawer-only field overrides).
+    """
+    if not isinstance(raw, Mapping):
+        raise TypeError(f"task overrides must be a mapping, got {type(raw).__name__}")
+    rest = {k: v for k, v in raw.items() if k != "drawer"}
+    flat = flatten_pick_place_task_overrides(rest)
+    drawer = raw.get("drawer")
+    if drawer is not None:
+        if not isinstance(drawer, Mapping):
+            raise TypeError(f'"drawer" must be a mapping, got {type(drawer).__name__}')
+        flat.update(dict(drawer))
+    return flat
+
+
 @dataclass(frozen=True)
-class PickPlaceFlowTaskConfig:
-    mode: str = "single_arm"  # single_arm | dual_arm
-    initial_grasp_arm: str = "left"
-    object_xyz_random_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+class DrawerPickPlaceTaskConfig(PickPlaceFlowTaskConfig):
+    """Pick-place task config plus parameters used only for open/close drawer phases."""
+
     object_xyz_random_offset_drawer: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    target_pose_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    approach_clearance: float = 0.2
-    grasp_clearance: float = 0.01
-    grasp_clearance_drawer: float = 0.0
-    grasp_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    retreat_direction_extra: float = 0.0
-    retreat_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    source_object_entity_path: str = ""
+    grasp_clearance_drawer: float = 0.01
     source_object_path_drawer_all: str = ""
     source_object_path_drawer: str = ""
-    handle_extent_max: tuple[float, float, float] = (0.0, 0.0, 0.0),
-    handle_extent_min: tuple[float, float, float] = (0.0, 0.0, 0.0),
-    drawer_scale: float = 1.0,
-    left_object_entity_path: str | None = None
-    right_object_entity_path: str | None = None
-    grasp_orientation: tuple[float, float, float, float] = (-0.7, 0.7, 0.0, 0.0)
-    grasp_direction: str = "top"
-    grasp_direction_vector: tuple[float, float, float] | None = None
-    left_grasp_orientation: tuple[float, float, float, float] | None = None
-    right_grasp_orientation: tuple[float, float, float, float] | None = None
-    left_grasp_direction: str | None = None
-    right_grasp_direction: str | None = None
-    left_grasp_direction_vector: tuple[float, float, float] | None = None
-    right_grasp_direction_vector: tuple[float, float, float] | None = None
-    run_place_before_return: bool = False
-    place_position: tuple[float, float, float] | None = None
-    place_orientation: tuple[float, float, float, float] | None = None
-    post_release_retract_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    max_stage_duration: float = 2.0
-    pose_tol_pos: float = 0.025
-    pose_tol_ori: float = 0.08
-    require_orientation_reach: bool = False
-    use_object_orientation: bool = False
+    handle_extent_max: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    handle_extent_min: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    drawer_scale: float = 1.0
 
 
-def resolve_pick_place_cfg_from_presets(
+def resolve_drawer_task_cfg_from_presets(
     *,
-    base_task_cfg: PickPlaceFlowTaskConfig,
+    base_task_cfg: DrawerPickPlaceTaskConfig,
     scene_presets: dict[str, dict[str, object]],
     cli_description: str,
-    default_scene: str = "grab_medicine",
-) -> tuple[str, PickPlaceFlowTaskConfig]:
+    default_scene: str = "default",
+) -> tuple[str, DrawerPickPlaceTaskConfig]:
     scene, task_cfg = resolve_dataclass_cfg_from_presets(
         base_cfg=base_task_cfg,
         scene_presets=scene_presets,
@@ -148,14 +156,11 @@ def resolve_pick_place_cfg_from_presets(
     return scene, task_cfg
 
 
-def format_pick_place_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig) -> str:
+def format_drawer_task_cfg_summary(scene: str, task_cfg: DrawerPickPlaceTaskConfig) -> str:
     return (
-        f"[Scene] {scene} -> {task_cfg.source_object_entity_path}, "
-        f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}, "
-        f"orientation={task_cfg.grasp_orientation}, "
-        f"approach_clearance={task_cfg.approach_clearance}, grasp_clearance={task_cfg.grasp_clearance}, "
-        f"target_pose_offset={task_cfg.target_pose_offset}, "
-        f"retreat_direction_extra={task_cfg.retreat_direction_extra}, retreat_offset={task_cfg.retreat_offset}"
+        f"[Drawer+PickPlace] scene={scene} object={task_cfg.source_object_entity_path} "
+        f"drawer_prim={task_cfg.source_object_path_drawer} | "
+        f"arm={task_cfg.initial_grasp_arm}, grasp_dir={task_cfg.grasp_direction}"
     )
 
 
@@ -168,7 +173,7 @@ def _apply_target_pose_offset(pose: Any, offset: tuple[float, float, float]) -> 
 
 
 def _resolve_arm_grasp_config(
-    task_cfg: PickPlaceFlowTaskConfig,
+    task_cfg: DrawerPickPlaceTaskConfig,
     *,
     is_right: bool,
 ) -> tuple[tuple[float, float, float, float], str, tuple[float, float, float] | None]:
@@ -191,63 +196,10 @@ def _resolve_arm_grasp_config(
     return orientation, direction, direction_vector
 
 
-def build_single_arm_pick_place_sequence(
-    *,
-    target_pose: Any,
-    home_pose: Any,
-    task_cfg: PickPlaceFlowTaskConfig,
-    arm_side: ArmSide,
-    gripper_open: float,
-    gripper_closed: float,
-    grasp_orientation: tuple[float, float, float, float],
-    grasp_direction: str,
-    grasp_direction_vector: tuple[float, float, float] | None,
-) -> list[StageTarget]:
-    """Build a single-arm pick (+ optional place) + return-home sequence."""
-    arm_seq: list[ArmStage] = list(build_single_arm_pick_sequence(
-        target_pose=target_pose,
-        approach_clearance=task_cfg.approach_clearance,
-        grasp_clearance=task_cfg.grasp_clearance,
-        grasp_orientation=grasp_orientation,
-        grasp_direction=grasp_direction,
-        grasp_direction_vector=grasp_direction_vector,
-        grasp_offset=task_cfg.grasp_offset,
-        retreat_direction_extra=task_cfg.retreat_direction_extra,
-        retreat_offset=task_cfg.retreat_offset,
-        gripper_open=gripper_open,
-        gripper_closed=gripper_closed,
-        stage_prefix="PickPlaceFlow",
-    ))
-    if task_cfg.run_place_before_return:
-        if task_cfg.place_position is None or task_cfg.place_orientation is None:
-            raise ValueError("place_position and place_orientation are required when run_place_before_return=True")
-        arm_seq.extend(
-            build_single_arm_place_sequence(
-                place_position=task_cfg.place_position,
-                place_orientation=task_cfg.place_orientation,
-                post_release_retract_offset=task_cfg.post_release_retract_offset,
-                gripper_open=gripper_open,
-                gripper_closed=gripper_closed,
-                stage_prefix="PickPlaceFlow",
-                start_index=5,
-            )
-        )
-        return_stage_name = "PickPlaceFlow-8-ReturnHomeHold"
-    else:
-        return_stage_name = "PickPlaceFlow-5-ReturnHomeHold"
-    arm_seq.extend(
-        build_single_arm_return_home_sequence(
-            home_pose=home_pose,
-            gripper=gripper_closed,
-            stage_name=return_stage_name,
-        )
-    )
-    return assign_to_arm(arm_seq, arm_side)
-
 def build_single_arm_pull_drawer_sequence(
     *,
     target_pose: Any,
-    task_cfg: PickPlaceFlowTaskConfig,
+    task_cfg: DrawerPickPlaceTaskConfig,
     arm_side: ArmSide,
     gripper_open: float,
     gripper_closed: float,
@@ -274,7 +226,7 @@ def build_single_arm_close_drawer_sequence(
     *,
     target_pose: Any,
     home_pose: Any,
-    task_cfg: PickPlaceFlowTaskConfig,
+    task_cfg: DrawerPickPlaceTaskConfig,
     arm_side: ArmSide,
     gripper_open: float,
     gripper_closed: float,
@@ -301,20 +253,25 @@ def build_single_arm_back_home_sequence(
     *,
     place_position: Any,
     home_pose: Any,
-    task_cfg: PickPlaceFlowTaskConfig,
+    task_cfg: DrawerPickPlaceTaskConfig,
     arm_side: ArmSide,
     gripper_open: float,
     gripper_closed: float,
     grasp_orientation: tuple[float, float, float, float],
 ) -> list[StageTarget]:
-    arm_seq: list[ArmStage] = list(build_single_arm_place_sequence(
-        place_position=place_position,
-        place_orientation=grasp_orientation,
-        post_release_retract_offset=(0, 0, 0),
-        gripper_open=gripper_open,
-        gripper_closed=gripper_closed,
-        stage_prefix="PickPlaceFlow",
-        start_index=5,
+    arm_seq: list[ArmStage] = list(
+        build_single_arm_place_sequence(
+            place_position=place_position,
+            place_orientation=grasp_orientation,
+            place_direction=task_cfg.place_direction,
+            place_direction_vector=task_cfg.place_direction_vector,
+            place_approach_clearance=task_cfg.place_approach_clearance,
+            place_insert_clearance=task_cfg.place_insert_clearance,
+            post_release_retract_offset=(0, 0, 0),
+            gripper_open=gripper_open,
+            gripper_closed=gripper_closed,
+            stage_prefix="PickPlaceFlow",
+            start_index=5,
         )
     )
     return_stage_name = "PickPlaceFlow-5-ReturnHomeHold"
@@ -330,7 +287,7 @@ def build_single_arm_back_home_sequence(
 def build_single_arm_pick_apple_sequence(
     *,
     target_pose: Any,
-    task_cfg: PickPlaceFlowTaskConfig,
+    task_cfg: DrawerPickPlaceTaskConfig,
     arm_side: ArmSide,
     gripper_open: float,
     gripper_closed: float,
@@ -354,10 +311,16 @@ def build_single_arm_pick_apple_sequence(
         gripper_closed=gripper_closed,
         stage_prefix="PickPlaceFlow",
     ))
+    if task_cfg.place_orientation is None:
+        raise ValueError("place_orientation required for pick_apple place segment after drawer open")
     arm_seq.extend(
         build_single_arm_place_sequence(
             place_position=place_position,
             place_orientation=task_cfg.place_orientation,
+            place_direction=task_cfg.place_direction,
+            place_direction_vector=task_cfg.place_direction_vector,
+            place_approach_clearance=task_cfg.place_approach_clearance,
+            place_insert_clearance=task_cfg.place_insert_clearance,
             post_release_retract_offset=task_cfg.post_release_retract_offset,
             gripper_open=gripper_open,
             gripper_closed=gripper_closed,
@@ -370,7 +333,7 @@ def build_single_arm_pick_apple_sequence(
 def run_drawer_demo(
     *,
     robot_cfg: Any,
-    task_cfg: PickPlaceFlowTaskConfig,
+    task_cfg: DrawerPickPlaceTaskConfig,
     robot_id: str = "isaac_pick_place_flow",
     reset_env: bool = True,
     use_stamped: bool = False,
@@ -652,25 +615,29 @@ def run_drawer_demo(
             print("[OK] Robot disconnected")
 
 
-def run_pick_place_entry(
+def run_drawer_task_entry(
     *,
     robot_cfg: Any,
-    base_task_cfg: PickPlaceFlowTaskConfig,
+    base_task_cfg: DrawerPickPlaceTaskConfig,
     scene_presets: dict[str, dict[str, object]],
     cli_description: str,
     default_scene: str,
     robot_id: str,
 ) -> None:
-    """Thin entry wrapper for robot-specific pick-place-flow scripts."""
-    scene, task_cfg = resolve_pick_place_cfg_from_presets(
+    """CLI-style entry: scene preset → :class:`DrawerPickPlaceTaskConfig` → :func:`run_drawer_demo`."""
+    scene, task_cfg = resolve_drawer_task_cfg_from_presets(
         base_task_cfg=base_task_cfg,
         scene_presets=scene_presets,
         cli_description=cli_description,
         default_scene=default_scene,
     )
-    print(format_pick_place_cfg_summary(scene, task_cfg))
+    print(format_drawer_task_cfg_summary(scene, task_cfg))
     run_drawer_demo(
         robot_cfg=robot_cfg,
         task_cfg=task_cfg,
         robot_id=robot_id,
     )
+
+
+# Backward compatibility for older scripts
+run_pick_place_entry = run_drawer_task_entry
