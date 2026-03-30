@@ -6,14 +6,14 @@
 |------|------|----------|----------|
 | Pick Place | 单臂抓取放置 | `grab_medicine`、`grab_bottle` | - |
 | Handover | 双臂交接 | `grab_medicine`、`grab_bottle` | - |
-| Bimanual Carry | 双臂同步搬运 | `grab_medicine` | - |
+| Bimanual Carry | 双臂同步搬运 | `box01`、`warehouse_box01` | - |
 
 配置文件：
 
 - `robot_config.py` — 机器人参数（关节、阈值等）
 - `task_configs/pick_place.py` — 抓取放置任务配置
 - `task_configs/handover.py` — 双臂交接任务配置
-- `task_configs/bimanual_carry.py` — 双臂搬运任务配置
+- `task_configs/bimanual_carry.yaml` — 双臂搬运任务配置（**YAML**；需 PyYAML）。`base_task_overrides` / `scene_presets` 使用嵌套 `carry`，由 `flatten_bimanual_carry_task_overrides` 合并。说明见 `docs/TASK_CONFIG_YAML.md`。
 
 ROS2夹爪控制器参数：
 ```yaml

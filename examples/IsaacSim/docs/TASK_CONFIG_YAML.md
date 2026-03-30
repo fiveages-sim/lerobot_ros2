@@ -31,3 +31,4 @@ pip install pyyaml
 
 - `robots/DobotCR5/task_configs/pick_place.yaml`
 - `robots/DobotCR5/task_configs/drawer_pick_place.yaml`
+- `robots/FiveAges_W2/task_configs/bimanual_carry.yaml`（`bimanual_carry`：嵌套 `carry`）
