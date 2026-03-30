@@ -6,7 +6,7 @@ from __future__ import annotations
 import signal
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 from geometry_msgs.msg import Pose
 
@@ -72,6 +72,22 @@ class BimanualCarryTaskConfig:
     lateral_clearance: float = 0.0
     grasp_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     object_xyz_random_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+def flatten_bimanual_carry_task_overrides(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Merge optional ``carry`` block into flat ``BimanualCarryTaskConfig`` kwargs.
+
+    Top-level keys (except ``carry``) apply first; ``carry`` mapping overrides/extends them.
+    """
+    if not isinstance(raw, Mapping):
+        raise TypeError(f"carry overrides must be a mapping, got {type(raw).__name__}")
+    merged: dict[str, Any] = {k: v for k, v in raw.items() if k != "carry"}
+    carry = raw.get("carry")
+    if carry is not None:
+        if not isinstance(carry, Mapping):
+            raise TypeError(f'"carry" must be a mapping, got {type(carry).__name__}')
+        merged.update(dict(carry))
+    return merged
 
 
 def resolve_bimanual_carry_task_cfg_from_presets(

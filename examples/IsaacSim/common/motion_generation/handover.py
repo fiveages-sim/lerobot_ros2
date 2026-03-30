@@ -6,7 +6,7 @@ from __future__ import annotations
 import signal
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 from geometry_msgs.msg import Pose
 
@@ -94,6 +94,27 @@ class HandoverTaskConfig:
     grasp_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     receiver_handover_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     run_place_after_handover: bool = True
+
+
+def flatten_handover_task_overrides(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Merge optional ``pick`` / ``handover`` / ``place`` blocks into flat ``HandoverTaskConfig`` kwargs.
+
+    Precedence for duplicate keys: top-level (excluding section keys) < ``pick`` < ``handover`` <
+    ``place`` (later wins).
+    """
+    if not isinstance(raw, Mapping):
+        raise TypeError(f"handover overrides must be a mapping, got {type(raw).__name__}")
+    merged: dict[str, Any] = {
+        k: v for k, v in raw.items() if k not in ("pick", "handover", "place")
+    }
+    for section in ("pick", "handover", "place"):
+        block = raw.get(section)
+        if block is None:
+            continue
+        if not isinstance(block, Mapping):
+            raise TypeError(f'"{section}" must be a mapping, got {type(block).__name__}')
+        merged.update(dict(block))
+    return merged
 
 
 def resolve_handover_task_cfg_from_presets(

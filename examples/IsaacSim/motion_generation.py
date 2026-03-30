@@ -22,6 +22,8 @@ def _load_module(module_name: str, file_path: Path) -> Any:
 
 
 def _discover_task_registry(isaac_dir: Path) -> dict[str, dict[str, Any]]:
+    from task_config_io import discover_task_configs  # pyright: ignore[reportMissingImports]
+
     robots_root = isaac_dir / "robots"
     if not robots_root.is_dir():
         return {}
@@ -38,16 +40,7 @@ def _discover_task_registry(isaac_dir: Path) -> dict[str, dict[str, Any]]:
         robot_label = getattr(robot_mod, "ROBOT_LABEL", robot_dir.name)
         robot_cfg = getattr(robot_mod, "ROBOT_CFG")
 
-        tasks: dict[str, dict[str, Any]] = {}
-        for task_file in sorted(p for p in task_cfg_dir.glob("*.py") if p.is_file()):
-            task_mod = _load_module(f"{robot_dir.name}_{task_file.stem}_task_cfg", task_file)
-            task_cfg = getattr(task_mod, "TASK_CONFIG", None)
-            if task_cfg is None:
-                task_cfg = getattr(task_mod, "FLOW_CONFIG", None)
-            if not isinstance(task_cfg, dict):
-                continue
-            task_key = task_cfg["task_key"]
-            tasks[task_key] = dict(task_cfg)
+        tasks = discover_task_configs(task_cfg_dir, robot_dir_name=robot_dir.name)
 
         if tasks:
             registry[robot_key] = {
@@ -93,19 +86,32 @@ def main() -> None:
             sys.path.insert(0, str(path))
 
     from motion_generation.handover import (  # pyright: ignore[reportMissingImports]
+        flatten_handover_task_overrides,
         format_handover_task_cfg_summary,
         run_handover_demo,
     )
     from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
         PickPlaceFlowTaskConfig,
+        flatten_pick_place_task_overrides,
         format_pick_place_cfg_summary,
         run_pick_place_demo,
+    )
+    from motion_generation.drawer import (  # pyright: ignore[reportMissingImports]
+        DrawerPickPlaceTaskConfig,
+        flatten_drawer_pick_place_task_overrides,
+        format_drawer_task_cfg_summary,
+        run_drawer_demo,
     )
     from motion_generation.handover import HandoverTaskConfig  # pyright: ignore[reportMissingImports]
     from motion_generation.bimanual_carry import (  # pyright: ignore[reportMissingImports]
         BimanualCarryTaskConfig,
+        flatten_bimanual_carry_task_overrides,
         format_bimanual_carry_task_cfg_summary,
         run_bimanual_carry_demo,
+    )
+    from dataset_recording.launcher import (  # pyright: ignore[reportMissingImports]
+        prompt_positive_int,
+        select_option as select_labeled_option,
     )
 
     registry = _discover_task_registry(isaac_dir)
@@ -118,9 +124,17 @@ def main() -> None:
     robot_key = _select_option(title="Select robot", options=robot_keys, default_value="dobot_cr5")
     robot_entry = registry[robot_key]
 
-    task_keys = list(robot_entry["tasks"].keys())
-    default_task = "pick_place" if "pick_place" in task_keys else task_keys[0]
-    task_key = _select_option(title="Select task", options=task_keys, default_value=default_task)
+    tasks_map = robot_entry["tasks"]
+    task_options = {
+        key: {"label": str(meta.get("label", key))}
+        for key, meta in tasks_map.items()
+    }
+    default_task_key = "pick_place" if "pick_place" in task_options else next(iter(task_options))
+    task_key = select_labeled_option(
+        title="Select task",
+        options=task_options,
+        default_key=default_task_key,
+    )
     task_entry = robot_entry["tasks"][task_key]
 
     scene_presets: dict[str, dict[str, object]] = task_entry["scene_presets"]
@@ -128,51 +142,140 @@ def main() -> None:
     default_scene = task_entry["default_scene"]
     scene = _select_option(title="Select config", options=scene_names, default_value=default_scene)
 
-    reset_env = _select_option(
-        title="Reset environment & randomize object?",
-        options=["yes", "no"],
-        default_value="yes",
-    ) == "yes"
+    num_runs = prompt_positive_int(
+        "How many motion runs? (Enter = 1): ",
+        default=1,
+        min_value=1,
+    )
+
+    # 多段运行时每段之间需要重置仿真/随机化物体；仅单段时可选择不重置。
+    if num_runs > 1:
+        reset_env = True
+        print(
+            "[info] Multiple motion runs: each run will reset the environment "
+            "& randomize the object (same as record episodes)."
+        )
+    else:
+        reset_env = _select_option(
+            title="Reset environment & randomize object?",
+            options=["yes", "no"],
+            default_value="yes",
+        ) == "yes"
 
     use_stamped = task_entry.get("use_stamped", True)
 
     if task_entry["kind"] == "pick_place":
-        base_task_cfg = PickPlaceFlowTaskConfig(**task_entry["base_task_overrides"])
-        task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
-        print(format_pick_place_cfg_summary(scene, task_cfg))
-        run_pick_place_demo(
-            robot_cfg=robot_entry["robot_cfg"],
-            task_cfg=task_cfg,
-            robot_id=task_entry["robot_id"],
-            reset_env=reset_env,
-            use_stamped=use_stamped,
+        base_task_cfg = PickPlaceFlowTaskConfig(
+            **flatten_pick_place_task_overrides(task_entry["base_task_overrides"])
         )
+        task_cfg = _apply_preset(
+            base_task_cfg,
+            flatten_pick_place_task_overrides(scene_presets.get(scene, {})),
+        )
+        print(format_pick_place_cfg_summary(scene, task_cfg))
+        task_queue = task_entry.get("task_queue")
+        if task_queue:
+            import task_runtime.skills  # noqa: F401 - register built-in skills
+
+            from task_runtime.runner import run_single_arm_task_queue  # pyright: ignore[reportMissingImports]
+
+            for run_idx in range(num_runs):
+                print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs} (task queue)\n{'=' * 70}")
+                run_single_arm_task_queue(
+                    robot_cfg=robot_entry["robot_cfg"],
+                    task_cfg=task_cfg,
+                    robot_id=task_entry["robot_id"],
+                    blocks=task_queue,
+                    reset_env=reset_env,
+                    use_stamped=use_stamped,
+                )
+            return
+        for run_idx in range(num_runs):
+            print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs}\n{'=' * 70}")
+            run_pick_place_demo(
+                robot_cfg=robot_entry["robot_cfg"],
+                task_cfg=task_cfg,
+                robot_id=task_entry["robot_id"],
+                reset_env=reset_env,
+                use_stamped=use_stamped,
+            )
+        return
+    
+    if task_entry["kind"] == "drawer":
+        base_task_cfg = DrawerPickPlaceTaskConfig(
+            **flatten_drawer_pick_place_task_overrides(task_entry["base_task_overrides"])
+        )
+        task_cfg = _apply_preset(
+            base_task_cfg,
+            flatten_drawer_pick_place_task_overrides(scene_presets.get(scene, {})),
+        )
+        print(format_drawer_task_cfg_summary(scene, task_cfg))
+        task_queue = task_entry.get("task_queue")
+        if task_queue:
+            import task_runtime.skills  # noqa: F401 - register skills
+
+            from task_runtime.runner import run_drawer_pick_place_task_queue  # pyright: ignore[reportMissingImports]
+
+            for run_idx in range(num_runs):
+                print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs} (drawer task queue)\n{'=' * 70}")
+                run_drawer_pick_place_task_queue(
+                    robot_cfg=robot_entry["robot_cfg"],
+                    task_cfg=task_cfg,
+                    robot_id=task_entry["robot_id"],
+                    blocks=task_queue,
+                    reset_env=reset_env,
+                    use_stamped=use_stamped,
+                )
+            return
+        for run_idx in range(num_runs):
+            print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs}\n{'=' * 70}")
+            run_drawer_demo(
+                robot_cfg=robot_entry["robot_cfg"],
+                task_cfg=task_cfg,
+                robot_id=task_entry["robot_id"],
+                reset_env=reset_env,
+                use_stamped=use_stamped,
+            )
         return
 
     if task_entry["kind"] == "handover":
-        base_task_cfg = HandoverTaskConfig(**task_entry["base_task_overrides"])
-        task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
-        print(format_handover_task_cfg_summary(scene, task_cfg))
-        run_handover_demo(
-            robot_cfg=robot_entry["robot_cfg"],
-            handover_task_cfg=task_cfg,
-            robot_id=task_entry["robot_id"],
-            reset_env=reset_env,
-            use_stamped=use_stamped,
+        base_task_cfg = HandoverTaskConfig(
+            **flatten_handover_task_overrides(task_entry["base_task_overrides"])
         )
+        task_cfg = _apply_preset(
+            base_task_cfg,
+            flatten_handover_task_overrides(scene_presets.get(scene, {})),
+        )
+        print(format_handover_task_cfg_summary(scene, task_cfg))
+        for run_idx in range(num_runs):
+            print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs}\n{'=' * 70}")
+            run_handover_demo(
+                robot_cfg=robot_entry["robot_cfg"],
+                handover_task_cfg=task_cfg,
+                robot_id=task_entry["robot_id"],
+                reset_env=reset_env,
+                use_stamped=use_stamped,
+            )
         return
 
     if task_entry["kind"] == "bimanual_carry":
-        base_task_cfg = BimanualCarryTaskConfig(**task_entry["base_task_overrides"])
-        task_cfg = _apply_preset(base_task_cfg, scene_presets.get(scene, {}))
-        print(format_bimanual_carry_task_cfg_summary(scene, task_cfg))
-        run_bimanual_carry_demo(
-            robot_cfg=robot_entry["robot_cfg"],
-            carry_task_cfg=task_cfg,
-            robot_id=task_entry["robot_id"],
-            reset_env=reset_env,
-            use_stamped=use_stamped,
+        base_task_cfg = BimanualCarryTaskConfig(
+            **flatten_bimanual_carry_task_overrides(task_entry["base_task_overrides"])
         )
+        task_cfg = _apply_preset(
+            base_task_cfg,
+            flatten_bimanual_carry_task_overrides(scene_presets.get(scene, {})),
+        )
+        print(format_bimanual_carry_task_cfg_summary(scene, task_cfg))
+        for run_idx in range(num_runs):
+            print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs}\n{'=' * 70}")
+            run_bimanual_carry_demo(
+                robot_cfg=robot_entry["robot_cfg"],
+                carry_task_cfg=task_cfg,
+                robot_id=task_entry["robot_id"],
+                reset_env=reset_env,
+                use_stamped=use_stamped,
+            )
         return
 
     raise ValueError(f"Unsupported task kind: {task_entry['kind']}")

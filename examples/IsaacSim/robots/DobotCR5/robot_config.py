@@ -17,7 +17,7 @@ class RobotConfig:
     robot_id: str = "ros2_grasp_robot"
     gripper_control_mode: str = "target_command"
     ros2_interface: ROS2RobotInterfaceConfig = field(
-        default_factory=lambda: ROS2RobotInterfaceConfig.default_single_arm(
+        default_factory=lambda: ROS2RobotInterfaceConfig.default_single_arm_ocs2_arm_controller(
             joint_names=("joint1", "joint2", "joint3", "joint4", "joint5", "joint6"),
             gripper_joint_name="gripper_joint",
             gripper_command_topic="gripper_joint/position_command",

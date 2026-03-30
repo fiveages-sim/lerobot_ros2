@@ -6,6 +6,31 @@ from __future__ import annotations
 from typing import Any
 
 
+def prompt_positive_int(
+    message: str,
+    *,
+    default: int = 1,
+    min_value: int = 1,
+) -> int:
+    """Parse a positive integer from stdin; invalid input falls back to ``default``.
+
+    Used for "how many episodes" / "how many demo runs" style prompts so record and
+    motion-generation launchers share one implementation.
+    """
+    if min_value < 1:
+        raise ValueError("min_value must be >= 1")
+    default = max(min_value, int(default))
+    try:
+        raw = input(message).strip()
+        if raw == "":
+            return default
+        value = int(raw)
+        return max(min_value, value)
+    except Exception:
+        print(f"[info] invalid input, using default {default}")
+        return default
+
+
 def select_option(*, title: str, options: dict[str, dict[str, Any]], default_key: str) -> str:
     keys = list(options.keys())
     print(f"\n{title}")
@@ -31,11 +56,7 @@ def collect_runtime_options(
     pointcloud_supported: bool,
     default_enable_keypoint_pcd: bool = False,
 ) -> tuple[int, bool, bool]:
-    loops = 1
-    try:
-        loops = max(1, int(input("How many episodes to record? ")))
-    except Exception:
-        print("[info] invalid input, defaulting to 1 episode")
+    loops = prompt_positive_int("How many episodes to record? ", default=1, min_value=1)
 
     if pointcloud_supported:
         default_pcd = "Y" if default_enable_keypoint_pcd else "N"
