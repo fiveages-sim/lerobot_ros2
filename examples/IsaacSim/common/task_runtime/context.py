@@ -50,3 +50,41 @@ class SingleArmMotionContext:
     def __post_init__(self) -> None:
         if self.gripper_for_return_home == 0.0:
             self.gripper_for_return_home = float(self.gripper_closed)
+
+
+@dataclass
+class BaseBimanualMotionContext:
+    """Shared mutable state for all bimanual Isaac task queue runs."""
+
+    robot: Any
+    robot_cfg: Any
+    sim_time: Any
+    task_cfg: Any
+    gripper_open: float
+    gripper_closed: float
+    use_stamped: bool
+    frame_id: str
+    ee_frame_id: str
+    base_world_pos: Any
+    base_world_quat: Any
+    left_initial_joint_positions: list[float] | None
+    right_initial_joint_positions: list[float] | None
+
+
+@dataclass
+class BimanualMotionContext(BaseBimanualMotionContext):
+    """Mutable state for bimanual carry task queue run."""
+
+    task_cfg: Any  # BimanualCarryTaskConfig once motion_generation.bimanual_carry is loaded
+    left_home_pose: Any
+    right_home_pose: Any
+
+
+@dataclass
+class HandoverMotionContext(BaseBimanualMotionContext):
+    """Mutable state for handover task queue run (a bimanual specialization)."""
+
+    task_cfg: Any  # HandoverTaskConfig once motion_generation.handover is loaded
+    source_is_right: bool
+    source_home_pose: Any
+    receiver_home_pose: Any

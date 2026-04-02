@@ -15,6 +15,7 @@ class ExecutionMeta:
     send_mode: SendMode
     frame_id: str
     warn_prefix: str = "TaskQueue"
+    left_arrival_guard_stage: str | None = None
 
 
 @dataclass(frozen=True)

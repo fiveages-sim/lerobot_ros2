@@ -15,12 +15,17 @@ base_task_overrides:
     lateral_offset: 0.29
     approach_offset: [-0.3, 0.0, 0.0]
     lateral_clearance: 0.08
-    grasp_offset: [0.0, 0.0, 0.155]
+    grasp_offset: [0.0, 0.0, 0.2]
     left_orientation: [-0.5, 0.5, -0.5, 0.5]
     right_orientation: [-0.5, 0.5, -0.5, 0.5]
     lift_offset: [0.0, 0.0, 0.1]
     retreat_offset: [-0.2, 0.0, 0.0]
     object_xyz_random_offset: [0.0, 0.0, 0.0]
+
+task_queue:
+  - skill: bimanual.pregrasp
+  - skill: bimanual.carry
+  - skill: bimanual.movej_return_initial
 
 scene_presets:
   box01:

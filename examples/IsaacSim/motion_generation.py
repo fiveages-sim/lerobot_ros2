@@ -88,7 +88,6 @@ def main() -> None:
     from motion_generation.handover import (  # pyright: ignore[reportMissingImports]
         flatten_handover_task_overrides,
         format_handover_task_cfg_summary,
-        run_handover_demo,
     )
     from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
         PickPlaceFlowTaskConfig,
@@ -107,7 +106,6 @@ def main() -> None:
         BimanualCarryTaskConfig,
         flatten_bimanual_carry_task_overrides,
         format_bimanual_carry_task_cfg_summary,
-        run_bimanual_carry_demo,
     )
     from dataset_recording.launcher import (  # pyright: ignore[reportMissingImports]
         prompt_positive_int,
@@ -247,16 +245,37 @@ def main() -> None:
             flatten_handover_task_overrides(scene_presets.get(scene, {})),
         )
         print(format_handover_task_cfg_summary(scene, task_cfg))
-        for run_idx in range(num_runs):
-            print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs}\n{'=' * 70}")
-            run_handover_demo(
-                robot_cfg=robot_entry["robot_cfg"],
-                handover_task_cfg=task_cfg,
-                robot_id=task_entry["robot_id"],
-                reset_env=reset_env,
-                use_stamped=use_stamped,
-            )
-        return
+        task_queue = task_entry.get("task_queue")
+        if task_queue:
+            import task_runtime.skills  # noqa: F401 - register skills
+
+            from task_runtime.runner import run_handover_task_queue  # pyright: ignore[reportMissingImports]
+
+            queue_for_run = list(task_queue)
+            if num_runs == 1:
+                queue_for_run = [
+                    blk
+                    for blk in queue_for_run
+                    if str(blk.get("skill", "")).strip() != "handover.movej_return_initial"
+                ]
+                if len(queue_for_run) != len(task_queue):
+                    print("[info] Single run: skip 'handover.movej_return_initial' by default.")
+
+            for run_idx in range(num_runs):
+                print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs} (handover task queue)\n{'=' * 70}")
+                run_handover_task_queue(
+                    robot_cfg=robot_entry["robot_cfg"],
+                    task_cfg=task_cfg,
+                    robot_id=task_entry["robot_id"],
+                    blocks=queue_for_run,
+                    reset_env=reset_env,
+                    use_stamped=use_stamped,
+                )
+            return
+        raise ValueError(
+            "handover now requires task_queue in task config; "
+            "legacy run_handover_demo path is disabled."
+        )
 
     if task_entry["kind"] == "bimanual_carry":
         base_task_cfg = BimanualCarryTaskConfig(
@@ -267,16 +286,42 @@ def main() -> None:
             flatten_bimanual_carry_task_overrides(scene_presets.get(scene, {})),
         )
         print(format_bimanual_carry_task_cfg_summary(scene, task_cfg))
-        for run_idx in range(num_runs):
-            print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs}\n{'=' * 70}")
-            run_bimanual_carry_demo(
-                robot_cfg=robot_entry["robot_cfg"],
-                carry_task_cfg=task_cfg,
-                robot_id=task_entry["robot_id"],
-                reset_env=reset_env,
-                use_stamped=use_stamped,
-            )
-        return
+        task_queue = task_entry.get("task_queue")
+        if task_queue:
+            import task_runtime.skills  # noqa: F401 - register skills
+
+            from task_runtime.runner import run_bimanual_task_queue  # pyright: ignore[reportMissingImports]
+
+            queue_for_run = list(task_queue)
+            if num_runs == 1:
+                def _is_movej_block(block: object) -> bool:
+                    if isinstance(block, dict):
+                        return str(block.get("skill", "")).strip() == "bimanual.movej_return_initial"
+                    return getattr(block, "skill", "") == "bimanual.movej_return_initial"
+
+                queue_for_run = [
+                    blk
+                    for blk in queue_for_run
+                    if not _is_movej_block(blk)
+                ]
+                if len(queue_for_run) != len(task_queue):
+                    print("[info] Single run: skip 'bimanual.movej_return_initial' by default.")
+
+            for run_idx in range(num_runs):
+                print(f"\n{'=' * 70}\nMotion run {run_idx + 1}/{num_runs} (bimanual task queue)\n{'=' * 70}")
+                run_bimanual_task_queue(
+                    robot_cfg=robot_entry["robot_cfg"],
+                    task_cfg=task_cfg,
+                    robot_id=task_entry["robot_id"],
+                    blocks=queue_for_run,
+                    reset_env=reset_env,
+                    use_stamped=use_stamped,
+                )
+            return
+        raise ValueError(
+            "bimanual_carry now requires task_queue in task config; "
+            "legacy run_bimanual_carry_demo has been removed."
+        )
 
     raise ValueError(f"Unsupported task kind: {task_entry['kind']}")
 

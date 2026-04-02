@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from task_runtime.context import SingleArmMotionContext
+from typing import Any
 
 from task_runtime.types import ExecutionMeta
 
-SkillFn = Callable[["SingleArmMotionContext", Mapping[str, Any]], tuple[list[Any], ExecutionMeta]]
+SkillFn = Callable[[Any, Mapping[str, Any]], tuple[list[Any], ExecutionMeta]]
 
 _REGISTRY: dict[str, SkillFn] = {}
 

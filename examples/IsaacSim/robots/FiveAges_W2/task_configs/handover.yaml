@@ -1,0 +1,47 @@
+# FiveAges W2 — 双臂交接（YAML）
+# ``pick`` / ``handover`` / ``place`` 块由 flatten_handover_task_overrides 合并；
+# 向量使用 YAML 列表，加载后会规范为 tuple。说明见 docs/TASK_CONFIG_YAML.md
+
+task_key: handover
+label: Handover
+kind: handover
+use_stamped: true
+robot_id: fiveages_w2_bimanual_handover
+default_scene: grab_medicine
+
+base_task_overrides:
+  pick:
+    initial_grasp_arm: right
+    grasp_orientation: [1.0, 0.0, 0.0, 0.0]
+    object_xyz_random_offset: [0.0, 0.0, 0.0]
+    approach_clearance: 0.2
+    grasp_clearance: 0.01
+    grasp_offset: [0.04, 0.0, 0.0]
+    source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    grasp_direction: top
+    grasp_direction_vector: null
+
+  handover:
+    handover_position: [0.7, 0.0, 1.35]
+    source_handover_orientation: [0.653, 0.271, 0.653, -0.271]
+    receiver_handover_orientation: [0.653, -0.271, 0.653, 0.271]
+    receiver_handover_offset: [0.0, 0.0, -0.04]
+
+  place:
+    receiver_place_position: [0.7, 0.3, 1.1]
+    receiver_place_orientation: [0.6532920183548978, -0.12549174013187747, 0.7390193620374562, 0.10635668500949247]
+    run_place_after_handover: true
+
+task_queue:
+  - skill: handover.pregrasp
+  - skill: handover.pick
+  - skill: handover.exchange_place
+  - skill: handover.movej_return_initial
+
+scene_presets:
+  grab_medicine:
+    pick:
+      source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+  grab_bottle:
+    pick:
+      source_object_entity_path: /World/ConvenienceStore01/SM_Bottle_04_85

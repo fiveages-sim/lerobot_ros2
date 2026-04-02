@@ -48,6 +48,12 @@ TASK_CONFIG = {
         "handover": _HANDOVER_TEMPLATE,
         "place": _PLACE_TEMPLATE,
     },
+    "task_queue": [
+        {"skill": "handover.pregrasp"},
+        {"skill": "handover.pick"},
+        {"skill": "handover.exchange_place"},
+        {"skill": "handover.movej_return_initial"},
+    ],
     "scene_presets": {
         "grab_medicine": {
             "pick": {

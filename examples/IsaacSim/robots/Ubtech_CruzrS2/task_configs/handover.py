@@ -44,6 +44,12 @@ TASK_CONFIG = {
             0.6533, -0.2706, -0.2706, 0.6533,
         ),
     },
+    "task_queue": [
+        {"skill": "handover.pregrasp"},
+        {"skill": "handover.pick"},
+        {"skill": "handover.exchange_place"},
+        {"skill": "handover.movej_return_initial"},
+    ],
     "scene_presets": {
         # 场景预设：用于按场景切换被抓取物体（以及你后续可以扩展更多参数覆盖）
         "grab_medicine": {
