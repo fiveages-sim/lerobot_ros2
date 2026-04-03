@@ -18,7 +18,7 @@ class RobotConfig:
     # 夹爪控制模式：必须与 ros2_robot_interface 支持的接口一致；夹爪不响应时优先核对该项
     gripper_control_mode: str = "target_command"
     # 判定“到位”的位置阈值（米）：更小更精确但更容易超时；更大更容易跑通但精度下降
-    pose_position_threshold: float = 0.02
+    pose_position_threshold: float = 0.05
     # 判定“到位”的姿态阈值（通常是角度误差阈值，量级为弧度）：抓取/交接对姿态敏感可调小
     pose_orientation_threshold: float = 0.1
     # ROS2 机器人接口配置：默认会在 __post_init__ 里按双臂关节名生成一份默认配置
