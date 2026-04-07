@@ -156,6 +156,7 @@ def format_pick_place_cfg_summary(scene: str, task_cfg: PickPlaceFlowTaskConfig)
         f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}",
         f"orientation={task_cfg.grasp_orientation}",
         f"approach_clearance={task_cfg.approach_clearance}, grasp_clearance={task_cfg.grasp_clearance}",
+        f"grasp_offset={task_cfg.grasp_offset}",
         f"target_pose_offset={task_cfg.target_pose_offset}",
         f"retreat_direction_extra={task_cfg.retreat_direction_extra}, retreat_offset={task_cfg.retreat_offset}",
     ]

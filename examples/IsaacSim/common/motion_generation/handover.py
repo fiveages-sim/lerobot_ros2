@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 from geometry_msgs.msg import Pose
 
@@ -49,6 +49,7 @@ class HandoverTaskConfig:
     grasp_direction: str = "top"
     grasp_direction_vector: tuple[float, float, float] | None = None
     grasp_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    retreat_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     receiver_handover_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     run_place_after_handover: bool = True
 
@@ -96,6 +97,7 @@ def format_handover_task_cfg_summary(scene: str, task_cfg: HandoverTaskConfig) -
         f"arm={task_cfg.initial_grasp_arm}, direction={task_cfg.grasp_direction}, "
         f"orientation={task_cfg.grasp_orientation}, "
         f"approach_clearance={task_cfg.approach_clearance}, grasp_clearance={task_cfg.grasp_clearance}, "
+        f"grasp_offset={task_cfg.grasp_offset}, retreat_offset={task_cfg.retreat_offset}, "
         f"object_xyz_random_offset={task_cfg.object_xyz_random_offset}"
     )
 
@@ -123,6 +125,7 @@ def build_handover_record_sequence(
         grasp_direction=handover_task_cfg.grasp_direction,
         grasp_direction_vector=handover_task_cfg.grasp_direction_vector,
         grasp_offset=handover_task_cfg.grasp_offset,
+        retreat_offset=handover_task_cfg.retreat_offset,
         gripper_open=gripper_open,
         gripper_closed=gripper_closed,
         stage_prefix="Pickup",

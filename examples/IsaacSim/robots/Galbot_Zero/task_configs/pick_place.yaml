@@ -1,0 +1,44 @@
+# Galbot Zero — 单臂抓取放置（YAML）
+# ``pick`` / ``place`` 由 flatten_pick_place_task_overrides 合并；向量用列表，加载为 tuple。
+# 见 examples/IsaacSim/docs/TASK_CONFIG_YAML.md
+
+task_key: pick_place
+label: Pick Place
+kind: pick_place
+use_stamped: true
+robot_id: galbot_zero_pick_place
+default_scene: grab_medicine
+
+base_task_overrides:
+  mode: single_arm
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+  pick:
+    initial_grasp_arm: right
+    object_xyz_random_offset: [0.0, 0.0, 0.0]
+    approach_clearance: 0.2
+    grasp_clearance: 0.03
+    grasp_offset: [0.0, 0.0, 0.02]
+    source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    grasp_orientation: [0.0, 0.0,0.7, -0.7]
+    grasp_direction: top
+    grasp_direction_vector: null
+
+scene_presets:
+  grab_medicine:
+    pick:
+      source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+  grab_bottle:
+    pick:
+      source_object_entity_path: /World/SM_Bottle_04_85
+      initial_grasp_arm: left
+      grasp_direction: front
+      grasp_orientation: [0.7, 0.0, 0.7, 0.0]
+      target_pose_offset: [0.0, 0.0, 0.1]
+      approach_clearance: 0.2
+      grasp_clearance: -0.02
+      retreat_direction_extra: 0.0
+      retreat_offset: [0.0, 0.0, 0.1]
