@@ -16,7 +16,7 @@ ROBOT_LABEL = "Galbot Zero"
 @dataclass(frozen=True)
 class RobotConfig:
     gripper_control_mode: str = "target_command"
-    pose_position_threshold: float = 0.075
+    pose_position_threshold: float = 0.115
     pose_orientation_threshold: float = 0.1
     ros2_interface: ROS2RobotInterfaceConfig = field(default=None)  # type: ignore[assignment]
 
@@ -50,7 +50,7 @@ class RobotConfig:
 
     # Default base_link path verified in current Isaac stage.
     base_link_entity_path: str = "/World/Galbot_Zero/base_link"
-    fsm_switch_delay: float = 0.1
+    fsm_switch_delay: float = 0.13
     post_reset_wait: float = 1.0
     arrival_timeout: float = 3.0
     arrival_poll: float = 0.05
