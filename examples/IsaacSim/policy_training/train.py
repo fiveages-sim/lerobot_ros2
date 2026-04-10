@@ -2,6 +2,10 @@
 """
 Thin wrapper around `lerobot.scripts.train` to train ACT or Diffusion on a local dataset.
 
+Does **not** load ``examples/IsaacSim/robots/*/robot_config.py`` — training is driven by the
+dataset ``meta/`` only. For deployment, use the same robot/camera layout as recording
+(see ``robots/<name>/robot_config.py`` used by record / inference).
+
 Usage:
     # ACT
     python examples/train_demo.py /path/to/dataset --policy act --chunk-size 16 --n-action-steps 8 --steps 1000

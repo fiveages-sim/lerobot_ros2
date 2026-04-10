@@ -1,0 +1,61 @@
+# Agibot G1 — pick / place（队列 + skill 参数分层）
+#
+# - base_task_overrides：流程级公共字段（容差等；mode 默认可省略）
+# - skill_defaults：与 task_queue 中 single_arm.pick / single_arm.place 对齐的默认参数
+# - scene_presets.skill_params：按场景覆盖 pick / place
+#
+# 合并顺序与 motion_main / 录制一致：base 扁平化 → skill_defaults → 场景扁平 → skill_params
+
+task_key: pick_place
+label: Pick Place
+use_stamped: true
+robot_id: agibot_g1_pick_place
+default_scene: grab_medicine
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  single_arm.pick:
+    arm: right
+    object_xyz_random_offset: [0.0, 0.0, 0.0]
+    approach_clearance: 0.2
+    grasp_clearance: 0.01
+    source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    grasp_orientation: [-0.7, 0.7, 0.0, 0.0]
+    grasp_direction: top
+    grasp_direction_vector: null
+  single_arm.place:
+    run_place_before_return: false
+
+task_queue:
+  - skill: single_arm.pregrasp
+  - skill: single_arm.pick
+  - skill: single_arm.place
+  - skill: single_arm.return_home
+  - skill: joint.movej_return_initial
+
+scene_presets:
+  grab_medicine:
+    skill_params:
+      single_arm.pick:
+        source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+        arm: right
+        grasp_direction: top
+
+  grab_bottle:
+    skill_params:
+      single_arm.pick:
+        source_object_entity_path: /World/ConvenienceStore01/SM_Bottle_04_85/SM_Bottle_04
+        arm: left
+        grasp_direction: front
+        grasp_orientation: [-0.5, 0.5, -0.5, 0.5]
+        target_pose_offset: [0.0, 0.0, 0.1]
+        approach_clearance: 0.2
+        grasp_clearance: -0.02
+        retreat_direction_extra: 0.0
+        retreat_offset: [0.0, 0.0, 0.1]

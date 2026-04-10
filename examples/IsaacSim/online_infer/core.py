@@ -260,7 +260,7 @@ def build_robot() -> ROS2Robot:
     按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
     """
     if ROBOT_CFG is None:
-        raise RuntimeError("ROBOT_CFG is not configured. Please use examples/IsaacSim/run_inference.py.")
+        raise RuntimeError("ROBOT_CFG is not configured. Run via examples/IsaacSim/inference.py.")
     camera_config = {
         name: replace(cfg, fps=FPS)
         for name, cfg in ROBOT_CFG.cameras.items()

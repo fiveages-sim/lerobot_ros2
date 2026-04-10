@@ -1,9 +1,9 @@
-# Ubtech Cruzr S2 — 双臂交接（纯 skill_defaults / skill_params）
+# Agibot G1 — handover（纯 skill_defaults / skill_params）
 
 task_key: handover
 label: Handover
 use_stamped: true
-robot_id: ubtech_cruzr_s2_bimanual_handover
+robot_id: agibot_g1_bimanual_handover
 default_scene: grab_medicine
 
 base_task_overrides:
@@ -15,23 +15,24 @@ base_task_overrides:
 
 skill_defaults:
   dual_arm.handover:
-    receiver_handover_offset: [-0.025, 0.0, -0.03]
-    handover_position: [0.5, 0.005, 1.3]
-    source_handover_orientation: [0.6533, 0.2706, 0.2706, 0.6533]
-    receiver_handover_orientation: [0.6533, -0.2706, -0.2706, 0.6533]
+    handover_position: [0.55, 0.0, 1.3]
+    source_handover_orientation: [-0.77, 0.0, 0.0, 0.77]
+    receiver_handover_orientation: [0.0, 0.77, -0.77, 0.0]
+    receiver_handover_offset: [0.0, -0.01, -0.03]
 
   single_arm.place:
-    place_position: [0.5, 0.28, 1.0]
-    place_orientation: [0.6533, -0.2706, -0.2706, 0.6533]
+    place_position: [0.9, 0.25, 1.1]
+    place_orientation:
+      [-0.33016505084249775, 0.6534009839213628, -0.6175486972275431, 0.2875618193803384]
     run_place_before_return: true
 
   single_arm.pick:
     arm: right
-    grasp_orientation: [0.5, 0.5, -0.5, 0.5]
+    grasp_orientation: [-0.7, 0.7, 0.0, 0.0]
     object_xyz_random_offset: [0.0, 0.0, 0.0]
-    approach_clearance: 0.1
-    grasp_clearance: 0.0
-    grasp_offset: [0.06, -0.01, 0.02]
+    approach_clearance: 0.2
+    grasp_clearance: 0.011
+    grasp_offset: [0.02, 0.0, 0.0]
     source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
     grasp_direction: top
     grasp_direction_vector: null
@@ -54,6 +55,7 @@ scene_presets:
     skill_params:
       ho_pick:
         source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+
   grab_bottle:
     skill_params:
       ho_pick:

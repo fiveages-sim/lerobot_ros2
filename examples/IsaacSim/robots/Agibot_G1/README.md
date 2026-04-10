@@ -10,8 +10,8 @@
 配置文件：
 
 - `robot_config.py` — 机器人参数（关节、阈值、相机等）
-- `task_configs/pick_place.py` — 抓取放置任务配置
-- `task_configs/handover.py` — 双臂交接任务配置
+- `task_configs/pick_place.yaml` — 抓取放置任务配置（需 PyYAML；见 `docs/TASK_CONFIG_YAML.md`）
+- `task_configs/handover.yaml` — 双臂交接任务配置
 
 
 

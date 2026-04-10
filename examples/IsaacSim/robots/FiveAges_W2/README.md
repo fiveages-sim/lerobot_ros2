@@ -11,9 +11,7 @@
 配置文件：
 
 - `robot_config.py` — 机器人参数（关节、阈值等）
-- `task_configs/pick_place.py` — 抓取放置任务配置
-- `task_configs/handover.py` — 双臂交接任务配置
-- `task_configs/bimanual_carry.yaml` — 双臂搬运任务配置（**YAML**；需 PyYAML）。`base_task_overrides` / `scene_presets` 使用嵌套 `carry`，由 `flatten_bimanual_carry_task_overrides` 合并。说明见 `docs/TASK_CONFIG_YAML.md`。
+- `task_configs/*.yaml` — 任务配置均为 **YAML**（需 PyYAML）。`pick_place`、`handover`、`bimanual_carry`、`navigate_and_pick` 等见各文件与 `docs/TASK_CONFIG_YAML.md`。
 
 ROS2夹爪控制器参数：
 ```yaml

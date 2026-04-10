@@ -74,3 +74,19 @@ ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationS
 - [Agibot G1](robots/Agibot_G1/README.md) — 双臂人形机器人
 - [FiveAges W2](robots/FiveAges_W2/README.md) — 双臂人形机器人
 - [Marvin M6CCS](robots/Marvin_M6CCS/README.md) — 双臂机器人
+
+## 5. robot-action-composer 包
+
+动作编排与录制逻辑在子模块 [`submodules/robot_action_composer`](../../submodules/robot_action_composer/)（可 `pip install -e submodules/robot_action_composer`）。  
+本目录下的 `motion_generation.py`、`record_datasets.py` 与 `robots/registry_loader.py` 仅为薄封装；开发与调试可直接 `import robot_action_composer`。
+
+**任务 YAML、`robot_config.py` 与 `robots/` 目录约定**以 composer 内文档为准（不再在 `examples/IsaacSim/docs` 重复维护正文）：
+
+- [任务 YAML 说明](../../submodules/robot_action_composer/docs/TASK_CONFIG_YAML.md)
+- [机器人配置说明](../../submodules/robot_action_composer/docs/ROBOT_CONFIG.md)
+- [包架构](../../submodules/robot_action_composer/docs/ARCHITECTURE.md)
+
+- **`train.py`** → **`policy_training/train.py`**：只读 **LeRobot 数据集**与训练配置，**不会**加载 `robots/*/robot_config.py`。要与仿真/实物一致，请用与录制时相同的相机与状态键（数据集 `meta` 即真源）。
+- **`inference.py`**：在线推理时通过 **`robot_action_composer.discovery.registry_loader.load_motion_entries`** 与 **`robot_action_composer.task_config_io.flatten_queue_task_overrides`** 读取与 motion/录制 **同一套** `robots/` 资产；策略与 ROS2 循环在 **`online_infer/core.py`**；仿真服务仍用 `common/isaac_ros2_sim_common`。
+
+任务队列运行时（runner、registry、内置 skills）与 **数据集录制**（`robot_action_composer.dataset_recording`、`cli.record_main`）均在 **`robot_action_composer`**；`common/` 保留 Isaac 仿真辅助（如 `isaac_ros2_sim_common`）。

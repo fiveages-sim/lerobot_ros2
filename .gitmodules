@@ -4,6 +4,6 @@
 [submodule "submodules/lerobot"]
 	path = submodules/lerobot
 	url = git@github.com:huggingface/lerobot.git
-[submodule "robot_action_composer"]
-	path = robot_action_composer
+[submodule "submodules/robot_action_composer"]
+	path = submodules/robot_action_composer
 	url = git@github.com:fiveages-sim/robot_action_composer.git

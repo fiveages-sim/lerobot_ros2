@@ -1,14 +1,15 @@
-# Dobot CR5：开抽屉 → 取苹果 → 放置 → 关抽屉（YAML）
-# pick / place / drawer 分层与 flatten_drawer_pick_place_task_overrides 一致
+# Dobot CR5：开抽屉 → 取苹果 → 放置 → 关抽屉
+#
+# 抽屉段为 ``single_arm.drawer.*``，与 pick/place 一样用 skill_defaults / skill_params；
+# ``single_arm.drawer`` 下的字段会并入运行时扁平配置（MergedQueueConfig.drawer），并作为
+# 各 ``single_arm.drawer.pull_open`` 等块的 params 底层默认值（见 merge.block_params / merge_task_queue_skill_params）。
 
 task_key: drawer_pick_place
 label: Drawer Pick Place
-kind: drawer
 use_stamped: true
 robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
 
-# 与 ``run_drawer_demo`` 等价相位；仅抽屉段为单独技能，抓取/放置复用 ``single_arm.pick`` / ``single_arm.place``
 task_queue:
   - skill: single_arm.pregrasp
   - skill: single_arm.drawer.pull_open
@@ -16,18 +17,19 @@ task_queue:
   - skill: single_arm.place
   - skill: single_arm.drawer.close_push
   - skill: single_arm.drawer.retreat_to_home
-  - skill: single_arm.movej_return_initial
+  - skill: joint.movej_return_initial
 
 base_task_overrides:
-  mode: single_arm
   max_stage_duration: 2.0
   pose_tol_pos: 0.001
   pose_tol_ori: 0.08
   require_orientation_reach: false
   use_object_orientation: false
   retreat_direction_extra: 0.08
-  pick:
-    initial_grasp_arm: left
+
+skill_defaults:
+  single_arm.pick:
+    arm: left
     object_xyz_random_offset: [0.3, 0.3, 0.0]
     approach_clearance: 0.08
     grasp_clearance: -0.03
@@ -35,12 +37,12 @@ base_task_overrides:
     grasp_orientation: [0.7, 0.7, 0.0, 0.0]
     grasp_direction: top
     grasp_direction_vector: null
-  place:
+  single_arm.place:
     run_place_before_return: true
     place_position: [-0.5211657941743888, 0.18339369774887115, 0.54]
     place_orientation: [0.64, 0.64, -0.28, -0.28]
     post_release_retract_offset: [0.0, -0.2, 0.0]
-  drawer:
+  single_arm.drawer:
     object_xyz_random_offset_drawer: [0.05, 0.05, 0.0]
     grasp_clearance_drawer: -0.003
     source_object_path_drawer_all: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135
@@ -48,15 +50,17 @@ base_task_overrides:
 
 scene_presets:
   drawer_001:
-    drawer:
-      source_object_path_drawer: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer001
-      handle_extent_max: [0.016881, -0.256626, 0.148597]
-      handle_extent_min: [-0.019242, -0.265197, 0.12913]
+    skill_params:
+      single_arm.drawer:
+        source_object_path_drawer: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer001
+        handle_extent_max: [0.016881, -0.256626, 0.148597]
+        handle_extent_min: [-0.019242, -0.265197, 0.12913]
   drawer_002:
-    drawer:
-      source_object_path_drawer: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer002
-      handle_extent_max: [0.016881, -0.256626, -0.003418]
-      handle_extent_min: [-0.019242, -0.265197, -0.022885]
+    skill_params:
+      single_arm.drawer:
+        source_object_path_drawer: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer002
+        handle_extent_max: [0.016881, -0.256626, -0.003418]
+        handle_extent_min: [-0.019242, -0.265197, -0.022885]
 
 record:
   base_record_overrides:

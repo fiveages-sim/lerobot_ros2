@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified IsaacSim training launcher."""
+"""Unified IsaacSim training launcher (LeRobot only; no robot_action_composer)."""
 
 from __future__ import annotations
 
@@ -21,10 +21,8 @@ def _load_module(module_name: str, file_path: Path) -> Any:
 
 def main() -> None:
     isaac_dir = Path(__file__).resolve().parent
-    common_dir = isaac_dir / "common"
-    if str(common_dir) not in sys.path:
-        sys.path.insert(0, str(common_dir))
-    train_mod = _load_module("isaac_policy_train", common_dir / "policy_training" / "train.py")
+    train_script = isaac_dir / "policy_training" / "train.py"
+    train_mod = _load_module("isaac_policy_train", train_script)
     train_mod.main()
 
 

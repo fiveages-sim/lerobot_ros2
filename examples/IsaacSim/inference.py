@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Unified IsaacSim inference launcher."""
+"""Unified IsaacSim inference launcher (LeRobot + ROS2).
+
+Robot / task discovery and ``pick``/``place`` flattening live in ``robot_action_composer``
+(``discovery.registry_loader``, ``task_config_io``) — same as motion / 录制入口。
+策略循环与 ROS2 发送在 ``online_infer/core.py``。
+"""
 
 from __future__ import annotations
 
@@ -34,11 +39,16 @@ def main() -> None:
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
 
-    from dataset_recording.launcher import select_option  # pyright: ignore[reportMissingImports]
-    from motion_generation.pick_place import (  # pyright: ignore[reportMissingImports]
-        flatten_pick_place_task_overrides,
+    from robot_action_composer.discovery.registry_loader import load_motion_entries  # pyright: ignore[reportMissingImports]
+    from robot_action_composer.task_config_io import flatten_queue_task_overrides  # pyright: ignore[reportMissingImports]
+    from robot_action_composer.task_runtime.merge import (  # pyright: ignore[reportMissingImports]
+        merge_flat_with_skill_carry,
+        merge_flat_with_skill_drawer,
+        merge_flat_with_skill_handover,
+        merge_flat_with_skill_pick_place,
     )
-    from robots.registry_loader import load_motion_entries  # pyright: ignore[reportMissingImports]
+
+    from online_infer.ui import select_option
 
     launcher_args, core_args = _parse_launcher_args()
     motion_registry = load_motion_entries(isaac_dir)
@@ -60,7 +70,6 @@ def main() -> None:
         key: value
         for key, value in robot_entry.get("tasks", {}).items()
         if isinstance(value.get("base_task_overrides"), dict)
-        and value.get("kind") == "pick_place"
     }
     if not task_options:
         raise RuntimeError(f"No task configs found for robot: {robot_key}")
@@ -76,14 +85,29 @@ def main() -> None:
         raise ValueError(f"Unknown task key: {task_key}")
 
     task_cfg = task_options[task_key]
-    base_task_overrides = flatten_pick_place_task_overrides(task_cfg.get("base_task_overrides", {}))
+    base_task_overrides = merge_flat_with_skill_pick_place(
+        flatten_queue_task_overrides(task_cfg.get("base_task_overrides", {})),
+        task_cfg.get("skill_defaults"),
+    )
+    base_task_overrides = merge_flat_with_skill_handover(
+        base_task_overrides,
+        task_cfg.get("skill_defaults"),
+    )
+    base_task_overrides = merge_flat_with_skill_carry(
+        base_task_overrides,
+        task_cfg.get("skill_defaults"),
+    )
+    base_task_overrides = merge_flat_with_skill_drawer(
+        base_task_overrides,
+        task_cfg.get("skill_defaults"),
+    )
     required_keys = {"source_object_entity_path", "object_xyz_random_offset"}
     if not required_keys.issubset(base_task_overrides.keys()):
         raise ValueError(
             f"Task '{task_key}' missing required fields for inference reset: {sorted(required_keys)}"
         )
 
-    core_script = isaac_dir / "common" / "inference" / "core.py"
+    core_script = isaac_dir / "online_infer" / "core.py"
     core_module = _load_module("isaac_inference_core", core_script)
     core_module.ROBOT_CFG = robot_entry["robot_cfg"]
     core_module.PICK_PLACE_FLOW_OVERRIDES = base_task_overrides
@@ -93,7 +117,6 @@ def main() -> None:
         f"source={base_task_overrides['source_object_entity_path']}"
     )
 
-    # Forward all remaining args to the legacy inference core parser.
     old_argv = sys.argv
     try:
         sys.argv = [str(core_script), *core_args]
