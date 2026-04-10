@@ -12,8 +12,8 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Pose
 from isaac_ros2_messages.srv import GetPrimAttribute, SetPrimAttribute
-from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
-    action_from_pose,
+from lerobot_robot_ros2.utils.pose_utils import action_from_pose  # pyright: ignore[reportMissingImports]
+from ros2_robot_interface.utils.quat_pose import (  # pyright: ignore[reportMissingImports]
     quat_conjugate,
     quat_multiply,
     quat_normalize,

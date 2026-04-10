@@ -21,6 +21,7 @@ skill_defaults:
     receiver_handover_offset: [0.0, -0.01, -0.03]
 
   single_arm.place:
+    arm: left
     place_position: [0.9, 0.25, 1.1]
     place_orientation:
       [-0.33016505084249775, 0.6534009839213628, -0.6175486972275431, 0.2875618193803384]
@@ -37,9 +38,6 @@ skill_defaults:
     grasp_direction: top
     grasp_direction_vector: null
 
-  ho_place:
-    arm: left
-
 task_queue:
   - skill: single_arm.pregrasp
     id: ho_pregrasp
@@ -47,8 +45,8 @@ task_queue:
     id: ho_pick
   - skill: dual_arm.handover_sync
   - skill: single_arm.place
-    id: ho_place
-  - skill: dual_arm.movej_return_initial
+  - skill: dual_arm.return_home
+  - skill: joint.movej_return_initial
 
 scene_presets:
   grab_medicine:

@@ -2,7 +2,7 @@
 #
 # - base_task_overrides：仅流程容差等标量
 # - dual_arm.handover：仅双臂同步段（HandoverSyncConfig）；pick/place 见 single_arm.*
-# - single_arm.pick / ho_place：单臂块；场景用 skill_params 覆盖
+# - single_arm.pick / place：交接为不同臂时，place 的 arm 写在 single_arm.place（不进入全局 flat，见 composer merge 逻辑）
 
 task_key: handover
 label: Handover
@@ -25,6 +25,7 @@ skill_defaults:
     receiver_handover_offset: [0.0, 0.0, -0.04]
 
   single_arm.place:
+    arm: left
     place_position: [0.7, 0.3, 1.1]
     place_orientation: [0.6532920183548978, -0.12549174013187747, 0.7390193620374562, 0.10635668500949247]
     run_place_before_return: true
@@ -40,9 +41,6 @@ skill_defaults:
     grasp_direction: top
     grasp_direction_vector: null
 
-  ho_place:
-    arm: left
-
 task_queue:
   - skill: single_arm.pregrasp
     id: ho_pregrasp
@@ -50,8 +48,8 @@ task_queue:
     id: ho_pick
   - skill: dual_arm.handover_sync
   - skill: single_arm.place
-    id: ho_place
-  - skill: dual_arm.movej_return_initial
+  - skill: dual_arm.return_home
+  - skill: joint.movej_return_initial
 
 scene_presets:
   grab_medicine:

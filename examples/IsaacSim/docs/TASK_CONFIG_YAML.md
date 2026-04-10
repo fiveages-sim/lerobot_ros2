@@ -6,3 +6,5 @@
 - **[机器人目录与 `robot_config.py`](../../../submodules/robot_action_composer/docs/ROBOT_CONFIG.md)**
 
 包内总览：**[架构设计](../../../submodules/robot_action_composer/docs/ARCHITECTURE.md)**。
+
+`task_queue`、并行块、`handover` 收尾（`dual_arm.return_home` + `joint.movej_return_initial`）等见主文档 **「task_queue 与技能名」** 一节。
