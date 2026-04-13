@@ -1,5 +1,6 @@
 # Dobot CR5：开抽屉 → 取苹果 → 放置 → 关抽屉
 #
+# 回程：``robot.cache_ee_pose``（队列起势位姿）+ ``single_arm.goto_cache_pose``，与 ``pick_place.yaml`` 一致。
 # 抽屉段为 ``single_arm.drawer.*``，与 pick/place 一样用 skill_defaults / skill_params；
 # ``single_arm.drawer`` 下的字段会并入运行时扁平配置（MergedQueueConfig.drawer），并作为
 # 各 ``single_arm.drawer.pull_open`` 等块的 params 底层默认值（见 merge.block_params / merge_task_queue_skill_params）。
@@ -11,13 +12,17 @@ robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
 
 task_queue:
-  - skill: single_arm.pregrasp
+  # reset 后起始末端位姿作为回程参考；pick 已含张开接近，无需 pregrasp
+  - skill: robot.cache_ee_pose
+    params:
+      key: cr5_drawer_prep_pose
   - skill: single_arm.drawer.pull_open
   - skill: single_arm.pick
   - skill: single_arm.place
   - skill: single_arm.drawer.close_push
-  - skill: single_arm.drawer.retreat_to_home
-  - skill: joint.movej_return_initial
+  - skill: single_arm.goto_cache_pose
+    params:
+      key: cr5_drawer_prep_pose
 
 base_task_overrides:
   max_stage_duration: 2.0
@@ -25,7 +30,6 @@ base_task_overrides:
   pose_tol_ori: 0.08
   require_orientation_reach: false
   use_object_orientation: false
-  retreat_direction_extra: 0.08
 
 skill_defaults:
   single_arm.pick:
@@ -33,6 +37,7 @@ skill_defaults:
     object_xyz_random_offset: [0.3, 0.3, 0.0]
     approach_clearance: 0.08
     grasp_clearance: -0.03
+    retreat_direction_extra: 0.08
     source_object_entity_path: /World/grasp_apple_drawer/apple/apple/apple
     grasp_orientation: [0.7, 0.7, 0.0, 0.0]
     grasp_direction: top
@@ -47,6 +52,8 @@ skill_defaults:
     grasp_clearance_drawer: -0.003
     source_object_path_drawer_all: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135
     drawer_scale: 0.85
+    # 拉开行程（米，沿拉手 grasp 方向）
+    pull_distance: 0.15
 
 scene_presets:
   drawer_001:

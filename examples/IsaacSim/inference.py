@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import sys
+from dataclasses import is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,16 @@ def main() -> None:
 
     core_script = isaac_dir / "online_infer" / "core.py"
     core_module = _load_module("isaac_inference_core", core_script)
-    core_module.ROBOT_CFG = robot_entry["robot_cfg"]
+    robot_cfg = robot_entry["robot_cfg"]
+    bl_override = base_task_overrides.get("base_link_entity_path")
+    if isinstance(bl_override, str) and bl_override.strip():
+        if not is_dataclass(robot_cfg):
+            raise TypeError(
+                "base_task_overrides.base_link_entity_path requires robot_cfg to be a @dataclass "
+                f"(got {type(robot_cfg).__name__})"
+            )
+        robot_cfg = replace(robot_cfg, base_link_entity_path=bl_override.strip())
+    core_module.ROBOT_CFG = robot_cfg
     core_module.PICK_PLACE_FLOW_OVERRIDES = base_task_overrides
 
     print(

@@ -26,8 +26,12 @@ base_task_overrides:
 # 执行顺序：
 #   parallel 块内的 skill 同时派发，全部完成后继续下一步
 #   - nav_to_pick 导航期间，全身关节运动到预备抓取配置（prepare_for_pick）
-#   - nav_to_place 导航期间，上半身收回安全位（return_home）
+#   - nav_to_place 导航期间，上半身关节到预备放置姿态
+#   末尾：右臂回队列开始时缓存的末端位姿（与 MoveJ 全身回初始解耦）
 task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      key: nav_pick_prep_pose
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_pick
@@ -44,9 +48,9 @@ task_queue:
   - skill: joint.movej_to_config    # 导航到位后，全身运动到预备放置姿态，结束后保持 HOLD
     id: pre_release_gesture
   - skill: single_arm.place
-  - skill: joint.movej_to_config    # 导航到位后，全身运动到预备放置姿态，结束后保持 HOLD
-    id: pre_release_gesture
-  - skill: joint.movej_return_initial
+  - skill: single_arm.goto_cache_pose
+    params:
+      key: nav_pick_prep_pose
 
 # 各 skill/id 的跨场景基准参数
 skill_defaults:

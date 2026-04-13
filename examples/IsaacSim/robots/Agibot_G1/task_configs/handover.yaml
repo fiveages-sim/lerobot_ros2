@@ -39,14 +39,19 @@ skill_defaults:
     grasp_direction_vector: null
 
 task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      which: both
+      key: ho_prep_pose
   - skill: single_arm.pregrasp
     id: ho_pregrasp
   - skill: single_arm.pick
     id: ho_pick
   - skill: dual_arm.handover_sync
   - skill: single_arm.place
-  - skill: dual_arm.return_home
-  - skill: joint.movej_return_initial
+  - skill: dual_arm.goto_cache_pose
+    params:
+      key: ho_prep_pose
 
 scene_presets:
   grab_medicine:

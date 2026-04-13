@@ -32,11 +32,15 @@ skill_defaults:
     run_place_before_return: false
 
 task_queue:
-  - skill: single_arm.pregrasp
+  # reset 后起始末端位姿作为回程参考；pick 的 Approach/CloseIn 已带夹爪张开，无需单独 pregrasp
+  - skill: robot.cache_ee_pose
+    params:
+      key: cr5_prep_pose
   - skill: single_arm.pick
   - skill: single_arm.place
-  - skill: single_arm.return_home
-  - skill: joint.movej_return_initial
+  - skill: single_arm.goto_cache_pose
+    params:
+      key: cr5_prep_pose
 
 scene_presets:
   apple:

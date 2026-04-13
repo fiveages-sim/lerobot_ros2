@@ -2,7 +2,7 @@
 #
 # 合并顺序：base → single_arm.pick（供 nav 默认物体路径）→ dual_arm.carry → 场景 skill_params
 # 队列：并行「导航 + navigate_gesture」→ pre_ocs2_* → carry →
-#   navigate_backup(0.5m) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 全身回初始
+#   navigate_backup(0.5m) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
 
 task_key: navigate_and_carry
 label: Navigate and Bimanual Carry
@@ -18,6 +18,10 @@ base_task_overrides:
   use_object_orientation: false
 
 task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      which: both
+      key: nav_carry_prep_pose
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_carry
@@ -39,7 +43,9 @@ task_queue:
         id: lower_body_while_nav_home
   - skill: nav.wait_nav_arrived
     id: wait_nav_home
-  - skill: joint.movej_return_initial
+  - skill: dual_arm.goto_cache_pose
+    params:
+      key: nav_carry_prep_pose
 
 skill_defaults:
   # 仅用于 nav.navigate_to_object 缺省 object_entity_path 时读 pick.source_object_entity_path；队列无 pick skill

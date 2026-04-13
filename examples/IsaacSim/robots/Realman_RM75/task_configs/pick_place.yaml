@@ -7,11 +7,15 @@ robot_id: realman_rm75_pick_place
 default_scene: default
 
 task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      key: rm75_prep_pose
   - skill: single_arm.pregrasp
   - skill: single_arm.pick
   - skill: single_arm.place
-  - skill: single_arm.return_home
-  - skill: joint.movej_return_initial
+  - skill: single_arm.goto_cache_pose
+    params:
+      key: rm75_prep_pose
 
 base_task_overrides:
   max_stage_duration: 2.0

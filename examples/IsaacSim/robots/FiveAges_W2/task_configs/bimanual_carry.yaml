@@ -1,7 +1,7 @@
 # FiveAges W2 — 双臂搬箱（skill_defaults / skill_params 与 dual_arm.carry* 对齐）
 #
 # 合并顺序：base 扁平化 → skill_defaults（single_arm.pick/place + dual_arm.carry）→ 场景扁平 → skill_params
-# 搬运队列：pregrasp → carry_approach → carry_grasp → carry_lift_retreat（也可用单个 dual_arm.carry）
+# 搬运队列：cache（起势）→ carry_approach → carry_grasp → carry_lift_retreat → goto_cache（也可用单个 dual_arm.carry）
 
 task_key: bimanual_carry
 label: Bimanual Carry
@@ -30,11 +30,16 @@ skill_defaults:
     object_xyz_random_offset: [0.0, 0.0, 0.0]
 
 task_queue:
-  - skill: dual_arm.carry_pregrasp
+  - skill: robot.cache_ee_pose
+    params:
+      which: both
+      key: w2_carry_prep_pose
   - skill: dual_arm.carry_approach
   - skill: dual_arm.carry_grasp
   - skill: dual_arm.carry_lift_retreat
-  - skill: dual_arm.movej_return_initial
+  - skill: dual_arm.goto_cache_pose
+    params:
+      key: w2_carry_prep_pose
 
 scene_presets:
   box01:
