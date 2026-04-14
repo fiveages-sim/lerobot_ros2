@@ -49,6 +49,9 @@ def main() -> None:
         merge_flat_with_skill_pick_place,
     )
 
+    from robot_action_composer.dataset_recording.launcher import (  # pyright: ignore[reportMissingImports]
+        select_task_with_optional_group,
+    )
     from online_infer.ui import select_option
 
     launcher_args, core_args = _parse_launcher_args()
@@ -77,10 +80,16 @@ def main() -> None:
 
     task_keys = list(task_options.keys())
     default_task = launcher_args.task or ("pick_place" if "pick_place" in task_options else task_keys[0])
-    task_key = default_task if launcher_args.task else select_option(
-        title="Select inference task",
-        options=task_options,
-        default_key=default_task,
+    task_key = (
+        default_task
+        if launcher_args.task
+        else select_task_with_optional_group(
+            title_group="Select task folder",
+            title_task="Select inference task",
+            tasks=task_options,
+            task_groups=robot_entry.get("task_groups", {}),
+            default_task_key=default_task,
+        )
     )
     if task_key not in task_options:
         raise ValueError(f"Unknown task key: {task_key}")

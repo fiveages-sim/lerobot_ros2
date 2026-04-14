@@ -11,7 +11,8 @@ def select_option(*, title: str, options: dict[str, dict[str, Any]], default_key
     for idx, key in enumerate(keys, start=1):
         label = options[key].get("label", key)
         suffix = " (default)" if key == default_key else ""
-        print(f"  {idx}. {label} [{key}]{suffix}")
+        bracket = key if key else "top-level"
+        print(f"  {idx}. {label} [{bracket}]{suffix}")
     raw = input("Select option (press Enter for default): ").strip()
     if raw == "":
         return default_key
