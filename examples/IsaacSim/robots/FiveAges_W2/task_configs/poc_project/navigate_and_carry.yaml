@@ -100,12 +100,11 @@ skill_defaults:
   dual_arm.place_relative:
     translation_xyz: [0.25, 0.0, -0.08]
     motion_frame_id: "arm_base"
-
 scene_presets:
-  box03:
+  box01:
     skill_params:
       dual_arm.carry:
-        source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
+        source_object_entity_path: /World/scene/scene/port7/box_black_01/black_box
   box02:
     skill_params:
       pre_ocs2_carry_pose:
@@ -115,4 +114,4 @@ scene_presets:
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [0.0, 0.15, 0.0]
       dual_arm.place_relative:
-        translation_xyz: [ 0.33, 0.0, -0.025 ]
+        translation_xyz: [0.33, 0.0, -0.025]
