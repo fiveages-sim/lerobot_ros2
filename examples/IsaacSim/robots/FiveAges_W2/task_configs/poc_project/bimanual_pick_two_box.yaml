@@ -13,7 +13,7 @@ default_scene: two_box
 base_task_overrides:
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
   max_stage_duration: 2.0
-  pose_tol_pos: 0.005
+  pose_tol_pos: 0.01
   pose_tol_ori: 0.05
   require_orientation_reach: false
   use_object_orientation: false
