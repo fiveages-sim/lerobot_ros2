@@ -20,9 +20,11 @@ base_task_overrides:
   use_object_orientation: false
 
 skill_defaults:
+  env.randomize_object_local_xyz:
+    object_entity_path: /World/grasp_fruits/apple/apple/apple
+    xyz_offset: [0.5, 0.5, 0.0]
   single_arm.pick:
     arm: left
-    object_xyz_random_offset: [0.5, 0.5, 0.0]
     approach_clearance: 0.12
     grasp_clearance: -0.03
     source_object_entity_path: /World/grasp_fruits/apple/apple/apple
@@ -32,6 +34,7 @@ skill_defaults:
     run_place_before_return: false
 
 task_queue:
+  - skill: env.randomize_object_local_xyz
   # reset 后起始末端位姿作为回程参考；pick 的 Approach/CloseIn 已带夹爪张开，无需单独 pregrasp
   - skill: robot.cache_ee_pose
     params:
@@ -56,6 +59,8 @@ scene_presets:
 
   nailong:
     skill_params:
+      env.randomize_object_local_xyz:
+        object_entity_path: /World/nailong/PlushToy_3/material/material
       single_arm.pick:
         source_object_entity_path: /World/nailong/PlushToy_3/material/material
         arm: left

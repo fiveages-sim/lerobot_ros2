@@ -57,7 +57,6 @@ skill_defaults:
   # 与 task_queue 中 single_arm.pick / single_arm.place 对应（merge_flat_with_skill_pick_place）
   single_arm.pick:
     arm: right
-    object_xyz_random_offset: [0.0, 0.0, 0.0]
     approach_clearance: 0.2
     grasp_clearance: 0.00
     source_object_entity_path: /World/grasp_fruits/fruits_01/apple/apple/apple

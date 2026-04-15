@@ -12,6 +12,7 @@ robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
 
 task_queue:
+  - skill: env.randomize_object_local_xyz
   # reset 后起始末端位姿作为回程参考；pick 已含张开接近，无需 pregrasp
   - skill: robot.cache_ee_pose
     params:
@@ -32,9 +33,11 @@ base_task_overrides:
   use_object_orientation: false
 
 skill_defaults:
+  env.randomize_object_local_xyz:
+    object_entity_path: /World/grasp_apple_drawer/apple/apple/apple
+    xyz_offset: [0.3, 0.3, 0.0]
   single_arm.pick:
     arm: left
-    object_xyz_random_offset: [0.3, 0.3, 0.0]
     approach_clearance: 0.08
     grasp_clearance: -0.03
     retreat_direction_extra: 0.08

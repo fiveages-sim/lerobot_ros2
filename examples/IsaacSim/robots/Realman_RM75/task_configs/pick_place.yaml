@@ -7,6 +7,7 @@ robot_id: realman_rm75_pick_place
 default_scene: default
 
 task_queue:
+  - skill: env.randomize_object_local_xyz
   - skill: robot.cache_ee_pose
     params:
       key: rm75_prep_pose
@@ -25,9 +26,11 @@ base_task_overrides:
   use_object_orientation: false
 
 skill_defaults:
+  env.randomize_object_local_xyz:
+    object_entity_path: /World/banana/banana/banana
+    xyz_offset: [0.15, 0.15, 0.0]
   single_arm.pick:
     arm: left
-    object_xyz_random_offset: [0.15, 0.15, 0.0]
     approach_clearance: 0.3
     grasp_clearance: 0.165
     source_object_entity_path: /World/banana/banana/banana

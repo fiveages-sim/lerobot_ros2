@@ -33,7 +33,6 @@ skill_defaults:
   single_arm.pick:
     arm: right
     grasp_orientation: [1.0, 0.0, 0.0, 0.0]
-    object_xyz_random_offset: [0.0, 0.0, 0.0]
     approach_clearance: 0.2
     grasp_clearance: 0.01
     grasp_offset: [0.04, 0.0, 0.0]

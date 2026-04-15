@@ -30,7 +30,6 @@ skill_defaults:
   dual_arm.parallel_pick:
     left_pick:
       source_object_entity_path: /World/port6/box_blue_01
-      object_xyz_random_offset: [0.0, 0.0, 0.0]
       target_pose_offset: [0.04, 0.2, 0.168]
       approach_clearance: 0.04
       grasp_clearance: 0.0
@@ -43,7 +42,6 @@ skill_defaults:
       retreat_xyz: [-0.2, 0.0, 0.0]   # 第5段 Retreat（从 Lift 点继续走 XYZ）
     right_pick:
       source_object_entity_path: /World/port6/box_blue_03
-      object_xyz_random_offset: [0.0, 0.0, 0.0]
       target_pose_offset: [0.04, -0.2, 0.168]
       approach_clearance: 0.04
       grasp_clearance: 0.0

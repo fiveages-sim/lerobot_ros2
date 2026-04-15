@@ -30,9 +30,9 @@ skill_defaults:
   dual_arm.carry:
     source_object_entity_path: /World/port6/pallet2
     carry_half_span_y: 0.38
-    carry_pregrasp_xyz: [-0.2, 0.0, 0.0]
+    carry_prepare_offset: [-0.2, 0.0, 0.0]
     carry_approach_clearance_y: 0.04
-    carry_grasp_xyz: [-0.46, 0, 0.355]
+    carry_xyz: [-0.46, 0, 0.355]
     carry_left_orientation:  [0.7044, -0.0616, 0.7044, -0.0616]
     carry_right_orientation: [0.7044,  0.0616, 0.7044, 0.0616]
     carry_lift_xyz: [0.0, 0.0, 0.1]

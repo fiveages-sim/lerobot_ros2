@@ -111,7 +111,7 @@ def main() -> None:
         base_task_overrides,
         task_cfg.get("skill_defaults"),
     )
-    required_keys = {"source_object_entity_path", "object_xyz_random_offset"}
+    required_keys = {"source_object_entity_path"}
     if not required_keys.issubset(base_task_overrides.keys()):
         raise ValueError(
             f"Task '{task_key}' missing required fields for inference reset: {sorted(required_keys)}"

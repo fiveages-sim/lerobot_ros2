@@ -39,7 +39,7 @@ from lerobot_robot_ros2 import (
     ROS2RobotConfig,
 )
 
-from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object  # pyright: ignore[reportMissingImports]
+from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_state  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
@@ -609,11 +609,8 @@ def main() -> None:
     print("Resetting simulation state...")
     if "source_object_entity_path" not in PICK_PLACE_FLOW_OVERRIDES:
         raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.source_object_entity_path is required for reset")
-    if "object_xyz_random_offset" not in PICK_PLACE_FLOW_OVERRIDES:
-        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_xyz_random_offset is required for reset")
-    reset_simulation_and_randomize_object(
-            PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"],
-            xyz_offset=PICK_PLACE_FLOW_OVERRIDES["object_xyz_random_offset"],
+    reset_simulation_state(
+        str(PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"]).strip(),
         post_reset_wait=ROBOT_CFG.post_reset_wait,
         sleep_fn=sim_time.sleep,
     )
