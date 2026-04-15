@@ -49,7 +49,8 @@ skill_defaults:
     motion_frame_id: "arm_base"
 
   dual_arm.place_relative:
-    translation_xyz: [0.25, 0.0, -0.08]
+    reference_object_entity_path: /World/shelf2/shelf2
+    reference_offset_xyz: [-0.6, 0.0, 0.85]
     motion_frame_id: "arm_base"
 
   # 末尾回到导航姿态（与 navigate_and_carry 的 navigate_gesture 一致）
@@ -88,8 +89,6 @@ scene_presets:
         carry_lift_xyz: [ -0.15, 0.0, 0.12 ]
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [0.0, 0.15, 0.0]
-      dual_arm.place_relative:
-        translation_xyz: [0.3, 0.0, -0.025]
 
   box03:
     skill_params:
@@ -106,7 +105,7 @@ scene_presets:
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [ 0.0, 0.15, 0.0 ]
       dual_arm.place_relative:
-        translation_xyz: [ 0.32, 0.0, 0.01 ]
+        reference_offset_xyz: [-0.6, 0.0, 1.3]
 
   box04:
     skill_params:
@@ -123,4 +122,4 @@ scene_presets:
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [ 0.0, 0.6, 0.0 ]
       dual_arm.place_relative:
-        translation_xyz: [ 0.32, 0.0, -0.1 ]
+        reference_offset_xyz: [-0.6, 0.0, 1.3]
