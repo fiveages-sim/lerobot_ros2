@@ -90,7 +90,7 @@ skill_defaults:
   # parallel[1]
   lower_body_while_nav_to_shelf2:
     body_positions: [-1.35, -2.4, -1.05, 3.14]
-    skip_fsm_hold: true
+    skip_fsm_change: true
     arrival_timeout: 90.0
     joint_tolerance: 0.05
   # parallel[2]：持箱时把左右手中点 Y 平移到 target_mid_y

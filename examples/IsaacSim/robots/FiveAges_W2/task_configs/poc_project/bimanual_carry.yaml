@@ -31,7 +31,6 @@ skill_defaults:
   dual_arm.carry:
     source_object_entity_path: /World/port7/box_black_03/black_box
     carry_half_span_y: 0.368
-    carry_prepare_offset: [-0.2, 0.0, 0.0]
     carry_approach_clearance_y: 0.04
     carry_xyz: [0.04, 0.0, 0.05]
     carry_left_orientation: [0.7, 0.0, 0.7, 0.0]
@@ -40,7 +39,7 @@ skill_defaults:
 
   lower_body_while_nav_to_shelf2:
     body_positions: [-1.35, -2.4, -1.05, 3.14]
-    skip_fsm_hold: true
+    skip_fsm_change: true
     arrival_timeout: 90.0
     joint_tolerance: 0.05
 
@@ -97,7 +96,6 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/port7/box_black_03/black_box
-        carry_prepare_offset: [-0.05, 0.0, 0.0]
         carry_lift_xyz: [ -0.08, 0.0, 0.16 ]
       lower_body_while_nav_to_shelf2:
         body_positions: [ -0.1, 0.2, 0.3, 3.14 ]
@@ -114,7 +112,6 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/port7/box_black_04/black_box
-        carry_prepare_offset: [-0.05, 0.0, 0.0]
         carry_lift_xyz: [ 0.075, 0.0, 0.13 ]
       lower_body_while_nav_to_shelf2:
         body_positions: [ -0.1, 0.2, 0.3, 3.14 ]

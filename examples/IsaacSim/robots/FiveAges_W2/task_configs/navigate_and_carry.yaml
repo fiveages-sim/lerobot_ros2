@@ -106,7 +106,7 @@ skill_defaults:
   # 与导航并行：不降腰先发 HOLD，避免打断 Nav2；躯干目标同 navigate_gesture 弯腰（可改）
   lower_body_while_nav_home:
     body_positions: [-1.3, -2.6, -1.3, 0.0]
-    skip_fsm_hold: true
+    skip_fsm_change: true
     arrival_timeout: 90.0
     joint_tolerance: 0.05
 
