@@ -71,12 +71,13 @@ skill_defaults:
   dual_arm.carry:
     source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
     carry_half_span_y: 0.368
-    carry_prepare_offset: [-0.2, 0.0, 0.0]
     carry_approach_clearance_y: 0.04
     carry_xyz: [0.04, 0.0, 0.05]
     carry_left_orientation: [0.7, 0.0, 0.7, 0.0]
     carry_right_orientation: [0.7, 0.0, 0.7, 0.0]
     carry_lift_xyz: [-0.2, 0.0, 0.1]
+    # 可选：双臂 movel 时长（类比 body_movej_duration），写入 arm_controller.movel_duration
+    arm_movel_duration: 2.0
 
   # 第二段 parallel[0]
   nav_to_shelf2:
@@ -96,6 +97,8 @@ skill_defaults:
   dual_arm.bimanual_align_mid_y:
     target_mid_y: 0.0
     motion_frame_id: "arm_base"
+    # 可选覆盖 carry 的 arm_movel_duration
+    # arm_movel_duration: 2.5
 
   # 相对放置：平移在 motion 系；若腰转后与 base 左右直觉不一致，设 motion_frame_id 为随腰 TF
   dual_arm.place_relative:
@@ -123,15 +126,16 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
-        carry_prepare_offset: [-0.05, 0.0, 0.0]
         carry_lift_xyz: [-0.1, 0.0, 0.14]
       lower_body_while_nav_to_shelf2:
         body_positions: [-0.1, 0.2, 0.3, 3.14]
-        body_movej_duration: 5.0
+        body_movej_duration: 4.0
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [0.0, 0.3, 0.0]
+        arm_movel_duration: 4.0
       dual_arm.place_relative:
-        reference_offset_xyz: [-0.57, 0.0, 1.25]
+        reference_offset_xyz: [-0.57, 0.0, 1.27]
+        arm_movel_duration: 2.0
   box04:
     skill_params:
       pre_ocs2_carry_pose:
@@ -139,12 +143,13 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_04/black_box
-        carry_prepare_offset: [-0.05, 0.0, 0.0]
         carry_lift_xyz: [0.075, 0.0, 0.13]
       lower_body_while_nav_to_shelf2:
         body_positions: [-0.1, 0.2, 0.3, 3.14]
-        body_movej_duration: 5.0
+        body_movej_duration: 4.0
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [0.0, 0.6, 0.0]
+        arm_movel_duration: 4.0
       dual_arm.place_relative:
-        reference_offset_xyz: [-0.57, 0.0, 1.25]
+        reference_offset_xyz: [-0.57, 0.0, 1.27]
+        arm_movel_duration: 2.0
