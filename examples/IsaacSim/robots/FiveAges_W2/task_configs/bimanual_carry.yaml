@@ -19,14 +19,14 @@ base_task_overrides:
 skill_defaults:
   dual_arm.carry:
     source_object_entity_path: /World/lift_box/LogisticBox_01/box/box
-    carry_half_span_y: 0.29
+    object_dual_arm_half_span_y: 0.29
     carry_prepare_offset: [-0.3, 0.0, 0.0]
-    carry_approach_clearance_y: 0.08
-    carry_xyz: [0.0, 0.0, 0.2]
-    carry_left_orientation: [-0.5, 0.5, -0.5, 0.5]
-    carry_right_orientation: [-0.5, 0.5, -0.5, 0.5]
-    carry_lift_xyz: [0.0, 0.0, 0.1]
-    carry_retreat_xyz: [-0.2, 0.0, 0.0]
+    arm_merge_distance_y: 0.08
+    object_position_offset: [0.0, 0.0, 0.2]
+    left_base_orientation: [-0.5, 0.5, -0.5, 0.5]
+    right_base_orientation: [-0.5, 0.5, -0.5, 0.5]
+    ee_lift_offset: [0.0, 0.0, 0.1]
+    ee_retreat_offset: [-0.2, 0.0, 0.0]
 
 task_queue:
   - skill: robot.cache_ee_pose
@@ -49,4 +49,4 @@ scene_presets:
     skill_params:
       dual_arm.carry:
         source_object_entity_path: /World/lift_box_warehouse/LogisticBox_01/box/box
-        carry_retreat_xyz: [-0.3, 0.0, 0.0]
+        ee_retreat_offset: [-0.3, 0.0, 0.0]

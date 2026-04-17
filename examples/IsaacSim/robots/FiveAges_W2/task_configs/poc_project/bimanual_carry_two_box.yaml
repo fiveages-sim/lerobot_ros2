@@ -29,14 +29,14 @@ skill_defaults:
 
   dual_arm.carry:
     source_object_entity_path: /World/port6/pallet2
-    carry_half_span_y: 0.38
+    object_dual_arm_half_span_y: 0.38
     carry_prepare_offset: [-0.2, 0.0, 0.0]
-    carry_approach_clearance_y: 0.04
-    carry_xyz: [-0.46, 0, 0.355]
-    carry_left_orientation:  [0.7044, -0.0616, 0.7044, -0.0616]
-    carry_right_orientation: [0.7044,  0.0616, 0.7044, 0.0616]
-    carry_lift_xyz: [0.0, 0.0, 0.1]
-    carry_retreat_xyz: [-0.2, 0.0, 0.0]
+    arm_merge_distance_y: 0.04
+    object_position_offset: [-0.46, 0, 0.355]
+    left_base_orientation:  [0.7044, -0.0616, 0.7044, -0.0616]
+    right_base_orientation: [0.7044,  0.0616, 0.7044, 0.0616]
+    ee_lift_offset: [0.0, 0.0, 0.1]
+    ee_retreat_offset: [-0.2, 0.0, 0.0]
 
 task_queue:
   - skill: joint.movej_to_config

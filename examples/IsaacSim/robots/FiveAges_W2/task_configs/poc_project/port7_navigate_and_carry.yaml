@@ -6,8 +6,8 @@
 #   skill: env.randomize_object_local_xyz
 #   params: { object_entity_path: /World/.../some_prim, xyz_offset: [0.05, 0.05, 0.0] }
 
-task_key: poc_navigate_and_carry
-label: POC — Navigate and Bimanual Carry
+task_key: poc_port7_navigate_and_carry
+label: "[PORT7] Nav Bimanual Carry"
 use_stamped: true
 robot_id: fiveages_w2_poc_navigate_and_carry
 default_scene: box01
@@ -70,12 +70,12 @@ skill_defaults:
 
   dual_arm.carry:
     source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
-    carry_half_span_y: 0.368
-    carry_approach_clearance_y: 0.04
-    carry_xyz: [0.04, 0.0, 0.05]
-    carry_left_orientation: [0.7, 0.0, 0.7, 0.0]
-    carry_right_orientation: [0.7, 0.0, 0.7, 0.0]
-    carry_lift_xyz: [-0.2, 0.0, 0.1]
+    object_dual_arm_half_span_y: 0.368
+    arm_merge_distance_y: 0.04
+    object_position_offset: [0.04, 0.0, 0.05]
+    left_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    right_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    ee_lift_offset: [-0.2, 0.0, 0.1]
     # 可选：双臂 movel 时长（类比 body_movej_duration），写入 arm_controller.movel_duration
     arm_movel_duration: 2.0
 
@@ -116,7 +116,7 @@ scene_presets:
         body_positions: [-1.2, -2.4, -1.05, 0.0]
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_02/black_box
-        carry_lift_xyz: [-0.15, 0.0, 0.12]
+        ee_lift_offset: [-0.15, 0.0, 0.12]
       dual_arm.bimanual_align_mid_y:
         orientation_delta_rpy: [0.0, 0.15, 0.0]
   box03:
@@ -126,7 +126,7 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
-        carry_lift_xyz: [-0.1, 0.0, 0.14]
+        ee_lift_offset: [-0.1, 0.0, 0.14]
       lower_body_while_nav_to_shelf2:
         body_positions: [-0.1, 0.2, 0.3, 3.14]
         body_movej_duration: 4.0
@@ -143,7 +143,7 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_04/black_box
-        carry_lift_xyz: [0.075, 0.0, 0.13]
+        ee_lift_offset: [0.075, 0.0, 0.13]
       lower_body_while_nav_to_shelf2:
         body_positions: [-0.1, 0.2, 0.3, 3.14]
         body_movej_duration: 4.0
