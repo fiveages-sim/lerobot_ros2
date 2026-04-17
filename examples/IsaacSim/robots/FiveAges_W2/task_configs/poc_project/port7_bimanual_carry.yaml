@@ -49,13 +49,12 @@ skill_defaults:
     joint_tolerance: 0.05
 
   dual_arm.bimanual_align:
-    target_mid_y: 0.0
     align_position: [0.55, 0.0, -0.085]
     motion_frame_id: "arm_base"
 
   dual_arm.place_relative:
     reference_object_entity_path: /World/shelf2/shelf2
-    reference_offset_xyz: [-0.6, 0.0, 0.85]
+    object_position_offset: [-0.6, 0.0, 0.85]
     motion_frame_id: "arm_base"
     arm_movel_duration: 2.0
 
@@ -107,11 +106,12 @@ scene_presets:
         ee_lift_offset: [0.1, 0.0, -0.1]
       lower_body_while_nav_to_shelf2:
         body_positions: [ -0.1, 0.2, 0.3, 3.14 ]
-        body_movej_duration: 5.0
+        body_movej_duration: 4.0
       dual_arm.bimanual_align:
         orientation_delta_rpy: [ 0.0, 0.25, 0.0 ]
+        arm_movel_duration: 4.0
       dual_arm.place_relative:
-        reference_offset_xyz: [-0.57, 0.0, 1.27]
+        object_position_offset: [-0.57, 0.0, 1.27]
 
   box04:
     skill_params:
@@ -124,8 +124,9 @@ scene_presets:
         ee_lift_offset: [0.1, 0.0, 0.0]
       lower_body_while_nav_to_shelf2:
         body_positions: [ -0.1, 0.2, 0.3, 3.14 ]
-        body_movej_duration: 5.0
+        body_movej_duration: 4.0
       dual_arm.bimanual_align:
         orientation_delta_rpy: [ 0.0, 0.6, 0.0 ]
+        arm_movel_duration: 4.0
       dual_arm.place_relative:
-        reference_offset_xyz: [-0.57, 0.0, 1.27]
+        object_position_offset: [-0.57, 0.0, 1.27]

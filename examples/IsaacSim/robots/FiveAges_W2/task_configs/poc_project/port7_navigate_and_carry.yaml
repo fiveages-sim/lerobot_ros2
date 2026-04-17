@@ -93,9 +93,7 @@ skill_defaults:
     skip_fsm_change: true
     arrival_timeout: 90.0
     joint_tolerance: 0.05
-  # parallel[2]：持箱时把左右手中点 Y 平移到 target_mid_y
   dual_arm.bimanual_align_mid_y:
-    target_mid_y: 0.0
     motion_frame_id: "arm_base"
     # 可选覆盖 carry 的 arm_movel_duration
     # arm_movel_duration: 2.5
@@ -103,7 +101,7 @@ skill_defaults:
   # 相对放置：平移在 motion 系；若腰转后与 base 左右直觉不一致，设 motion_frame_id 为随腰 TF
   dual_arm.place_relative:
     reference_object_entity_path: /World/scene/scene/port3/shelf2/shelf2
-    reference_offset_xyz: [-0.6, 0.0, 0.85]
+    object_position_offset: [-0.6, 0.0, 0.85]
     motion_frame_id: "arm_base"
 scene_presets:
   box01:
@@ -134,7 +132,7 @@ scene_presets:
         orientation_delta_rpy: [0.0, 0.3, 0.0]
         arm_movel_duration: 4.0
       dual_arm.place_relative:
-        reference_offset_xyz: [-0.57, 0.0, 1.27]
+        object_position_offset: [-0.57, 0.0, 1.27]
         arm_movel_duration: 2.0
   box04:
     skill_params:
@@ -151,5 +149,5 @@ scene_presets:
         orientation_delta_rpy: [0.0, 0.6, 0.0]
         arm_movel_duration: 4.0
       dual_arm.place_relative:
-        reference_offset_xyz: [-0.57, 0.0, 1.27]
+        object_position_offset: [-0.57, 0.0, 1.27]
         arm_movel_duration: 2.0
