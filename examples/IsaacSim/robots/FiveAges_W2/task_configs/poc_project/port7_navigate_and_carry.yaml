@@ -7,7 +7,7 @@
 #   params: { object_entity_path: /World/.../some_prim, xyz_offset: [0.05, 0.05, 0.0] }
 
 task_key: poc_port7_navigate_and_carry
-label: "[PORT7] Nav Bimanual Carry"
+label: "[PORT7] 导航后双臂搬黑箱子"
 use_stamped: true
 robot_id: fiveages_w2_poc_navigate_and_carry
 default_scene: box01
@@ -36,8 +36,7 @@ task_queue:
         id: nav_to_shelf2
       - skill: joint.movej_to_config
         id: lower_body_while_nav_to_shelf2
-      - skill: dual_arm.bimanual_align_mid_y
-        id: align_hands_y_while_nav
+      - skill: dual_arm.bimanual_align
   # 到达 shelf2 后：相对当前持箱末端平移 → 放下 → 松爪 → 外张后撤（不依赖货架 prim）
   - skill: dual_arm.place_relative
 
@@ -69,15 +68,15 @@ skill_defaults:
     resume_ocs2: true
 
   dual_arm.carry:
+    motion_frame_id: "arm_base"
+    arm_movel_duration: 2.0
     source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
     object_dual_arm_half_span_y: 0.368
     arm_merge_distance_y: 0.04
     object_position_offset: [0.04, 0.0, 0.05]
     left_base_orientation: [0.7, 0.0, 0.7, 0.0]
     right_base_orientation: [0.7, 0.0, 0.7, 0.0]
-    ee_lift_offset: [-0.2, 0.0, 0.1]
-    # 可选：双臂 movel 时长（类比 body_movej_duration），写入 arm_controller.movel_duration
-    arm_movel_duration: 2.0
+    ee_lift_offset: [0.1, 0.0, -0.2]
 
   # 第二段 parallel[0]
   nav_to_shelf2:
@@ -93,10 +92,10 @@ skill_defaults:
     skip_fsm_change: true
     arrival_timeout: 90.0
     joint_tolerance: 0.05
-  dual_arm.bimanual_align_mid_y:
+  dual_arm.bimanual_align:
+    align_position: [0.55, 0.0, -0.085]
+    target_mid_y: 0.0
     motion_frame_id: "arm_base"
-    # 可选覆盖 carry 的 arm_movel_duration
-    # arm_movel_duration: 2.5
 
   # 相对放置：平移在 motion 系；若腰转后与 base 左右直觉不一致，设 motion_frame_id 为随腰 TF
   dual_arm.place_relative:
@@ -114,8 +113,8 @@ scene_presets:
         body_positions: [-1.2, -2.4, -1.05, 0.0]
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_02/black_box
-        ee_lift_offset: [-0.15, 0.0, 0.12]
-      dual_arm.bimanual_align_mid_y:
+        orientation_delta_rpy: [0.0, -0.15, 0.0]
+      dual_arm.bimanual_align:
         orientation_delta_rpy: [0.0, 0.15, 0.0]
   box03:
     skill_params:
@@ -124,16 +123,16 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_03/black_box
-        ee_lift_offset: [-0.1, 0.0, 0.14]
+        orientation_delta_rpy: [0.0, -0.25, 0.0]
+        ee_lift_offset: [0.1, 0.0, -0.1]
       lower_body_while_nav_to_shelf2:
         body_positions: [-0.1, 0.2, 0.3, 3.14]
         body_movej_duration: 4.0
-      dual_arm.bimanual_align_mid_y:
-        orientation_delta_rpy: [0.0, 0.3, 0.0]
+      dual_arm.bimanual_align:
+        orientation_delta_rpy: [0.0, 0.25, 0.0]
         arm_movel_duration: 4.0
       dual_arm.place_relative:
         object_position_offset: [-0.57, 0.0, 1.27]
-        arm_movel_duration: 2.0
   box04:
     skill_params:
       pre_ocs2_carry_pose:
@@ -141,13 +140,13 @@ scene_presets:
         body_movej_duration: 2.0
       dual_arm.carry:
         source_object_entity_path: /World/scene/scene/port7/box_black_04/black_box
-        ee_lift_offset: [0.075, 0.0, 0.13]
+        orientation_delta_rpy: [0.0, -0.6, 0.0]
+        ee_lift_offset: [0.1, 0.0, 0.0]
       lower_body_while_nav_to_shelf2:
         body_positions: [-0.1, 0.2, 0.3, 3.14]
         body_movej_duration: 4.0
-      dual_arm.bimanual_align_mid_y:
+      dual_arm.bimanual_align:
         orientation_delta_rpy: [0.0, 0.6, 0.0]
         arm_movel_duration: 4.0
       dual_arm.place_relative:
         object_position_offset: [-0.57, 0.0, 1.27]
-        arm_movel_duration: 2.0
