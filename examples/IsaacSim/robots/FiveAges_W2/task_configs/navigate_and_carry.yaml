@@ -31,9 +31,7 @@ task_queue:
     id: pre_ocs2_carry_body
   - skill: joint.movej_to_config
     id: pre_ocs2_carry_arms
-  - skill: dual_arm.carry_approach
-  - skill: dual_arm.carry_grasp
-  - skill: dual_arm.carry_lift_retreat
+  - skill: dual_arm.carry
   - skill: nav.navigate_backup
     id: post_carry_backup
   - parallel:
@@ -48,13 +46,13 @@ task_queue:
       key: nav_carry_prep_pose
 
 skill_defaults:
-  # 仅用于 nav.navigate_to_object 缺省 object_entity_path 时读 pick.source_object_entity_path；队列无 pick skill
+  # 仅用于 nav.navigate_to_object 缺省 object_prim_path 时读 pick.object_prim_path；队列无 pick skill
   single_arm.pick:
     arm: right
-    source_object_entity_path: /World/lift_box_warehouse/LogisticBox_01/box/box
+    object_prim_path: /World/lift_box_warehouse/LogisticBox_01/box/box
 
   dual_arm.carry:
-    source_object_entity_path: /World/lift_box_warehouse/LogisticBox_01/box/box
+    object_prim_path: /World/lift_box_warehouse/LogisticBox_01/box/box
     object_dual_arm_half_span_y: 0.29
     carry_prepare_offset: [-0.3, 0.0, 0.0]
     arm_merge_distance_y: 0.08
@@ -118,7 +116,7 @@ scene_presets:
   box01:
     skill_params:
       dual_arm.carry:
-        source_object_entity_path: /World/lift_box/LogisticBox_01/box/box
+        object_prim_path: /World/lift_box/LogisticBox_01/box/box
         ee_retreat_offset: [-0.3, 0.0, 0.0]
 
 record:

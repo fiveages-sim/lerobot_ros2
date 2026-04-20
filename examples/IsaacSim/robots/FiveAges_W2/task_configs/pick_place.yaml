@@ -18,12 +18,11 @@ base_task_overrides:
 skill_defaults:
   single_arm.pick:
     arm: right
-    approach_clearance: 0.2
-    grasp_clearance: 0.01
-    source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
-    grasp_orientation: [1.0, 0.0, 0.0, 0.0]
+    prepare_offset: [0.0, 0.0, 0.2]
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
     grasp_direction: top
-    grasp_direction_vector: null
+    grasp_direction_vector: [0, 0, 1]
   single_arm.place:
     run_place_before_return: false
 
@@ -31,7 +30,6 @@ task_queue:
   - skill: robot.cache_ee_pose
     params:
       key: w2_pick_prep_pose
-  - skill: single_arm.pregrasp
   - skill: single_arm.pick
   - skill: single_arm.place
   - skill: single_arm.goto_cache_pose
@@ -42,44 +40,41 @@ scene_presets:
   grab_medicine:
     skill_params:
       single_arm.pick:
-        source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+        object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
 
   grab_bottle:
     skill_params:
       single_arm.pick:
-        source_object_entity_path: /World/ConvenienceStore01/SM_Bottle_04_85
+        object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85
         arm: left
-        grasp_direction: front
-        grasp_orientation: [0.7, 0.0, 0.7, 0.0]
-        target_pose_offset: [0.0, 0.0, 0.1]
-        approach_clearance: 0.2
-        grasp_clearance: -0.02
+        grasp_direction: top
+        ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
+        object_position_offset: [0.0, 0.0, 0.1]
+        prepare_offset: [0.0, 0.0, 0.2]
         retreat_direction_extra: 0.0
         retreat_offset: [0.0, 0.0, 0.1]
 
   ptc-pick-24:
     skill_params:
       single_arm.pick:
-        source_object_entity_path: /World/scene/trolley/sr15_24/SR15_10
+        object_prim_path: /World/scene/trolley/sr15_24/SR15_10
         arm: right
-        grasp_direction: front
-        grasp_orientation: [0.0, 0.91, 0.0, 0.39]
-        target_pose_offset: [-0.038, 0.028, 0.005]
-        approach_clearance: 0.3
-        grasp_clearance: 0.0
+        grasp_direction: top
+        ee_base_orientation: [0.0, 0.91, 0.0, 0.39]
+        object_position_offset: [-0.038, 0.028, 0.005]
+        prepare_offset: [0.0, 0.0, 0.3]
         retreat_direction_extra: 0.0
         retreat_offset: [0.0, 0.0, 0.3]
 
   ptc-pick-23:
     skill_params:
       single_arm.pick:
-        source_object_entity_path: /World/scene/trolley/sr15_23/SR15_10
+        object_prim_path: /World/scene/trolley/sr15_23/SR15_10
         arm: right
-        grasp_direction: front
-        grasp_orientation: [0.0, 0.91, 0.0, 0.39]
-        target_pose_offset: [-0.038, 0.01, 0.005]
-        approach_clearance: 0.3
-        grasp_clearance: 0.0
+        grasp_direction: top
+        ee_base_orientation: [0.0, 0.91, 0.0, 0.39]
+        object_position_offset: [-0.038, 0.01, 0.005]
+        prepare_offset: [0.0, 0.0, 0.3]
         retreat_direction_extra: 0.0
         retreat_offset: [0.0, 0.0, 0.3]
 

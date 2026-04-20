@@ -252,7 +252,7 @@ def set_prim_orientation_local(
     
 
 def randomize_object_xyz_after_reset(
-    object_entity_path: str,
+    object_prim_path: str,
     enabled: bool = True,
     xyz_offset: tuple[float, float, float] | float = 0.04,
     timeout: float = SERVICE_CALL_TIMEOUT,
@@ -275,7 +275,7 @@ def randomize_object_xyz_after_reset(
     else:
         off_x, off_y, off_z = float(xyz_offset), float(xyz_offset), 0.0
     cur_x, cur_y, cur_z = get_prim_translate_local(
-        object_entity_path,
+        object_prim_path,
         timeout=timeout,
         retries=retries,
         retry_delay=retry_delay,
@@ -285,7 +285,7 @@ def randomize_object_xyz_after_reset(
     new_y = cur_y + random.uniform(-off_y, off_y)
     new_z = cur_z + random.uniform(-off_z, off_z)
     set_prim_translate_local(
-        object_entity_path,
+        object_prim_path,
         (new_x, new_y, new_z),
         timeout=timeout,
         retries=retries,
@@ -440,7 +440,7 @@ def get_entity_pose_world_service(
 def get_object_pose_from_service(
     base_world_pos: tuple[float, float, float],
     base_world_quat: tuple[float, float, float, float],
-    object_entity_path: str,
+    object_prim_path: str,
     *,
     include_orientation: bool = False,
     entity_state_timeout: float = SERVICE_CALL_TIMEOUT,
@@ -450,7 +450,7 @@ def get_object_pose_from_service(
     base_wx, base_wy, base_wz = base_world_pos
     base_q = base_world_quat
     (obj_wx, obj_wy, obj_wz), obj_q = get_entity_pose_world_service(
-        object_entity_path,
+        object_prim_path,
         timeout=entity_state_timeout,
         retries=retries,
         retry_delay=retry_delay,

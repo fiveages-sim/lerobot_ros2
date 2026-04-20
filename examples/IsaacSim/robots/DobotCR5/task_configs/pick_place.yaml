@@ -21,21 +21,26 @@ base_task_overrides:
 
 skill_defaults:
   env.randomize_object_local_xyz:
-    object_entity_path: /World/grasp_fruits/apple/apple/apple
+    object_prim_path: /World/grasp_fruits/apple/apple/apple
     xyz_offset: [0.5, 0.5, 0.0]
   single_arm.pick:
     arm: left
-    approach_clearance: 0.12
-    grasp_clearance: -0.03
-    source_object_entity_path: /World/grasp_fruits/apple/apple/apple
-    grasp_orientation: [0.7, 0.7, 0.0, 0.0]
-    grasp_direction: top
+    pick_clearance: 0.03
+    prepare_offset: [0.0, 0.0, -0.12]
+    object_prim_path: /World/grasp_fruits/apple/apple/apple
+    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.0, -0.1]
   single_arm.place:
-    run_place_before_return: false
+    run_place_before_return: true
+    place_object_prim_path: /World/grasp_fruits/shelf8
+    place_pose_offset: [0.0, 0.0, 0.05]
+    place_direction: left
+    place_approach_clearance: -0.2
+    place_orientation: [0.0, 0.7, 0.7, 0.0]
+    post_release_retract_offset: [0.0, -0.2, 0.0]
 
 task_queue:
   - skill: env.randomize_object_local_xyz
-  # reset 后起始末端位姿作为回程参考；pick 的 Approach/CloseIn 已带夹爪张开，无需单独 pregrasp
   - skill: robot.cache_ee_pose
     params:
       key: cr5_prep_pose
@@ -46,29 +51,7 @@ task_queue:
       key: cr5_prep_pose
 
 scene_presets:
-  apple:
-    skill_params:
-      single_arm.place:
-        run_place_before_return: true
-        place_object_entity_path: /World/grasp_fruits/shelf8
-        place_pose_offset: [0.0, 0.0, 0.05]
-        place_direction: left
-        place_approach_clearance: -0.2
-        place_orientation: [0.0, 0.7, 0.7, 0.0]
-        post_release_retract_offset: [0.0, -0.2, 0.0]
-
-  nailong:
-    skill_params:
-      env.randomize_object_local_xyz:
-        object_entity_path: /World/nailong/PlushToy_3/material/material
-      single_arm.pick:
-        source_object_entity_path: /World/nailong/PlushToy_3/material/material
-        arm: left
-        grasp_direction: top
-        grasp_orientation: [0.4, 0.9, 0.0, 0.0]
-        target_pose_offset: [0.0, 0.0, -0.035]
-        approach_clearance: 0.2
-        grasp_clearance: 0.0
+  apple: {}
 
 record:
   base_record_overrides:

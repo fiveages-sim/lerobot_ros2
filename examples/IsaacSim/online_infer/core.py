@@ -607,10 +607,10 @@ def main() -> None:
     print("[OK] Robot connected")
 
     print("Resetting simulation state...")
-    if "source_object_entity_path" not in PICK_PLACE_FLOW_OVERRIDES:
-        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.source_object_entity_path is required for reset")
+    if "object_prim_path" not in PICK_PLACE_FLOW_OVERRIDES:
+        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_prim_path is required for reset")
     reset_simulation_state(
-        str(PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"]).strip(),
+        str(PICK_PLACE_FLOW_OVERRIDES["object_prim_path"]).strip(),
         post_reset_wait=ROBOT_CFG.post_reset_wait,
         sleep_fn=sim_time.sleep,
     )

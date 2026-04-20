@@ -111,7 +111,7 @@ def main() -> None:
         base_task_overrides,
         task_cfg.get("skill_defaults"),
     )
-    required_keys = {"source_object_entity_path"}
+    required_keys = {"object_prim_path"}
     if not required_keys.issubset(base_task_overrides.keys()):
         raise ValueError(
             f"Task '{task_key}' missing required fields for inference reset: {sorted(required_keys)}"
@@ -133,7 +133,7 @@ def main() -> None:
 
     print(
         f"[Selection] robot={robot_key}, task={task_key}, "
-        f"source={base_task_overrides['source_object_entity_path']}"
+        f"source={base_task_overrides['object_prim_path']}"
     )
 
     old_argv = sys.argv

@@ -34,17 +34,16 @@ base_task_overrides:
 
 skill_defaults:
   env.randomize_object_local_xyz:
-    object_entity_path: /World/grasp_apple_drawer/apple/apple/apple
+    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
     xyz_offset: [0.3, 0.3, 0.0]
   single_arm.pick:
     arm: left
-    approach_clearance: 0.08
-    grasp_clearance: -0.03
+    prepare_offset: [0.0, 0.0, 0.08]
     retreat_direction_extra: 0.08
-    source_object_entity_path: /World/grasp_apple_drawer/apple/apple/apple
-    grasp_orientation: [0.7, 0.7, 0.0, 0.0]
+    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
+    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
     grasp_direction: top
-    grasp_direction_vector: null
+    grasp_direction_vector: [0, 0, 1]
   single_arm.place:
     run_place_before_return: true
     place_position: [-0.5211657941743888, 0.18339369774887115, 0.54]

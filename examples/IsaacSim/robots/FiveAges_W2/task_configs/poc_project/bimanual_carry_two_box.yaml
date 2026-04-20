@@ -28,7 +28,7 @@ skill_defaults:
     resume_ocs2: true
 
   dual_arm.carry:
-    source_object_entity_path: /World/port6/pallet2
+    object_prim_path: /World/port6/pallet2
     object_dual_arm_half_span_y: 0.38
     carry_prepare_offset: [-0.2, 0.0, 0.0]
     arm_merge_distance_y: 0.04
@@ -41,12 +41,10 @@ skill_defaults:
 task_queue:
   - skill: joint.movej_to_config
     id: poc_carry_start_movej
-  - skill: dual_arm.carry_approach
-  - skill: dual_arm.carry_grasp
-  - skill: dual_arm.carry_lift_retreat
+  - skill: dual_arm.carry
 
 scene_presets:
   two_box:
     skill_params:
       dual_arm.carry:
-        source_object_entity_path: /World/port6/pallet2
+        object_prim_path: /World/port6/pallet2

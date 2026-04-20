@@ -32,20 +32,17 @@ skill_defaults:
 
   single_arm.pick:
     arm: right
-    grasp_orientation: [1.0, 0.0, 0.0, 0.0]
-    approach_clearance: 0.2
-    grasp_clearance: 0.01
-    grasp_offset: [0.04, 0.0, 0.0]
-    source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+    prepare_offset: [0.0, 0.0, 0.2]
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
     grasp_direction: top
-    grasp_direction_vector: null
+    grasp_direction_vector: [0, 0, 1]
 
 task_queue:
   - skill: robot.cache_ee_pose
     params:
       which: both
       key: ho_prep_pose
-  - skill: single_arm.pregrasp
     id: ho_pregrasp
   - skill: single_arm.pick
     id: ho_pick
@@ -59,8 +56,8 @@ scene_presets:
   grab_medicine:
     skill_params:
       ho_pick:
-        source_object_entity_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+        object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
   grab_bottle:
     skill_params:
       ho_pick:
-        source_object_entity_path: /World/ConvenienceStore01/SM_Bottle_04_85
+        object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85

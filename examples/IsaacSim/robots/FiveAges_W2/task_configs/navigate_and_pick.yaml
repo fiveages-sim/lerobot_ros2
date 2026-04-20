@@ -57,16 +57,15 @@ skill_defaults:
   # 与 task_queue 中 single_arm.pick / single_arm.place 对应（merge_flat_with_skill_pick_place）
   single_arm.pick:
     arm: right
-    approach_clearance: 0.2
-    grasp_clearance: 0.00
-    source_object_entity_path: /World/grasp_fruits/fruits_01/apple/apple/apple
-    grasp_orientation: [0.7, 0.0, 0.7, 0.0]
-    grasp_direction: front
-    grasp_direction_vector: null
+    prepare_offset: [0.0, 0.0, 0.2]
+    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    grasp_direction: top
+    grasp_direction_vector: [0, 0, 1]
 
   single_arm.place:
     run_place_before_return: true   # 必须为 true，否则 single_arm.place 直接跳过
-    place_object_entity_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
+    place_object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
     place_orientation: [0.7, 0.0, 0.7, 0.0]   # 放置时末端姿态（front 方向）
     place_direction: front
     place_approach_clearance: 0.3   # 接近目标时的安全距离（米）
@@ -74,7 +73,7 @@ skill_defaults:
     place_pose_offset: [0.0, 0.0, 0.3]        # 放置目标的空间偏移
     post_release_retract_offset: [-0.3, 0.0, 0.1]  # 松夹后撤退
 
-  # nav_to_pick 不写 object_entity_path，自动从 task_cfg.source_object_entity_path 读取（苹果路径）
+  # nav_to_pick 不写 object_prim_path，自动从 task_cfg.object_prim_path 读取（苹果路径）
   nav_to_pick:
     approach_offset_x: 0.5
     approach_offset_y: 0.05
@@ -100,7 +99,7 @@ skill_defaults:
 
   # nav_to_place 需显式指定放置目标的 prim 路径
   nav_to_place:
-    object_entity_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
+    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
     approach_offset_x: -1.0
     approach_offset_y: 0.4
     yaw: 0.0
@@ -120,15 +119,15 @@ scene_presets:
   apple_1:
     skill_params:
       single_arm.pick:
-        source_object_entity_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+        object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
 
   # Apple 2 — 从正上方抓取，放置到同一篮子
   apple_2:
     skill_params:
       single_arm.pick:
-        source_object_entity_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
         grasp_direction: top
-        grasp_orientation: [1.0, 0.0, 0.0, 0.0]
+        ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
       nav_to_pick:
         approach_offset_x: -0.5
         approach_offset_y: 0.1

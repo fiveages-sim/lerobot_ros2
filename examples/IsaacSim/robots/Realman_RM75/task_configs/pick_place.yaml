@@ -11,7 +11,6 @@ task_queue:
   - skill: robot.cache_ee_pose
     params:
       key: rm75_prep_pose
-  - skill: single_arm.pregrasp
   - skill: single_arm.pick
   - skill: single_arm.place
   - skill: single_arm.goto_cache_pose
@@ -27,16 +26,15 @@ base_task_overrides:
 
 skill_defaults:
   env.randomize_object_local_xyz:
-    object_entity_path: /World/banana/banana/banana
+    object_prim_path: /World/banana/banana/banana
     xyz_offset: [0.15, 0.15, 0.0]
   single_arm.pick:
     arm: left
-    approach_clearance: 0.3
-    grasp_clearance: 0.165
-    source_object_entity_path: /World/banana/banana/banana
-    grasp_orientation: [0.0, 1.0, 0.0, 0.0]
+    prepare_offset: [0.0, 0.0, 0.3]
+    object_prim_path: /World/banana/banana/banana
+    ee_base_orientation: [0.0, 1.0, 0.0, 0.0]
     grasp_direction: top
-    grasp_direction_vector: null
+    grasp_direction_vector: [0, 0, 1]
   single_arm.place:
     run_place_before_return: true
     place_position: [0.39015462527214956, -0.27559945312297013, 0.44]
