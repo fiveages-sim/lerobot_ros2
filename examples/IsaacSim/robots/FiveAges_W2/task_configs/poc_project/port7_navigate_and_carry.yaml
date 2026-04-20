@@ -92,7 +92,6 @@ skill_defaults:
     joint_tolerance: 0.05
   dual_arm.bimanual_align:
     align_position: [0.55, 0.0, -0.085]
-    target_mid_y: 0.0
     motion_frame_id: "arm_base"
 
   # 相对放置：平移在 motion 系；若腰转后与 base 左右直觉不一致，设 motion_frame_id 为随腰 TF

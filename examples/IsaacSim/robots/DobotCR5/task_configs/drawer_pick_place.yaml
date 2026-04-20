@@ -42,13 +42,12 @@ skill_defaults:
     retreat_direction_extra: 0.08
     object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
     ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
-    grasp_direction: top
+    grasp_direction: +z
     grasp_direction_vector: [0, 0, 1]
   single_arm.place:
-    run_place_before_return: true
     place_position: [-0.5211657941743888, 0.18339369774887115, 0.54]
-    place_orientation: [0.64, 0.64, -0.28, -0.28]
-    post_release_retract_offset: [0.0, -0.2, 0.0]
+    ee_base_orientation: [0.64, 0.64, -0.28, -0.28]
+    ee_retreat_offset: [0.0, -0.2, 0.0]
   single_arm.drawer:
     object_xyz_random_offset_drawer: [0.05, 0.05, 0.0]
     grasp_clearance_drawer: -0.003

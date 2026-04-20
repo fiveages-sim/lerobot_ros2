@@ -23,15 +23,14 @@ skill_defaults:
   single_arm.place:
     arm: left
     place_position: [0.5, 0.28, 1.0]
-    place_orientation: [0.6533, -0.2706, -0.2706, 0.6533]
-    run_place_before_return: true
+    ee_base_orientation: [0.6533, -0.2706, -0.2706, 0.6533]
 
   single_arm.pick:
     arm: right
     ee_base_orientation: [0.5, 0.5, -0.5, 0.5]
     prepare_offset: [0.0, 0.0, 0.1]
     object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
-    grasp_direction: top
+    grasp_direction: +z
     grasp_direction_vector: [0, 0, 1]
 
 task_queue:

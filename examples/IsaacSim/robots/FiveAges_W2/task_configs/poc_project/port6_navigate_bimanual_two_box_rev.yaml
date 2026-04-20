@@ -10,8 +10,8 @@
 #   skill: env.randomize_object_local_xyz
 #   params: { object_prim_path: /World/.../some_prim, xyz_offset: [0.05, 0.05, 0.0] }
 
-task_key: poc_bimanual_pick_2
-label: POC — Bimanual Pick — 2
+task_key: poc_navigate_bimanual_2box_rev
+label: "[PORT6 Rev] 导航后双臂分别搬蓝箱子"
 use_stamped: true
 robot_id: fiveages_w2_poc_bimanual_pick_2
 default_scene: two_box
@@ -81,30 +81,26 @@ skill_defaults:
   dual_arm.parallel_pick:
     left_pick:
       object_prim_path: /World/port6/box_blue_01/small_blue
-      target_pose_offset: [-0.04, -0.20, 0.173]
-      approach_clearance: -0.04
-      grasp_clearance: 0.0
-      grasp_offset: [0.0, 0.000, 0.00]
-      grasp_direction: top
+      object_position_offset: [-0.04, -0.20, 0.173]
+      prepare_offset: [0.0, 0.0, -0.04]
+      pick_clearance: 0.0
+      grasp_direction: +z
       # ee_base_orientation: [0.7044, -0.0616, 0.7044, -0.0616]
       ee_base_orientation: [0.0616, 0.7044, -0.0616, -0.7044]
       grasp_direction_vector: [0, 0, 1]
-      retreat_direction_extra: 0.0
-      retreat_offset: [0.0, 0.0, 0.1]   # 第4段 Lift
-      retreat_xyz: [0.1, 0.0, 0.0]   # 第5段 Retreat（从 Lift 点继续走 XYZ）
+      ee_lift_offset: [0.0, 0.0, 0.1]
+      ee_retreat_offset: [0.1, 0.0, 0.0]
     right_pick:
       object_prim_path: /World/port6/box_blue_03/small_blue
-      target_pose_offset: [-0.04, 0.20, 0.173]
-      approach_clearance: -0.04
-      grasp_clearance: 0.0
-      grasp_offset: [0.0, -0.000, 0.00]
-      grasp_direction: top
+      object_position_offset: [-0.04, 0.20, 0.173]
+      prepare_offset: [0.0, 0.0, -0.04]
+      pick_clearance: 0.0
+      grasp_direction: +z
       # ee_base_orientation: [0.7044,  0.0616, 0.7044, 0.0616]
       ee_base_orientation: [-0.0616, 0.7044, 0.0616, -0.7044]
       grasp_direction_vector: [0, 0, 1]
-      retreat_direction_extra: 0.0
-      retreat_offset: [0.0, 0.0, 0.1]   # 第4段 Lift
-      retreat_xyz: [0.1, 0.0, 0.0]   # 第5段 Retreat（从 Lift 点继续走 XYZ）
+      ee_lift_offset: [0.0, 0.0, 0.1]
+      ee_retreat_offset: [0.1, 0.0, 0.0]
 
 
 
@@ -197,10 +193,10 @@ scene_presets:
       dual_arm.parallel_pick:
         left_pick:
           object_prim_path: /World/port6/box_blue/small_blue
-          target_pose_offset: [-0.04, -0.20, 0.168]
+          object_position_offset: [-0.04, -0.20, 0.168]
         right_pick:
           object_prim_path: /World/port6/box_blue_02/small_blue
-          target_pose_offset: [-0.04, 0.20, 0.168]
+          object_position_offset: [-0.04, 0.20, 0.168]
 
       body_up:
         body_positions: [-0.6, -1.2, -0.6, -3.1416]

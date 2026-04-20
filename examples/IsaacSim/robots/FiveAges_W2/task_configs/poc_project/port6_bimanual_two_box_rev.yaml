@@ -1,0 +1,129 @@
+# FiveAges W2 — POC 项目：双臂同时各抓一个箱子（基于并行双臂抓取）
+#
+# 左手抓 /World/port6/box_blue_01
+# 右手抓 /World/port6/box_blue_03
+# 使用 dual_arm.parallel_pick：两臂同时抓不同物体（非 carry 语义）
+#
+# 合并顺序：base 扁平化 → skill_defaults（与 task_queue 块顺序一致书写）→ 场景扁平 → skill_params
+#
+# Sim reset（motion/record 的 reset_env）不随机物体。需要时在 task_queue **第一个顺序块**加：
+#   skill: env.randomize_object_local_xyz
+#   params: { object_prim_path: /World/.../some_prim, xyz_offset: [0.05, 0.05, 0.0] }
+
+task_key: poc_bimanual_2box_rev
+label: "[PORT6 Rev] 双臂分别搬蓝箱子 底盘反向版本"
+use_stamped: true
+robot_id: fiveages_w2_poc_bimanual_pick_2
+default_scene: two_box
+
+base_task_overrides:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  object_prim_path: /World/port6/box_blue_01/small_blue
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.007
+  pose_tol_ori: 0.05
+  require_orientation_reach: false
+  use_object_orientation: false
+
+task_queue:
+  - parallel:
+      - skill: joint.movej_to_config
+        id: poc_pick_start_movej
+  - skill: dual_arm.parallel_pick
+  - parallel:
+      - skill: joint.movej_to_config
+        id: body_up
+      - skill: dual_arm.bimanual_align
+        id: align_with_body_up
+  - skill: dual_arm.place
+  - skill: joint.movej_to_config
+    id: return_to_navigate_pose
+
+# 键顺序与 task_queue 中各块 id / skill 出现顺序一致（便于对照）
+skill_defaults:
+  # task_queue[0].parallel[0] — joint.movej_to_config
+  poc_pick_start_movej:
+    body_positions: [-1.35, -2.35, -1.45, 3.1416]
+    left_arm_positions: [-0.55, 1.0266, 0.8165, -1.8487, -0.9908, -0.5437, -0.4515]
+    right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    resume_ocs2: true
+
+  # task_queue[1] — dual_arm.parallel_pick
+  dual_arm.parallel_pick:
+    left_pick:
+      object_prim_path: /World/port6/box_blue_01/small_blue
+      object_position_offset: [0.2, -0.04, 0.173]
+      prepare_offset: [0.0, -0.04, 0.0]
+      pick_clearance: 0.0
+      grasp_direction: +y
+      ee_base_orientation: [0.0616, 0.7044, -0.0616, -0.7044]
+      ee_lift_offset: [0.1, 0.0, 0.0]
+      ee_retreat_offset: [0.0, 0.0, -0.1]
+    right_pick:
+      object_prim_path: /World/port6/box_blue_03/small_blue
+      object_position_offset: [-0.2, -0.04, 0.173]
+      prepare_offset: [0.0, 0.04, 0.0]
+      pick_clearance: 0.0
+      grasp_direction: -y
+      ee_base_orientation: [-0.0616, 0.7044, 0.0616, -0.7044]
+      grasp_direction_vector: [0, 0, 1]
+      ee_lift_offset: [0.1, 0.0, 0.0]
+      ee_retreat_offset: [0.0, 0.0, -0.1]
+
+  # task_queue[2].parallel[0] — joint.movej_to_config
+  body_up:
+    body_positions: [-1.0, -2.0, -0.88, 0.0]
+    skip_fsm_change: true
+
+  # task_queue[2].parallel[1] — dual_arm.bimanual_align
+  align_with_body_up:
+    align_position: [0.55, 0.0, -0.1]
+    orientation_delta_rpy: [0.0, 0.33, 0.0]
+    motion_frame_id: "arm_base"
+
+  # task_queue[3] — dual_arm.place（相对放置：平移在 motion 系；若腰转后与 base 左右直觉不一致，设 motion_frame_id 为随腰 TF）
+  dual_arm.place:
+    reference_object_prim_path: /World/shelf1/shelf1
+    object_position_offset: [0.0, 0.25, 0.72]
+    motion_frame_id: "arm_base"
+    arm_movel_duration: 2.0
+    retreat_xyz: [-0.3, 0.0, -0.1]  # dual_arm.place 读 motion 系 retreat_xyz，不用 ee_retreat_offset
+
+  # task_queue[4] — joint.movej_to_config（与 port7_bimanual_carry rev 末尾 navigate_gesture 一致）
+  return_to_navigate_pose:
+    body_positions: [-1.3, -2.6, -1.3, 3.14]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+
+scene_presets:
+  two_box1:
+    skill_params:
+      dual_arm.parallel_pick:
+        left_pick:
+          object_prim_path: /World/port6/box_blue_01/small_blue
+        right_pick:
+          object_prim_path: /World/port6/box_blue_03/small_blue
+
+  two_box2:
+    skill_params:
+      # 与 task_queue 顺序一致：poc_pick_start_movej → parallel_pick → … → return_to_navigate_pose
+      poc_pick_start_movej:
+        body_positions: [-1.35, -2.35, -1.75, 3.1416]
+        left_arm_positions: [-1.6262, 0.6995, 1.6420, -1.3497, -1.1576, -0.6108, -0.2785]
+        right_arm_positions: [1.6262, 0.6995, -1.6420, -1.3497, 1.1576, -0.6108, 0.2785]
+      dual_arm.parallel_pick:
+        left_pick:
+          object_prim_path: /World/port6/box_blue/small_blue
+        right_pick:
+          object_prim_path: /World/port6/box_blue_02/small_blue
+      body_up:
+        body_positions: [-0.6, -1.2, -0.6, 0.0]
+      align_with_body_up:
+        align_position: [0.55, 0.0, 0.0]
+        orientation_delta_rpy: [0.0, 0.75, 0.0]
+      dual_arm.place:
+        object_position_offset: [0.0, 0.25, 1.24]

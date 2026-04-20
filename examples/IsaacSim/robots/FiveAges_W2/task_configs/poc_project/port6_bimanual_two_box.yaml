@@ -2,8 +2,8 @@
 #
 # 合并顺序：base 扁平化 → skill_defaults（single_arm.pick/place + dual_arm.carry）→ 场景扁平 → skill_params
 
-task_key: poc_bimanual_carry_2
-label: POC — Bimanual Carry — 2
+task_key: poc_bimanual_2box
+label: "[PORT6] 双臂分别搬蓝箱子"
 use_stamped: true
 robot_id: fiveages_w2_poc_bimanual_carry_2
 default_scene: two_box
