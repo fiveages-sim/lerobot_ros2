@@ -1,0 +1,43 @@
+# 对应usd： default_v2.usd
+
+# 任务唯一键，用于在任务系统中注册/索引该任务
+task_key: navigate_to_object_demo
+# 任务显示名称（UI 或日志中可见）
+label: Navigate to Object Demo
+# 机器人实例 ID，用于绑定执行该任务的机器人
+robot_id: fiveages_w2_navigate_to_object_demo
+# 默认场景预设名称（对应下方 scene_presets 的 key）
+default_scene: default
+
+base_task_overrides:
+  # 机器人底盘基座链接在仿真中的 prim 路径
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+
+# 任务执行队列（按顺序依次执行）
+task_queue:
+  # 第一步：导航到目标物体附近
+  - skill: nav.navigate_to_object
+    # 该步骤实例 ID，用于在 skill_defaults 中配置参数
+    id: nav_1
+
+# 各任务步骤的默认参数（按步骤 id 组织）
+skill_defaults:
+  nav_1:
+    # 目标物体在场景中的 prim 路径
+    object_prim_path: /World/scene/scene/port7/box_black_01/black_box
+    # 相对目标物体的接近偏移（米），负值表示在物体局部 x 反方向停靠
+    approach_offset_x: -0.95
+    # 相对目标物体的横向偏移（米）
+    approach_offset_y: 0.0
+    # 到达时朝向角（弧度）
+    yaw: 0.0
+    # 导航参考坐标系
+    frame_id: map
+    # 本步骤超时时间（秒）
+    timeout: 60.0
+
+# 场景预设参数集合
+scene_presets:
+  default:
+    # 当前默认预设无额外覆盖参数
+    {}

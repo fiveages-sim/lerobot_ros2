@@ -43,7 +43,7 @@ task_queue:
 skill_defaults:
   # task_queue[0].parallel[0] — joint.movej_to_config
   poc_pick_start_movej:
-    body_positions: [-1.35, -2.35, -1.45, 3.1416]
+    body_positions: [-1.35, -2.35, -1.45, -3.1416]
     left_arm_positions: [-0.55, 1.0266, 0.8165, -1.8487, -0.9908, -0.5437, -0.4515]
     right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
     arrival_timeout: 30.0
@@ -93,7 +93,7 @@ skill_defaults:
 
   # task_queue[4] — joint.movej_to_config（与 port7_bimanual_carry rev 末尾 navigate_gesture 一致）
   return_to_navigate_pose:
-    body_positions: [-1.3, -2.6, -1.3, 3.14]
+    body_positions: [-1.3, -2.6, -1.3, -3.14]
     left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
     right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
     arrival_timeout: 30.0
@@ -112,7 +112,7 @@ scene_presets:
     skill_params:
       # 与 task_queue 顺序一致：poc_pick_start_movej → parallel_pick → … → return_to_navigate_pose
       poc_pick_start_movej:
-        body_positions: [-1.35, -2.35, -1.75, 3.1416]
+        body_positions: [-1.35, -2.35, -1.75, -3.1416]
         left_arm_positions: [-1.6262, 0.6995, 1.6420, -1.3497, -1.1576, -0.6108, -0.2785]
         right_arm_positions: [1.6262, 0.6995, -1.6420, -1.3497, 1.1576, -0.6108, 0.2785]
       dual_arm.parallel_pick:
