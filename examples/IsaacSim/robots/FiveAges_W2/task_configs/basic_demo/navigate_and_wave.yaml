@@ -19,8 +19,11 @@ base_task_overrides:
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
 
 task_queue:
-  - skill: nav.navigate_to_pose
-    id: nav_to_wave_pose
+  - parallel:
+    - skill: nav.navigate_to_pose
+      id: nav_to_wave_pose
+    - skill: joint.movej_to_config
+      id: retreat_arms_while_nav
   - skill: joint.movej_to_config
     id: movej_to_initial_pose
   - skill: robot.cache_joint_state
@@ -29,6 +32,8 @@ task_queue:
     id: movej_to_wave
   - skill: joint.goto_cached_joints
     id: goto_initial_pose
+  - skill: single_arm.send_cartesian_goal
+    id: send_left_pose_in_frame
 
 skill_defaults:
   nav_to_wave_pose:
@@ -36,9 +41,14 @@ skill_defaults:
     y: 3.0
     yaw: 3.14
 
+  retreat_arms_while_nav:
+    body_positions: [-1.35, -2.7, -1.35, -0.0]
+    left_arm_positions: [2.4, -1.48, -1.6, -1.6, -0.12, -0.75, -0.04]
+    right_arm_positions: [-2.4, -1.48, 1.6, -1.6, 0.12, -0.75, 0.04]
+
   movej_to_initial_pose:
-    body_positions: [-0.19, -0.38, -0.19, -0.35]
-    left_arm_positions: [1.51, -0.73, 0.50, -1.9, 0.08, 0.19, -0.11]
+    body_positions: [-0.3, -0.6, -0.3, -0.35]
+    left_arm_positions: [-1.15, 1.16, 1.86, -0.84, -0.003, -0.2575, -0.196]
     right_arm_positions: [0.81, -0.004, 0.6, -1.7, -0.08, -0.05, -0.02]
 
   cache_init_arm_joint:
@@ -47,11 +57,18 @@ skill_defaults:
 
   movej_to_wave:
     body_positions: [-0.19, -0.38, -0.19, -0.35]
-    left_arm_positions: [1.51, -0.73, 0.50, -1.9, 0.08, 0.19, -0.11]
+    left_arm_positions: [-1.15, 1.16, 1.86, -0.84, -0.003, -0.2575, -0.196]
     right_arm_positions: [0.81, -0.004, 0.6, -2.2, -0.08, -0.05, -0.02]
 
   goto_initial_pose:
     key: init_arm_joints
+    resume_ocs2: true
+
+  send_left_pose_in_frame:
+    arm: right
+    frame_id: arm_base
+    position: [0.87, -0.11, 0.085]
+    orientation: [0.387, 0.631, 0.518, 0.427]
 
 
 scene_presets:
