@@ -47,13 +47,11 @@ task_queue:
 
 # 各 skill/id 的跨场景基准参数（键顺序与 task_queue 中首次出现顺序一致；parallel 内先 nav 后 movej）
 skill_defaults:
-  # parallel(nav_to_pick, navigate_gesture)
   nav_to_pick:
-    # 不写 object_prim_path 时从抓取目标的 object_prim_path 推断
+    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
     approach_offset_x: 0.5
     approach_offset_y: 0.05
     yaw: 3.14
-    frame_id: map
     timeout: 60.0
 
   navigate_gesture:
@@ -83,7 +81,6 @@ skill_defaults:
     approach_offset_x: -1.0
     approach_offset_y: 0.4
     yaw: 0.0
-    frame_id: map
     timeout: 60.0
 
   pre_release_gesture:
@@ -116,6 +113,7 @@ scene_presets:
         object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
         ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
       nav_to_pick:
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
         approach_offset_x: -0.5
         approach_offset_y: 0.1
         yaw: 0.0
