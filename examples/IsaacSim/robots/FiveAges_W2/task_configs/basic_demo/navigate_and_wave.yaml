@@ -1,8 +1,6 @@
-# FiveAges W2 — 导航到箱体附近后双臂搬运（navigate_and_pick + bimanual_carry 拼合）
+# FiveAges W2 — 导航到指定位置后挥手
 #
-# 合并顺序：base → single_arm.pick（供 nav 默认物体路径）→ dual_arm.carry → 场景 skill_params
-# 队列：并行「导航 + navigate_gesture」→ pre_ocs2_* → carry →
-#   navigate_backup(0.5m) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
+# 队列：并行「导航 + 收臂 MoveJ」→ MoveJ 到初始姿态 → 缓存关节角 → MoveJ 到挥手姿态 → 回初始姿态 → 笛卡尔发送右臂目标
 
 task_key: navigate_and_wave
 label: Navigate and Wave Hand
