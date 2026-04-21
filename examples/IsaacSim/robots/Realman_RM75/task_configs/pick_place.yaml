@@ -33,8 +33,7 @@ skill_defaults:
     prepare_offset: [0.0, 0.0, 0.3]
     object_prim_path: /World/banana/banana/banana
     ee_base_orientation: [0.0, 1.0, 0.0, 0.0]
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
+    ee_pick_direction_vector: [0, 0, 1]
   single_arm.place:
     place_position: [0.39015462527214956, -0.27559945312297013, 0.44]
     ee_base_orientation: [0.0, 0.8, 0.0, 0.6]

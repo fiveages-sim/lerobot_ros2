@@ -5,7 +5,7 @@
 | 任务 | 类型 | 场景预设 | 数据采集 |
 |------|------|----------|----------|
 | Pick Place | 单臂抓取放置 | `grab_medicine`、`grab_bottle` | - |
-| Handover | 双臂交接 | `grab_medicine`、`grab_bottle` | 支持 |
+| Handover | 双臂交接 | `grab_medicine` | 支持 |
 
 配置文件：
 

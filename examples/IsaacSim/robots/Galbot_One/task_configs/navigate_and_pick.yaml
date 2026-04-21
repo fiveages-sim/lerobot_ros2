@@ -75,8 +75,7 @@ skill_defaults:
     prepare_offset: [0.0, 0.0, 0.2]
     object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
     ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
+    ee_pick_direction_vector: [0, 0, 1]
 
   # parallel(nav_to_place, navigate_gesture) — navigate_gesture 见上
   nav_to_place:
@@ -115,7 +114,6 @@ scene_presets:
     skill_params:
       single_arm.pick:
         object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
-        grasp_direction: +z
         ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
       nav_to_pick:
         approach_offset_x: -0.5

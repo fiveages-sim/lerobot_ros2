@@ -7,7 +7,7 @@
 # 合并顺序与 motion_main / 录制一致：base 扁平化 → skill_defaults → 场景扁平 → skill_params
 
 task_key: pick_place
-label: Pick Place
+label: 取放任务
 use_stamped: true
 robot_id: dobot_cr5_pick_place
 default_scene: apple

@@ -21,8 +21,7 @@ skill_defaults:
     prepare_offset: [0.0, 0.0, 0.2]
     object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
     ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
+    ee_pick_direction_vector: [0, 0, 1]
   single_arm.place:
 
 task_queue:
@@ -46,7 +45,6 @@ scene_presets:
       single_arm.pick:
         object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85
         arm: left
-        grasp_direction: +z
         ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
         object_position_offset: [0.0, 0.0, 0.1]
         prepare_offset: [0.0, 0.0, 0.2]
@@ -58,7 +56,6 @@ scene_presets:
       single_arm.pick:
         object_prim_path: /World/scene/trolley/sr15_24/SR15_10
         arm: right
-        grasp_direction: +z
         ee_base_orientation: [0.0, 0.91, 0.0, 0.39]
         object_position_offset: [-0.038, 0.028, 0.005]
         prepare_offset: [0.0, 0.0, 0.3]
@@ -70,7 +67,6 @@ scene_presets:
       single_arm.pick:
         object_prim_path: /World/scene/trolley/sr15_23/SR15_10
         arm: right
-        grasp_direction: +z
         ee_base_orientation: [0.0, 0.91, 0.0, 0.39]
         object_position_offset: [-0.038, 0.01, 0.005]
         prepare_offset: [0.0, 0.0, 0.3]

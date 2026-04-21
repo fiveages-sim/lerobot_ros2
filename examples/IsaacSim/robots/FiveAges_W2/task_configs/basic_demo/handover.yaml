@@ -20,8 +20,8 @@ base_task_overrides:
 skill_defaults:
   dual_arm.handover:
     handover_position: [0.7, 0.0, 1.35]
-    source_handover_orientation: [0.653, 0.271, 0.653, -0.271]
-    receiver_handover_orientation: [0.653, -0.271, 0.653, 0.271]
+    left_handover_orientation: [0.653, -0.271, 0.653, 0.271]
+    right_handover_orientation: [0.653, 0.271, 0.653, -0.271]
     receiver_handover_offset: [0.0, 0.0, -0.04]
 
   single_arm.place:
@@ -34,8 +34,7 @@ skill_defaults:
     ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
     prepare_offset: [0.0, 0.0, 0.2]
     object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
+    ee_pick_direction_vector: [0, 0, 1]
 
 task_queue:
   - skill: robot.cache_ee_pose
@@ -45,7 +44,7 @@ task_queue:
     id: ho_pregrasp
   - skill: single_arm.pick
     id: ho_pick
-  - skill: dual_arm.handover_sync
+  - skill: dual_arm.handover
   - skill: single_arm.place
   - skill: dual_arm.goto_cache_pose
     params:

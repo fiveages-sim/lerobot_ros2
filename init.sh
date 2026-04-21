@@ -8,6 +8,7 @@ DEFAULT_PYTHON_VERSION="3.12"
 PYTHON_VERSION="${PYTHON_VERSION:-}"
 LEROBOT_SUBMODULE_PATH="submodules/lerobot"
 LEROBOT_PINNED_COMMIT="55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab"
+ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
   echo "用法: $0 [submodules|lerobot|conda [python版本]|install|install-plugins|conda-runtime|pypi-mirror|all [python版本]]"
@@ -27,7 +28,7 @@ init_submodules() {
     submodule_paths+=("$path_line")
   done < <(git -C "$ROOT_DIR" config --file .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{print $2}')
 
-  echo ">>> 切换常规子模块到最新 main 分支..."
+  echo ">>> 切换常规子模块到最新 main 分支（含 robot_action_composer、ros2_robot_interface；lerobot 单独固定提交）..."
   for submodule_path in "${submodule_paths[@]}"; do
     local submodule_dir="$ROOT_DIR/$submodule_path"
 
@@ -201,6 +202,7 @@ create_conda_env() {
 
 install_projects() {
   local interface_dir="$ROOT_DIR/submodules/ros2_robot_interface"
+  local rac_dir="$ROOT_DIR/$ROBOT_ACTION_COMPOSER_SUBMODULE_PATH"
 
   if ! command -v conda >/dev/null 2>&1; then
     echo "未检测到 conda，请先安装并配置 conda。"
@@ -212,7 +214,7 @@ install_projects() {
     exit 1
   fi
 
-  for project_dir in "$interface_dir"; do
+  for project_dir in "$interface_dir" "$rac_dir"; do
     if [[ ! -d "$project_dir" ]]; then
       echo "未找到目录: $project_dir"
       echo "请先执行子模块初始化。"
@@ -220,10 +222,11 @@ install_projects() {
     fi
   done
 
-  echo ">>> 激活 conda 环境并安装 interface"
+  echo ">>> 激活 conda 环境并安装 ros2_robot_interface 与 robot_action_composer"
   (
     ensure_conda_env_active
     python -m pip install -e "$interface_dir"
+    python -m pip install -e "$rac_dir"
   )
   echo ">>> 安装完成。"
 }
@@ -346,10 +349,10 @@ main() {
       ;;
     "")
       echo "请选择操作:"
-      echo "  1) 初始化子模块"
+      echo "  1) 初始化子模块（含 robot_action_composer、ros2_robot_interface；lerobot 除外）"
       echo "  2) 初始化 lerobot（固定提交）"
       echo "  3) 创建 lerobot-ros2 conda 环境"
-      echo "  4) 安装 interface"
+      echo "  4) 安装 interface 与 robot_action_composer"
       echo "  5) 安装 lerobot 插件（含 OpenCV 兼容参数）"
       echo "  6) 全部执行"
       echo "  7) 配置 NJU PyPI 镜像"

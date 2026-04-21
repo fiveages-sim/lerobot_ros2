@@ -84,10 +84,9 @@ skill_defaults:
       object_position_offset: [-0.04, -0.20, 0.173]
       prepare_offset: [0.0, 0.0, -0.04]
       pick_clearance: 0.0
-      grasp_direction: +z
       # ee_base_orientation: [0.7044, -0.0616, 0.7044, -0.0616]
       ee_base_orientation: [0.0616, 0.7044, -0.0616, -0.7044]
-      grasp_direction_vector: [0, 0, 1]
+      ee_pick_direction_vector: [0, 0, 1]
       ee_lift_offset: [0.0, 0.0, 0.1]
       ee_retreat_offset: [0.1, 0.0, 0.0]
     right_pick:
@@ -95,10 +94,9 @@ skill_defaults:
       object_position_offset: [-0.04, 0.20, 0.173]
       prepare_offset: [0.0, 0.0, -0.04]
       pick_clearance: 0.0
-      grasp_direction: +z
       # ee_base_orientation: [0.7044,  0.0616, 0.7044, 0.0616]
       ee_base_orientation: [-0.0616, 0.7044, 0.0616, -0.7044]
-      grasp_direction_vector: [0, 0, 1]
+      ee_pick_direction_vector: [0, 0, 1]
       ee_lift_offset: [0.0, 0.0, 0.1]
       ee_retreat_offset: [0.1, 0.0, 0.0]
 
