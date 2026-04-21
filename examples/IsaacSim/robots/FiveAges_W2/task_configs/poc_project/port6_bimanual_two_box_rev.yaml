@@ -57,20 +57,20 @@ skill_defaults:
       object_position_offset: [0.2, -0.04, 0.173]
       prepare_offset: [0.0, -0.04, 0.0]
       pick_clearance: 0.0
-      ee_pick_axis: +y
+      # ee_pick_axis: +y
       ee_base_orientation: [0.0616, 0.7044, -0.0616, -0.7044]
-      ee_lift_offset: [0.1, 0.0, 0.0]
-      ee_retreat_offset: [0.0, 0.0, -0.1]
+      # ee_lift_offset: [0.1, 0.0, 0.0]
+      ee_retreat_offset: [0.09848, -0.01736, -0.1]  # [cos(10deg)*0.1, -sin(10deg)*0.1, -0.1]
     right_pick:
       object_prim_path: /World/port6/box_blue_03/small_blue
       object_position_offset: [-0.2, -0.04, 0.173]
       prepare_offset: [0.0, 0.04, 0.0]
       pick_clearance: 0.0
-      ee_pick_axis: -y
+      # ee_pick_axis: -y
       ee_base_orientation: [-0.0616, 0.7044, 0.0616, -0.7044]
-      ee_pick_direction_vector: [0, 0, 1]
-      ee_lift_offset: [0.1, 0.0, 0.0]
-      ee_retreat_offset: [0.0, 0.0, -0.1]
+      # ee_pick_direction_vector: [0, 0, 1]
+      # ee_lift_offset: [0.1, 0.0, 0.0]
+      ee_retreat_offset: [0.09848, 0.01736, -0.1]  # [cos(10deg)*0.1, sin(10deg)*0.1, -0.1]
 
   # task_queue[2].parallel[0] — joint.movej_to_config
   body_up:
