@@ -10,7 +10,7 @@
 # 抽屉段 single_arm.drawer.* 的几何并入 MergedQueueConfig.drawer（见 merge.block_params）。
 
 task_key: drawer_pick_place
-label: Drawer Pick Place
+label: 抽屉取放任务
 use_stamped: true
 robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
@@ -77,9 +77,9 @@ scene_presets:
   drawer_002:
     skill_params:
       env.randomize_object_local_xyz:
-        object_prim_path: /World/grasp_apple_drawer/apple_01/apple
+        object_prim_path: /World/grasp_apple_drawer/apple_01/apple/apple
       single_arm.pick:
-        object_prim_path: /World/grasp_apple_drawer/apple_01/apple
+        object_prim_path: /World/grasp_apple_drawer/apple_01/apple/apple
       single_arm.drawer:
         object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer002
         object_position_offset: [-0.001003425, -0.221774775, -0.011178775]

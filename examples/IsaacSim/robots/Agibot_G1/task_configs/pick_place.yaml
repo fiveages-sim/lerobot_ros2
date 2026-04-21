@@ -25,8 +25,6 @@ skill_defaults:
     prepare_offset: [0.0, 0.0, 0.2]
     object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
     ee_base_orientation: [-0.7, 0.7, 0.0, 0.0]
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
   single_arm.place:
 
 task_queue:
@@ -45,16 +43,14 @@ scene_presets:
       single_arm.pick:
         object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
         arm: right
-        grasp_direction: +z
 
   grab_bottle:
     skill_params:
       single_arm.pick:
         object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85/SM_Bottle_04
         arm: left
-        grasp_direction: +z
         ee_base_orientation: [-0.5, 0.5, -0.5, 0.5]
         object_position_offset: [0.0, 0.0, 0.1]
         prepare_offset: [0.0, 0.0, 0.2]
-        retreat_direction_extra: 0.0
-        retreat_offset: [0.0, 0.0, 0.1]
+        ee_lift_offset: [0.0, 0.0, 0.1]
+        ee_retreat_offset: [0.0, 0.0, 0.1]

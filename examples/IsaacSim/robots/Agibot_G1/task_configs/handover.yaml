@@ -1,7 +1,14 @@
-# Agibot G1 — handover（纯 skill_defaults / skill_params）
+# Agibot G1 — 双臂交接（队列 + skill 参数分层）
+#
+# - base_task_overrides：流程级公共字段（容差等）
+# - dual_arm.handover：仅双臂同步交接段几何（HandoverSyncConfig）；抓取 / 放置见 single_arm.*
+# - single_arm.pick.arm：交接给出侧默认与之相同；另一侧为接收臂（不必另配 source/receiver）
+#
+# 合并顺序：base 扁平化 → skill_defaults → 场景 skill_params（与 motion_main / 录制一致）
+# skill_defaults 键顺序与 task_queue 对齐：pick → handover → place → joint.movej_to_config（末段为显式关节目标，无关节角缓存）
 
 task_key: handover
-label: Handover
+label: 双臂交接
 use_stamped: true
 robot_id: agibot_g1_bimanual_handover
 default_scene: grab_medicine
@@ -13,11 +20,27 @@ base_task_overrides:
   require_orientation_reach: false
   use_object_orientation: false
 
+task_queue:
+  - skill: single_arm.pick
+  - skill: dual_arm.handover
+  - skill: single_arm.place
+  - skill: joint.movej_to_config
+    id: movej_ho_finish
+
 skill_defaults:
+  single_arm.pick:
+    arm: right
+    ee_base_orientation: [-0.7, 0.7, 0.0, 0.0]
+    prepare_offset: [0.0, 0.0, -0.2]
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    pick_clearance: -0.01
+    ee_retreat_offset: [0.0, 0.0, -0.05]
+
   dual_arm.handover:
     handover_position: [0.55, 0.0, 1.3]
-    source_handover_orientation: [-0.77, 0.0, 0.0, 0.77]
-    receiver_handover_orientation: [0.0, 0.77, -0.77, 0.0]
+    # 左 / 右臂在交接点的姿态（抓取臂见 single_arm.pick.arm）
+    left_handover_orientation: [0.0, 0.77, -0.77, 0.0]
+    right_handover_orientation: [-0.77, 0.0, 0.0, 0.77]
     receiver_handover_offset: [0.0, -0.01, -0.03]
 
   single_arm.place:
@@ -26,38 +49,17 @@ skill_defaults:
     ee_base_orientation:
       [-0.33016505084249775, 0.6534009839213628, -0.6175486972275431, 0.2875618193803384]
 
-  single_arm.pick:
-    arm: right
-    ee_base_orientation: [-0.7, 0.7, 0.0, 0.0]
-    prepare_offset: [0.0, 0.0, 0.2]
-    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
+  # 接力结束后的 MoveJ 待机位（body：body_joint1/2、head_joint1/2；左右臂各 7 关节）。请按仿真/实机标定修改。
+  movej_ho_finish:
+    body_positions: [0.49, 0.29]
+    left_arm_positions: [1.30, -0.4396, -1.53, -0.95, 0.033, 1.3578, 0.0]
+    right_arm_positions: [1.30, -0.4396, -1.53, -0.95, 0.033, 1.3578, 0.0]
+    arrival_timeout: 45.0
+    joint_tolerance: 0.05
 
-task_queue:
-  - skill: robot.cache_ee_pose
-    params:
-      which: both
-      key: ho_prep_pose
-    id: ho_pregrasp
-  - skill: single_arm.pick
-    id: ho_pick
-  - skill: dual_arm.handover_sync
-  - skill: single_arm.place
-  - skill: dual_arm.goto_cache_pose
-    params:
-      key: ho_prep_pose
 
 scene_presets:
-  grab_medicine:
-    skill_params:
-      ho_pick:
-        object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
-
-  grab_bottle:
-    skill_params:
-      ho_pick:
-        object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85
+  grab_medicine: {}
 
 record:
   base_record_overrides:

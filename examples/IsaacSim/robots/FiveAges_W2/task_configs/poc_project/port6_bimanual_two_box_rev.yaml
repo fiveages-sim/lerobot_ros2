@@ -57,7 +57,7 @@ skill_defaults:
       object_position_offset: [0.2, -0.04, 0.173]
       prepare_offset: [0.0, -0.04, 0.0]
       pick_clearance: 0.0
-      grasp_direction: +y
+      ee_pick_axis: +y
       ee_base_orientation: [0.0616, 0.7044, -0.0616, -0.7044]
       ee_lift_offset: [0.1, 0.0, 0.0]
       ee_retreat_offset: [0.0, 0.0, -0.1]
@@ -66,9 +66,9 @@ skill_defaults:
       object_position_offset: [-0.2, -0.04, 0.173]
       prepare_offset: [0.0, 0.04, 0.0]
       pick_clearance: 0.0
-      grasp_direction: -y
+      ee_pick_axis: -y
       ee_base_orientation: [-0.0616, 0.7044, 0.0616, -0.7044]
-      grasp_direction_vector: [0, 0, 1]
+      ee_pick_direction_vector: [0, 0, 1]
       ee_lift_offset: [0.1, 0.0, 0.0]
       ee_retreat_offset: [0.0, 0.0, -0.1]
 
@@ -79,7 +79,7 @@ skill_defaults:
 
   # task_queue[2].parallel[1] — dual_arm.bimanual_align
   align_with_body_up:
-    align_position: [0.55, 0.0, -0.1]
+    align_position: [0.55, 0.0, -0.15]
     orientation_delta_rpy: [0.0, 0.33, 0.0]
     motion_frame_id: "arm_base"
 
@@ -127,3 +127,4 @@ scene_presets:
         orientation_delta_rpy: [0.0, 0.75, 0.0]
       dual_arm.place:
         object_position_offset: [0.0, 0.25, 1.24]
+        retreat_xyz: [-0.3, 0.0, -0.2]
