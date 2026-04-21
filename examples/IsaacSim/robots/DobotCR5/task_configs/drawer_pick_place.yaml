@@ -1,9 +1,13 @@
-# Dobot CR5：开抽屉 → 取苹果 → 放置 → 关抽屉
+# Dobot CR5 — 抽屉：开 → 抓取苹果 → 放置 → 关（队列 + skill 参数分层）
 #
-# 回程：``robot.cache_ee_pose``（队列起势位姿）+ ``single_arm.goto_cache_pose``，与 ``pick_place.yaml`` 一致。
-# 抽屉段为 ``single_arm.drawer.*``，与 pick/place 一样用 skill_defaults / skill_params；
-# ``single_arm.drawer`` 下的字段会并入运行时扁平配置（MergedQueueConfig.drawer），并作为
-# 各 ``single_arm.drawer.pull_open`` 等块的 params 底层默认值（见 merge.block_params / merge_task_queue_skill_params）。
+# - base_task_overrides：流程级公共字段（与 pick_place.yaml 一致）
+# - skill_defaults：键顺序与 task_queue 中技能出现顺序一致（env 苹果随机 → drawer → pick → place）；柜体整体平移随机另用队列内第二次 env.*
+# - scene_presets：drawer_002 覆盖抽屉几何 + 该场景的苹果 Prim（apple_01）
+#
+# 合并顺序与 motion_main / 录制一致：base 扁平化 → skill_defaults → 场景扁平 → skill_params
+#
+# 回程：robot.cache_ee_pose + single_arm.goto_cache_pose（与 pick_place.yaml 一致）。
+# 抽屉段 single_arm.drawer.* 的几何并入 MergedQueueConfig.drawer（见 merge.block_params）。
 
 task_key: drawer_pick_place
 label: Drawer Pick Place
@@ -11,9 +15,51 @@ use_stamped: true
 robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
 
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.05
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  # env.randomize_object_local_xyz：默认作用于苹果（队列首块）；第二次块通过 params 覆盖 Prim 扰动柜体（与 drawer 几何配置分离）
+  env.randomize_object_local_xyz:
+    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
+    xyz_offset: [0.3, 0.3, 0.0]
+
+  # single_arm.drawer — 供 task_queue 中 drawer.pull_open / drawer.close_push 合并几何
+  single_arm.drawer:
+    drawer_clearance: -0.003
+    object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer001
+    # Prim 局部拉手参考：(handle_extent_max + handle_extent_min) / 2 * 0.85 各轴，离线写入
+    object_position_offset: [-0.001003425, -0.221774775, 0.118033975]
+    pull_distance: 0.15
+    prepare_offset: [0.0, 0.0, -0.05]
+    ee_retreat_offset: [0.0, 0.0, -0.05]
+
+  # single_arm.pick（与 pick_place.yaml 字段一致）
+  single_arm.pick:
+    arm: left
+    pick_clearance: 0.03
+    prepare_offset: [0.0, 0.0, -0.1]
+    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
+    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.0, -0.1]
+
+  # single_arm.place（工具系 prepare_offset / ee_retreat_offset；显式 place_position）
+  single_arm.place:
+    place_position: [-0.5211657941743888, 0.18339369774887115, 0.52]
+    ee_base_orientation: [0.64, 0.64, -0.28, -0.28]
+    prepare_offset: [0.0, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.0, 0.0]
+
 task_queue:
   - skill: env.randomize_object_local_xyz
-  # reset 后起始末端位姿作为回程参考；pick 已含张开接近，无需 pregrasp
+  - skill: env.randomize_object_local_xyz
+    params:
+      object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135
+      xyz_offset: [0.05, 0.05, 0.0]
   - skill: robot.cache_ee_pose
     params:
       key: cr5_drawer_prep_pose
@@ -25,50 +71,18 @@ task_queue:
     params:
       key: cr5_drawer_prep_pose
 
-base_task_overrides:
-  max_stage_duration: 2.0
-  pose_tol_pos: 0.001
-  pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
-
-skill_defaults:
-  env.randomize_object_local_xyz:
-    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
-    xyz_offset: [0.3, 0.3, 0.0]
-  single_arm.pick:
-    arm: left
-    prepare_offset: [0.0, 0.0, 0.08]
-    retreat_direction_extra: 0.08
-    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
-    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
-    grasp_direction: +z
-    grasp_direction_vector: [0, 0, 1]
-  single_arm.place:
-    place_position: [-0.5211657941743888, 0.18339369774887115, 0.54]
-    ee_base_orientation: [0.64, 0.64, -0.28, -0.28]
-    ee_retreat_offset: [0.0, -0.2, 0.0]
-  single_arm.drawer:
-    object_xyz_random_offset_drawer: [0.05, 0.05, 0.0]
-    grasp_clearance_drawer: -0.003
-    source_object_path_drawer_all: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135
-    drawer_scale: 0.85
-    # 拉开行程（米，沿拉手 grasp 方向）
-    pull_distance: 0.15
-
 scene_presets:
-  drawer_001:
-    skill_params:
-      single_arm.drawer:
-        source_object_path_drawer: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer001
-        handle_extent_max: [0.016881, -0.256626, 0.148597]
-        handle_extent_min: [-0.019242, -0.265197, 0.12913]
+  # drawer_001 几何见 skill_defaults.single_arm.drawer；占位便于 default_scene 与 CLI 场景列表一致
+  drawer_001: {}
   drawer_002:
     skill_params:
+      env.randomize_object_local_xyz:
+        object_prim_path: /World/grasp_apple_drawer/apple_01/apple
+      single_arm.pick:
+        object_prim_path: /World/grasp_apple_drawer/apple_01/apple
       single_arm.drawer:
-        source_object_path_drawer: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer002
-        handle_extent_max: [0.016881, -0.256626, -0.003418]
-        handle_extent_min: [-0.019242, -0.265197, -0.022885]
+        object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer002
+        object_position_offset: [-0.001003425, -0.221774775, -0.011178775]
 
 record:
   base_record_overrides:
