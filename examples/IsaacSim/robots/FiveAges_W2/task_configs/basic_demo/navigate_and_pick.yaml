@@ -11,7 +11,7 @@
 #   → scene.skill_params → task_queue 内联 params
 
 task_key: navigate_and_pick
-label: Navigate Pick and Place
+label: 导航并放置抓取
 use_stamped: true
 robot_id: fiveages_w2_navigate_and_pick
 default_scene: apple_1
@@ -23,113 +23,118 @@ base_task_overrides:
   require_orientation_reach: false
   use_object_orientation: false
 
-# 执行顺序：
-#   parallel 块内的 skill 同时派发，全部完成后继续下一步
-#   - nav_to_pick 导航期间，全身关节运动到预备抓取配置（prepare_for_pick）
-#   - nav_to_place 导航期间，上半身关节到预备放置姿态
-#   末尾：右臂回队列开始时缓存的末端位姿（与 MoveJ 全身回初始解耦）
 task_queue:
-  - skill: robot.cache_ee_pose
-    params:
-      key: nav_pick_prep_pose
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_pick
-      - skill: joint.movej_to_config    # 导航期间全身运动到预备抓取姿态，结束后保持 HOLD
+      - skill: joint.movej_to_config  
         id: navigate_gesture
-  - skill: joint.movej_to_config        # 右臂运动到抓取预备关节位，完成后切回 OCS2
+  - skill: joint.movej_to_config  
     id: right_arm_pregrasp
   - skill: single_arm.pick
+  - skill: nav.navigate_relative
+    id: nav_back_after_pick
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_place
-      - skill: joint.movej_to_config    # 导航期间全身运动到预备放置姿态，结束后保持 HOLD
+      - skill: joint.movej_to_config  
         id: navigate_gesture
-  - skill: joint.movej_to_config    # 导航到位后，全身运动到预备放置姿态，结束后保持 HOLD
+  - skill: joint.movej_to_config 
     id: pre_release_gesture
   - skill: single_arm.place
-  - skill: single_arm.goto_cache_pose
-    params:
-      key: nav_pick_prep_pose
+  - skill: joint.movej_to_config
+    id: turn_waist_keep_height
+  - skill: joint.movej_to_config
+    id: navigate_gesture
 
-# 各 skill/id 的跨场景基准参数
+
 skill_defaults:
-  # 与 task_queue 中 single_arm.pick / single_arm.place 对应（merge_flat_with_skill_pick_place）
-  single_arm.pick:
-    arm: right
-    prepare_offset: [0.0, 0.0, 0.2]
-    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
-    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
-    ee_pick_axis: -z
-
-  single_arm.place:
-    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
-    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]   # 放置时末端姿态（front 方向）
-    ee_place_axis: -x
-    prepare_offset: [-0.3, 0.0, 0.0]   # 放置预接近偏移（工具系）
-    place_insert_clearance: 0.0      # 最终插入偏移，0 = 精确放到目标位
-    object_position_offset: [0.0, 0.0, 0.3]   # 放置目标的空间偏移（物体局部坐标系）
-    ee_retreat_offset: [-0.3, 0.0, 0.1]  # 松夹后撤退
-
-  # nav_to_pick 不写 object_prim_path，自动从 task_cfg.object_prim_path 读取（苹果路径）
   nav_to_pick:
-    approach_offset_x: 0.5
-    approach_offset_y: 0.05
+    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+    approach_offset_x: 0.9
+    approach_offset_y: -0.4
     yaw: 3.14
-    frame_id: map
     timeout: 60.0
 
-  # 导航期间全身运动到预备抓取姿态（4 躯干 + 7 左臂 + 7 右臂），保持 HOLD
   navigate_gesture:
-    body_positions:      [-1.3, -2.6, -1.3, 0.0]
-    left_arm_positions:  [2.502, -1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
-    right_arm_positions: [-2.502, -1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    body_positions: [-1.3, -2.6, -1.3, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
+    body_movej_duration: 4.0
 
   # 导航到位后，右臂精确运动到抓取预备关节位，完成后切回 OCS2 供 pick 使用
   right_arm_pregrasp:
-    body_positions:      [-1.3, -2.6, -1.0, 0.0]
-    right_arm_positions: [0.3993, -0.7665, -0.8425, -1.7351, 2.7821, 0.6668, -0.7633]
+    body_positions:      [0.0, 0.0, 0.0, 0.0]
+    right_arm_positions: [-0.0465, 1.612, -0.1924, -2.21, 1.5109, -0.216, 0.9134]
     arrival_timeout: 15.0
     joint_tolerance: 0.05
     resume_ocs2: true   # 最后一个关节步骤，之后直接 pick（笛卡尔），必须切回 OCS2
+    body_movej_duration: 4.0
 
-  # nav_to_place 需显式指定放置目标的 prim 路径
+
+  single_arm.pick:
+    arm: right
+    prepare_offset: [0.1, 0.0, -0.1]
+    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    ee_retreat_offset: [0.1, 0.0, -0.2]
+    motion_frame_id: "arm_base"
+
+  nav_back_after_pick:
+    relative_position: [-0.5, 0.0, 0.0]
+    timeout: 60.0
+    poll_period: 0.1
+
   nav_to_place:
     object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
     approach_offset_x: -1.0
     approach_offset_y: 0.4
     yaw: 0.0
-    frame_id: map
     timeout: 60.0
   
-  # 放置前的预备姿态：调整全身到放置就绪位，完成后切回 OCS2 供 place 使用
   pre_release_gesture:
     body_positions:      [0.0, 0.0, 0.0, 0.0]
     right_arm_positions: [-0.0465, 1.612, -0.1924, -2.21, 1.5109, -0.216, 0.9134]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
-    resume_ocs2: true   # place 是笛卡尔控制，必须在此切回 OCS2
+    resume_ocs2: true 
+
+  turn_waist_keep_height:
+    body_positions: [0.0, 0.0, 0.0, 1.0]
+    arrival_timeout: 15.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+
+  single_arm.place:
+    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
+    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]   # 放置时末端姿态（front 方向）
+    prepare_offset: [0.0, 0.0, -0.2]   # 放置预接近偏移（工具系）
+    object_position_offset: [-0.18, 0.0, 0.3]   # 放置目标的空间偏移（物体局部坐标系）
+    ee_retreat_offset: [0.0, 0.3, -0.3]  # 松夹后撤退
 
 scene_presets:
-  # Apple 1 — 从 -X 方向前方抓取，放置到篮子
   apple_1:
     skill_params:
       single_arm.pick:
         object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
 
-  # Apple 2 — 从正上方抓取，放置到同一篮子
   apple_2:
     skill_params:
       single_arm.pick:
         object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
-        ee_pick_axis: -z
-        ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+        ee_retreat_offset: [0.0, 0.2, -0.2]
+      right_arm_pregrasp:
+        body_positions: [-1.35, -2.3, -1.7, 3.1415]
+        right_arm_positions: [0.3993, -0.7665, -0.8425, -1.7351, 2.7821, 0.0, 0.0]
+      nav_back_after_pick:
+        relative_position: [0.5, 0.0, 0.0]
       nav_to_pick:
-        approach_offset_x: -0.5
-        approach_offset_y: 0.1
-        yaw: 0.0
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+        approach_offset_x: -0.7
+        approach_offset_y: 0.2
+        yaw: 3.14
 
 record:
   base_record_overrides:

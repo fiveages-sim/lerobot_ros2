@@ -32,7 +32,6 @@ skill_defaults:
     # 到达时朝向角（弧度）
     yaw: 0.0
     # 导航参考坐标系
-    frame_id: map
     # 本步骤超时时间（秒）
     timeout: 60.0
 

@@ -2,7 +2,7 @@
 #
 # 合并顺序：base → single_arm.pick（供 nav 默认物体路径）→ dual_arm.carry → 场景 skill_params
 # 队列：并行「导航 + navigate_gesture」→ pre_ocs2_* → carry →
-#   navigate_backup(0.5m) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
+#   navigate_relative([dx,dy,dyaw]) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
 
 task_key: navigate_and_carry
 label: Navigate and Bimanual Carry
@@ -32,7 +32,7 @@ task_queue:
   - skill: joint.movej_to_config
     id: pre_ocs2_carry_arms
   - skill: dual_arm.carry
-  - skill: nav.navigate_backup
+  - skill: nav.navigate_relative
     id: post_carry_backup
   - parallel:
       - skill: nav.send_nav_goal
@@ -66,7 +66,6 @@ skill_defaults:
     approach_offset_x: 0.95
     approach_offset_y: 0.0
     yaw: 3.14
-    frame_id: map
     timeout: 60.0
 
   # 导航并行段：双臂目标弧度（左 7 / 右 7）；躯干仍为预备弯腰位
@@ -91,15 +90,13 @@ skill_defaults:
     resume_ocs2: true
 
   post_carry_backup:
-    distance_m: 0.5
-    frame_id: map
+    relative_position: [-0.5, 0.0, 0.0]
     timeout: 90.0
 
   nav_home_pose:
     x: 0.0
     y: 0.0
     yaw: 0.0
-    frame_id: map
 
   # 与导航并行：不降腰先发 HOLD，避免打断 Nav2；躯干目标同 navigate_gesture 弯腰（可改）
   lower_body_while_nav_home:

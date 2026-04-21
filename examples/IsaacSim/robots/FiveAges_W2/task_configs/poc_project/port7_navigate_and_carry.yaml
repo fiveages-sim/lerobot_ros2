@@ -53,7 +53,6 @@ skill_defaults:
     approach_offset_x: -1.2
     approach_offset_y: 0.0
     yaw: 0
-    frame_id: map
     timeout: 60.0
 
   pre_ocs2_carry_pose:
@@ -82,7 +81,6 @@ skill_defaults:
     approach_offset_x: 1.32
     approach_offset_y: 0.0
     yaw: 0
-    frame_id: map
     timeout: 20.0
   # parallel[1]
   lower_body_while_nav_to_shelf2:
