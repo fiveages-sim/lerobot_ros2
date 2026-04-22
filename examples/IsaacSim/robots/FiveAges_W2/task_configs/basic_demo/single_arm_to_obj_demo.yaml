@@ -68,8 +68,6 @@ skill_defaults:
     tf_lookup_timeout: 2.0
     # 执行前写入 arm_controller.movel_duration
     arm_movel_duration: 2.0
-    # 日志阶段名
-    stage_name: TaskQ-MoveToObject-Demo
 
 # 场景预设：用于切换右手/左手示例
 scene_presets:

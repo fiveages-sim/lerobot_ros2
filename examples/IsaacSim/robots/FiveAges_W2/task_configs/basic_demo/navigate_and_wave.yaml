@@ -1,6 +1,6 @@
 # FiveAges W2 — 导航到指定位置后挥手
 #
-# 队列：并行「导航 + 收臂 MoveJ」→ MoveJ 到初始姿态 → 缓存关节角 → MoveJ 到挥手姿态 → 回初始姿态 → 笛卡尔发送右臂目标
+# 队列：并行「导航 + 收臂 MoveJ」→ MoveJ 到初始姿态 → 缓存关节角 → MoveJ 到挥手姿态 → 回初始姿态 → single_arm.move_to_pose（右臂）
 
 task_key: navigate_and_wave
 label: Navigate and Wave Hand
@@ -30,7 +30,7 @@ task_queue:
     id: movej_to_wave
   - skill: joint.goto_cached_joints
     id: goto_initial_pose
-  - skill: single_arm.send_cartesian_goal
+  - skill: single_arm.move_to_pose
     id: send_left_pose_in_frame
 
 skill_defaults:
@@ -64,7 +64,7 @@ skill_defaults:
 
   send_left_pose_in_frame:
     arm: right
-    frame_id: arm_base
+    motion_frame_id: arm_base
     position: [0.87, -0.11, 0.085]
     orientation: [0.387, 0.631, 0.518, 0.427]
 

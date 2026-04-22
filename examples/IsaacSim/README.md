@@ -84,7 +84,7 @@ ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationS
 
 - [任务 YAML 说明](../../submodules/robot_action_composer/docs/TASK_CONFIG_YAML.md)
 - [机器人配置说明](../../submodules/robot_action_composer/docs/ROBOT_CONFIG.md)
-- [包架构](../../submodules/robot_action_composer/docs/ARCHITECTURE.md)
+- [包架构与 README](../../submodules/robot_action_composer/README.md)
 
 - **`train.py`** → **`policy_training/train.py`**：只读 **LeRobot 数据集**与训练配置，**不会**加载 `robots/*/robot_config.py`。要与仿真/实物一致，请用与录制时相同的相机与状态键（数据集 `meta` 即真源）。
 - **`inference.py`**：在线推理时通过 **`robot_action_composer.discovery.registry_loader.load_motion_entries`** 与 **`robot_action_composer.task_config_io.flatten_queue_task_overrides`** 读取与 motion/录制 **同一套** `robots/` 资产；策略与 ROS2 循环在 **`online_infer/core.py`**；仿真服务仍用 `common/isaac_ros2_sim_common`。
