@@ -1,6 +1,6 @@
 # FiveAges W2 — 单臂到目标物体相对位姿（不抓取）示例
 #
-# 目的：演示 single_arm.pregrasp
+# 目的：演示 single_arm.move_to_object
 # - 基于 object_prim_path + object_position_offset 计算目标位置（物体局部坐标）
 # - 使用 ee_base_orientation 作为目标末端姿态
 # - 单臂移动到位，不执行夹爪抓取序列
@@ -35,8 +35,8 @@ task_queue:
   # 先 movej 到预备姿态
   - skill: joint.movej_to_config
     id: poc_pick_start_movej
-  # 再执行 pregrasp：到物体相对位姿（不抓取）
-  - skill: single_arm.pregrasp
+  # 再执行 move_to_object：到物体相对位姿（不抓取）
+  - skill: single_arm.move_to_object
     params:
       # 显式保持夹爪打开，避免默认状态导致闭合
       gripper: 1.0
@@ -49,11 +49,11 @@ skill_defaults:
       right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
       arrival_timeout: 30.0
       joint_tolerance: 0.05
-      # movej 完成后切回 OCS2，便于后续笛卡尔 pregrasp
+      # movej 完成后切回 OCS2，便于后续笛卡尔 move_to_object
       resume_ocs2: true
 
-  # single_arm.pregrasp 默认参数
-  single_arm.pregrasp:
+  # single_arm.move_to_object 默认参数
+  single_arm.move_to_object:
     # 工作臂：right / left
     arm: right
     # 目标物体 prim 路径
@@ -69,7 +69,7 @@ skill_defaults:
     # 执行前写入 arm_controller.movel_duration
     arm_movel_duration: 2.0
     # 日志阶段名
-    stage_name: TaskQ-Pregrasp-Demo
+    stage_name: TaskQ-MoveToObject-Demo
 
 # 场景预设：用于切换右手/左手示例
 scene_presets:
@@ -79,7 +79,7 @@ scene_presets:
 
   left_arm:
     skill_params:
-      single_arm.pregrasp:
+      single_arm.move_to_object:
         # 切换到左手与左侧目标
         arm: left
         object_prim_path: /World/port6/box_blue_01/small_blue
