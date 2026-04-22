@@ -357,7 +357,11 @@ class ROS2Robot(Robot):
                     obs_dict[f"{joint_name}.effort"] = 0.0
         
         # Get end-effector pose (left)
-        end_effector_pose = self.ros2_interface.get_end_effector_pose()
+        end_effector_pose = (
+            self.ros2_interface.left_arm_handler.get_pose()
+            if self.ros2_interface.left_arm_handler is not None
+            else None
+        )
         if end_effector_pose is not None:
             obs_dict[f"{self.LEFT_EE_PREFIX}.pos.x"] = end_effector_pose.position.x
             obs_dict[f"{self.LEFT_EE_PREFIX}.pos.y"] = end_effector_pose.position.y
@@ -378,7 +382,11 @@ class ROS2Robot(Robot):
 
         # Right end-effector pose (dual-arm mode)
         if self._is_dual_arm_enabled():
-            right_pose = self.ros2_interface.get_right_end_effector_pose()
+            right_pose = (
+                self.ros2_interface.right_arm_handler.get_pose()
+                if self.ros2_interface.right_arm_handler is not None
+                else None
+            )
             if right_pose is not None:
                 obs_dict[f"{self.RIGHT_EE_PREFIX}.pos.x"] = right_pose.position.x
                 obs_dict[f"{self.RIGHT_EE_PREFIX}.pos.y"] = right_pose.position.y

@@ -1,0 +1,105 @@
+# Dobot CR5 — 抽屉：开 → 抓取苹果 → 放置 → 关（队列 + skill 参数分层）
+#
+# - base_task_overrides：流程级公共字段（与 pick_place.yaml 一致）
+# - skill_defaults：键顺序与 task_queue 中技能出现顺序一致（env 苹果随机 → drawer → pick → place）；柜体整体平移随机另用队列内第二次 env.*
+# - scene_presets：drawer_002 覆盖抽屉几何 + 该场景的苹果 Prim（apple_01）
+#
+# 合并顺序与 motion_main / 录制一致：base 扁平化 → skill_defaults → 场景扁平 → skill_params
+#
+# 回程：robot.cache_ee_pose + single_arm.goto_cache_pose（与 pick_place.yaml 一致）。
+# 抽屉段 single_arm.drawer.* 的几何并入 MergedQueueConfig.drawer（见 merge.block_params）。
+
+task_key: drawer_pick_place
+label: 抽屉取放任务
+use_stamped: true
+robot_id: dobot_cr5_pick_place
+default_scene: drawer_001
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.05
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  # env.randomize_object_local_xyz：默认作用于苹果（队列首块）；第二次块通过 params 覆盖 Prim 扰动柜体（与 drawer 几何配置分离）
+  env.randomize_object_local_xyz:
+    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
+    xyz_offset: [0.3, 0.3, 0.0]
+
+  # single_arm.drawer — 供 task_queue 中 drawer.pull_open / drawer.close_push 合并几何
+  single_arm.drawer:
+    drawer_clearance: -0.003
+    object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer001
+    # Prim 局部拉手参考：(handle_extent_max + handle_extent_min) / 2 * 0.85 各轴，离线写入
+    object_position_offset: [-0.001003425, -0.221774775, 0.118033975]
+    pull_distance: 0.15
+    prepare_offset: [0.0, 0.0, -0.05]
+    ee_retreat_offset: [0.0, 0.0, -0.05]
+
+  # single_arm.pick（与 pick_place.yaml 字段一致）
+  single_arm.pick:
+    arm: left
+    pick_clearance: 0.03
+    prepare_offset: [0.0, 0.0, -0.1]
+    object_prim_path: /World/grasp_apple_drawer/apple/apple/apple
+    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.0, -0.1]
+
+  # single_arm.place（工具系 prepare_offset / ee_retreat_offset；显式 place_position）
+  single_arm.place:
+    place_position: [-0.5211657941743888, 0.18339369774887115, 0.52]
+    ee_base_orientation: [0.64, 0.64, -0.28, -0.28]
+    prepare_offset: [0.0, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.0, 0.0]
+
+task_queue:
+  - skill: env.randomize_object_local_xyz
+  - skill: env.randomize_object_local_xyz
+    params:
+      object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135
+      xyz_offset: [0.05, 0.05, 0.0]
+  - skill: robot.cache_ee_pose
+    params:
+      key: cr5_drawer_prep_pose
+  - skill: single_arm.drawer.pull_open
+  - skill: single_arm.pick
+  - skill: single_arm.place
+  - skill: single_arm.drawer.close_push
+  - skill: single_arm.goto_cache_pose
+    params:
+      key: cr5_drawer_prep_pose
+
+scene_presets:
+  # drawer_001 几何见 skill_defaults.single_arm.drawer；占位便于 default_scene 与 CLI 场景列表一致
+  drawer_001: {}
+  drawer_002:
+    skill_params:
+      env.randomize_object_local_xyz:
+        object_prim_path: /World/grasp_apple_drawer/apple_01/apple/apple
+      single_arm.pick:
+        object_prim_path: /World/grasp_apple_drawer/apple_01/apple/apple
+      single_arm.drawer:
+        object_prim_path: /World/grasp_apple_drawer/StorageFurniture135/StorageFurniture135_Drawer002
+        object_position_offset: [-0.001003425, -0.221774775, -0.011178775]
+
+record:
+  base_record_overrides:
+    task_name: drawer_pick_place
+    fps: 30
+    camera_info_timeout: 10.0
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
+    - key: fast
+      label: Fast Encode Queue
+      overrides:
+        image_writer_threads: 12
+        video_encoding_batch_size: 10

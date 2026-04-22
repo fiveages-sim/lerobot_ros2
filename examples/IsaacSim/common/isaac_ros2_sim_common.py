@@ -12,8 +12,8 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Pose
 from isaac_ros2_messages.srv import GetPrimAttribute, SetPrimAttribute
-from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
-    action_from_pose,
+from lerobot_robot_ros2.utils.pose_utils import action_from_pose  # pyright: ignore[reportMissingImports]
+from ros2_robot_interface.utils.quat_pose import (  # pyright: ignore[reportMissingImports]
     quat_conjugate,
     quat_multiply,
     quat_normalize,
@@ -222,14 +222,50 @@ def set_prim_translate_local(
         )
 
 
+def set_prim_orientation_local(
+    path: str,
+    quat_wxyz: tuple[float, float, float, float],
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+) -> None:
+    w, x, y, z = quat_wxyz
+    request = SetPrimAttribute.Request()
+    request.path = path
+    request.attribute = "xformOp:orient"
+    request.value = f"[{w}, {x}, {y}, {z}]"
+    result = _call_service_with_retry(
+        lambda: _call_service_once(
+            SetPrimAttribute,
+            "/set_prim_attribute",
+            request,
+            timeout=timeout,
+        ),
+        f"set_prim_translate_local('{path}')",
+        retries=retries,
+        retry_delay=retry_delay,
+    )
+    if not result.success:
+        raise RuntimeError(
+            f"set_prim_attribute unsuccessful for '{path}': {result.message or 'unknown error'}"
+        )
+    
+
 def randomize_object_xyz_after_reset(
-    object_entity_path: str,
+    object_prim_path: str,
     enabled: bool = True,
     xyz_offset: tuple[float, float, float] | float = 0.04,
     timeout: float = SERVICE_CALL_TIMEOUT,
     retries: int = SERVICE_CALL_RETRIES,
     retry_delay: float = SERVICE_RETRY_DELAY,
 ) -> None:
+    """Apply a small random **local** translation to the object prim after reset.
+
+    Each axis uses an **independent uniform** draw in ``[-w, +w]`` added to the
+    current local translation, where ``w`` is the corresponding component of
+    ``xyz_offset`` (or the scalar for x/y and 0 for z when ``xyz_offset`` is a float).
+    This is **not** a Gaussian / normal distribution.
+    """
     if not enabled:
         return
     if isinstance(xyz_offset, tuple):
@@ -239,16 +275,17 @@ def randomize_object_xyz_after_reset(
     else:
         off_x, off_y, off_z = float(xyz_offset), float(xyz_offset), 0.0
     cur_x, cur_y, cur_z = get_prim_translate_local(
-        object_entity_path,
+        object_prim_path,
         timeout=timeout,
         retries=retries,
         retry_delay=retry_delay,
     )
+    # Uniform on each axis (not Gaussian).
     new_x = cur_x + random.uniform(-off_x, off_x)
     new_y = cur_y + random.uniform(-off_y, off_y)
     new_z = cur_z + random.uniform(-off_z, off_z)
     set_prim_translate_local(
-        object_entity_path,
+        object_prim_path,
         (new_x, new_y, new_z),
         timeout=timeout,
         retries=retries,
@@ -260,20 +297,23 @@ def randomize_object_xyz_after_reset(
     )
 
 
-def reset_simulation_and_randomize_object(
-    object_entity_path: str,
+def reset_simulation_state(
+    settle_entity_path: str,
     *,
     sim_state_reset: int = 0,
     sim_state_playing: int = 1,
     sim_service_timeout: float = SERVICE_CALL_TIMEOUT,
-    enable_randomization: bool = True,
-    xyz_offset: tuple[float, float, float] | float = 0.04,
-    prim_attr_timeout: float = SERVICE_CALL_TIMEOUT,
     retries: int = SERVICE_CALL_RETRIES,
     retry_delay: float = SERVICE_RETRY_DELAY,
     post_reset_wait: float = 1.0,
     sleep_fn: Callable[[float], None] | None = None,
+    enable_settle_wait: bool = True,
+    settle_max_wait: float = 2.0,
+    settle_sample_interval: float = 0.05,
+    settle_stable_samples: int = 3,
+    settle_position_epsilon: float = 0.002,
 ) -> None:
+    """Reset/play Isaac sim, post-wait, optional settle. Does not randomize object translation."""
     set_simulation_state(
         sim_state_reset,
         timeout=sim_service_timeout,
@@ -287,15 +327,79 @@ def reset_simulation_and_randomize_object(
         retry_delay=retry_delay,
     )
     print("[OK] Simulation reset completed")
-    randomize_object_xyz_after_reset(
-        object_entity_path,
-        enabled=enable_randomization,
-        xyz_offset=xyz_offset,
-        timeout=prim_attr_timeout,
-        retries=retries,
-        retry_delay=retry_delay,
-    )
     (sleep_fn or time.sleep)(post_reset_wait)
+    if enable_settle_wait:
+        wait_entity_position_stable(
+            settle_entity_path,
+            max_wait=settle_max_wait,
+            sample_interval=settle_sample_interval,
+            stable_samples=settle_stable_samples,
+            position_epsilon=settle_position_epsilon,
+            timeout=sim_service_timeout,
+            retries=retries,
+            retry_delay=retry_delay,
+            sleep_fn=sleep_fn,
+        )
+
+
+def wait_entity_position_stable(
+    entity: str,
+    *,
+    max_wait: float = 2.0,
+    sample_interval: float = 0.05,
+    stable_samples: int = 3,
+    position_epsilon: float = 0.002,
+    timeout: float = SERVICE_CALL_TIMEOUT,
+    retries: int = SERVICE_CALL_RETRIES,
+    retry_delay: float = SERVICE_RETRY_DELAY,
+    sleep_fn: Callable[[float], None] | None = None,
+) -> bool:
+    """Wait until entity world position changes remain within tolerance."""
+    required_stable = max(1, int(stable_samples))
+    interval = max(0.0, float(sample_interval))
+    settle_deadline = time.monotonic() + max(0.0, float(max_wait))
+    sleep = sleep_fn or time.sleep
+
+    try:
+        (prev_x, prev_y, prev_z), _ = get_entity_pose_world_service(
+            entity, timeout=timeout, retries=retries, retry_delay=retry_delay
+        )
+    except Exception as exc:
+        print(f"[WARN] Failed to read initial pose for settle check '{entity}': {exc}")
+        return False
+
+    stable_count = 0
+    while time.monotonic() < settle_deadline:
+        sleep(interval)
+        try:
+            (cur_x, cur_y, cur_z), _ = get_entity_pose_world_service(
+                entity, timeout=timeout, retries=retries, retry_delay=retry_delay
+            )
+        except Exception:
+            stable_count = 0
+            continue
+
+        dx = cur_x - prev_x
+        dy = cur_y - prev_y
+        dz = cur_z - prev_z
+        dist = float(np.sqrt(dx * dx + dy * dy + dz * dz))
+        prev_x, prev_y, prev_z = cur_x, cur_y, cur_z
+        if dist <= position_epsilon:
+            stable_count += 1
+            if stable_count >= required_stable:
+                print(
+                    f"[OK] Entity pose settled: '{entity}', "
+                    f"delta<={position_epsilon:.4f}m for {required_stable} samples"
+                )
+                return True
+        else:
+            stable_count = 0
+
+    print(
+        f"[WARN] Entity pose not fully settled within {max_wait:.2f}s: '{entity}' "
+        f"(threshold={position_epsilon:.4f}m, samples={required_stable})"
+    )
+    return False
 
 
 def get_entity_pose_world_service(
@@ -336,7 +440,7 @@ def get_entity_pose_world_service(
 def get_object_pose_from_service(
     base_world_pos: tuple[float, float, float],
     base_world_quat: tuple[float, float, float, float],
-    object_entity_path: str,
+    object_prim_path: str,
     *,
     include_orientation: bool = False,
     entity_state_timeout: float = SERVICE_CALL_TIMEOUT,
@@ -346,7 +450,7 @@ def get_object_pose_from_service(
     base_wx, base_wy, base_wz = base_world_pos
     base_q = base_world_quat
     (obj_wx, obj_wy, obj_wz), obj_q = get_entity_pose_world_service(
-        object_entity_path,
+        object_prim_path,
         timeout=entity_state_timeout,
         retries=retries,
         retry_delay=retry_delay,

@@ -9,7 +9,7 @@
 配置文件：
 
 - `robot_config.py` — 机器人参数（关节、阈值等）
-- `task_configs/handover.py` — 双臂交接任务配置
+- `task_configs/handover.yaml` — 双臂交接任务配置（需 PyYAML；见 `docs/TASK_CONFIG_YAML.md`）
 
 ROS2夹爪控制器参数：
 ```yaml

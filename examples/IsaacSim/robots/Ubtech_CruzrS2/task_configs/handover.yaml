@@ -1,0 +1,80 @@
+# Ubtech Cruzr S2 — 双臂交接（纯 skill_defaults / skill_params）
+
+task_key: handover
+label: Handover
+use_stamped: true
+robot_id: ubtech_cruzr_s2_bimanual_handover
+default_scene: grab_medicine
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  dual_arm.handover:
+    receiver_handover_offset: [-0.025, 0.0, -0.03]
+    handover_position: [0.5, 0.005, 1.3]
+    left_handover_orientation: [0.6533, -0.2706, -0.2706, 0.6533]
+    right_handover_orientation: [0.6533, 0.2706, 0.2706, 0.6533]
+
+  single_arm.place:
+    arm: left
+    place_position: [0.5, 0.28, 1.0]
+    ee_base_orientation: [0.6533, -0.2706, -0.2706, 0.6533]
+
+  single_arm.pick:
+    arm: right
+    ee_base_orientation: [0.5, 0.5, -0.5, 0.5]
+    prepare_offset: [0.0, 0.0, 0.1]
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    ee_pick_direction_vector: [0, 0, 1]
+
+task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      which: both
+      key: ho_prep_pose
+    id: ho_pregrasp
+  - skill: single_arm.pick
+    id: ho_pick
+  - skill: dual_arm.handover
+  - skill: single_arm.place
+  - skill: dual_arm.goto_cache_pose
+    params:
+      key: ho_prep_pose
+
+scene_presets:
+  grab_medicine:
+    skill_params:
+      ho_pick:
+        object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+  grab_bottle:
+    skill_params:
+      ho_pick:
+        object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85
+
+record:
+  base_record_overrides:
+    task_name: handover
+    fps: 30
+    camera_info_timeout: 10.0
+    switch_to_hold_after_episode: true
+    async_episode_save: true
+    episode_save_queue_size: 2
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
+    - key: fast
+      label: Fast Encode Queue
+      overrides:
+        image_writer_threads: 12
+        video_encoding_batch_size: 10

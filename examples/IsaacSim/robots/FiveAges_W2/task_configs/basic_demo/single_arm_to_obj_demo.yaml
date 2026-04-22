@@ -1,0 +1,85 @@
+# FiveAges W2 — 单臂到目标物体相对位姿（不抓取）示例
+#
+# 目的：演示 single_arm.move_to_object
+# - 基于 object_prim_path + object_position_offset 计算目标位置（物体局部坐标）
+# - 使用 ee_base_orientation 作为目标末端姿态
+# - 单臂移动到位，不执行夹爪抓取序列
+
+# 任务唯一键（用于任务发现与 CLI 选择）
+task_key: single_arm_to_obj_demo
+# 任务显示名称（日志/UI 可见）
+label: Single Arm To Object Demo
+# 使用 stamped 目标下发（携带 frame_id）
+use_stamped: true
+# 任务级机器人 ID（用于任务条目标识）
+robot_id: fiveages_w2_single_arm_to_obj_demo
+# 默认场景预设（对应 scene_presets 的 key）
+default_scene: right_arm
+
+base_task_overrides:
+  # 机器人 base prim 路径（用于构建任务基准 frame）
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  # 单阶段最长执行时长（秒）
+  max_stage_duration: 2.0
+  # 到位判定：位置阈值（米）
+  pose_tol_pos: 0.01
+  # 到位判定：姿态阈值（无量纲）
+  pose_tol_ori: 0.05
+  # 是否强制姿态达到阈值
+  require_orientation_reach: false
+  # 是否使用物体姿态参与通用目标推导（该 demo 不启用）
+  use_object_orientation: false
+
+# 执行队列（按顺序）
+task_queue:
+  # 先 movej 到预备姿态
+  - skill: joint.movej_to_config
+    id: poc_pick_start_movej
+  # 再执行 move_to_object：到物体相对位姿（不抓取）
+  - skill: single_arm.move_to_object
+    params:
+      # 显式保持夹爪打开，避免默认状态导致闭合
+      gripper: 1.0
+
+# 各步骤默认参数（可被 scene_presets.skill_params 覆盖）
+skill_defaults:
+  poc_pick_start_movej:
+      body_positions: [-1.35, -2.35, -1.45, -3.1416]
+      left_arm_positions: [-0.55, 1.0266, 0.8165, -1.8487, -0.9908, -0.5437, -0.4515]
+      right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
+      arrival_timeout: 30.0
+      joint_tolerance: 0.05
+      # movej 完成后切回 OCS2，便于后续笛卡尔 move_to_object
+      resume_ocs2: true
+
+  # single_arm.move_to_object 默认参数
+  single_arm.move_to_object:
+    # 工作臂：right / left
+    arm: right
+    # 目标物体 prim 路径
+    object_prim_path: /World/port6/box_blue_03/small_blue
+    # 相对目标物体局部坐标系的偏移 [x, y, z]（不是 world 直接偏移）
+    object_position_offset: [-0.25, 0.0, 0.2]
+    # 目标末端姿态四元数（xyzw）
+    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    # 执行/下发坐标系
+    motion_frame_id: arm_base
+    # TF 查询超时（秒）
+    tf_lookup_timeout: 2.0
+    # 执行前写入 arm_controller.movel_duration
+    arm_movel_duration: 2.0
+
+# 场景预设：用于切换右手/左手示例
+scene_presets:
+  right_arm:
+    # 默认右手场景，不额外覆盖
+    skill_params: {}
+
+  left_arm:
+    skill_params:
+      single_arm.move_to_object:
+        # 切换到左手与左侧目标
+        arm: left
+        object_prim_path: /World/port6/box_blue_01/small_blue
+        object_position_offset: [0.25, 0.0, 0.2]
+        ee_base_orientation: [0.7, 0.0, 0.7, 0.0]

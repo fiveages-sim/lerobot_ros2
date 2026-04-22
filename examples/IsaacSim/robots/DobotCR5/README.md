@@ -4,12 +4,14 @@
 
 | 任务 | 类型 | 场景预设 | 数据采集 |
 |------|------|----------|----------|
-| Pick Place | 单臂抓取放置 | `default` | 支持 |
+| Pick Place | 单臂抓取放置 | `apple`, `nailong` | 支持 |
+| Drawer + Pick Place | 开抽屉 → 取放 → 关抽屉 | `drawer_001`, `drawer_002` | 支持 |
 
 配置文件：
 
 - `robot_config.py` — 机器人参数（关节、阈值等）
-- `task_configs/pick_place.py` — 抓取放置任务配置
+- `task_configs/pick_place.yaml` — 抓取放置任务（嵌套 `pick` / `place` 等；须含非空 **`task_queue`**）。说明见 `docs/TASK_CONFIG_YAML.md`。
+- `task_configs/drawer_pick_place.yaml` — 抽屉复合任务（须含非空 **`task_queue`**；末尾为 **`single_arm.goto_cache_pose`** 回到 **`robot.cache_ee_pose`** 写入的起势位姿）。
 
 ## 演示视频
 

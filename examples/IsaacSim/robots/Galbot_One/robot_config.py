@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Robot profile config for FiveAges W2 IsaacSim demos."""
+"""Robot profile config for Galbot One IsaacSim demos."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from lerobot_camera_ros2 import ROS2CameraConfig  # pyright: ignore[reportMissin
 from ros2_robot_interface import ROS2RobotInterfaceConfig  # pyright: ignore[reportMissingImports]
 
 
-ROBOT_KEY = "fiveages_w2"
-ROBOT_LABEL = "FiveAges W2"
+ROBOT_KEY = "galbot_one"
+ROBOT_LABEL = "Galbot One"
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class RobotConfig:
                 pose_position_threshold=self.pose_position_threshold,
                 pose_orientation_threshold=self.pose_orientation_threshold,
             ))
-    base_link_entity_path: str = "/World/FiveAges_W2/LinkHou_S2/base_footprint/base_link"
+    base_link_entity_path: str = "/World/Galbot_One/Chassis/base_link/base_link"
     fsm_switch_delay: float = 0.1
     post_reset_wait: float = 1.0
     arrival_timeout: float = 3.0

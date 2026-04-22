@@ -1,0 +1,72 @@
+# Dobot CR5 — pick / place（队列 + skill 参数分层）
+#
+# - base_task_overrides：仅流程级公共字段（容差等；mode 默认为 single_arm，可省略）
+# - skill_defaults：与 task_queue 中 single_arm.pick / single_arm.place 对齐的默认参数
+# - scene_presets：用 skill_params.single_arm.pick|place 按场景覆盖
+#
+# 合并顺序与 motion_main / 录制一致：base 扁平化 → skill_defaults → 场景扁平 → skill_params
+
+task_key: pick_place
+label: 取放任务
+use_stamped: true
+robot_id: dobot_cr5_pick_place
+default_scene: apple
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  env.randomize_object_local_xyz:
+    object_prim_path: /World/grasp_fruits/apple/apple/apple
+    xyz_offset: [0.5, 0.5, 0.0]
+  single_arm.pick:
+    arm: left
+    pick_clearance: 0.03
+    prepare_offset: [0.0, 0.0, -0.12]
+    object_prim_path: /World/grasp_fruits/apple/apple/apple
+    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.0, -0.1]
+  single_arm.place:
+    object_prim_path: /World/grasp_fruits/shelf8
+    object_position_offset: [0.0, 0.0, 0.05]
+    prepare_offset: [0.0, 0.0, -0.2]
+    ee_base_orientation: [0.0, 0.7, 0.7, 0.0]
+    ee_retreat_offset: [0.0, 0.0, -0.2]
+
+task_queue:
+  - skill: env.randomize_object_local_xyz
+  - skill: robot.cache_ee_pose
+    params:
+      key: cr5_prep_pose
+  - skill: single_arm.pick
+  - skill: single_arm.place
+  - skill: single_arm.goto_cache_pose
+    params:
+      key: cr5_prep_pose
+
+scene_presets:
+  apple: {}
+
+record:
+  base_record_overrides:
+    task_name: pick_place
+    fps: 30
+    camera_info_timeout: 10.0
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
+    - key: fast
+      label: Fast Encode Queue
+      overrides:
+        image_writer_threads: 12
+        video_encoding_batch_size: 10

@@ -39,7 +39,7 @@ from lerobot_robot_ros2 import (
     ROS2RobotConfig,
 )
 
-from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_and_randomize_object  # pyright: ignore[reportMissingImports]
+from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_state  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
@@ -260,7 +260,7 @@ def build_robot() -> ROS2Robot:
     按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
     """
     if ROBOT_CFG is None:
-        raise RuntimeError("ROBOT_CFG is not configured. Please use examples/IsaacSim/run_inference.py.")
+        raise RuntimeError("ROBOT_CFG is not configured. Run via examples/IsaacSim/inference.py.")
     camera_config = {
         name: replace(cfg, fps=FPS)
         for name, cfg in ROBOT_CFG.cameras.items()
@@ -607,13 +607,10 @@ def main() -> None:
     print("[OK] Robot connected")
 
     print("Resetting simulation state...")
-    if "source_object_entity_path" not in PICK_PLACE_FLOW_OVERRIDES:
-        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.source_object_entity_path is required for reset")
-    if "object_xyz_random_offset" not in PICK_PLACE_FLOW_OVERRIDES:
-        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_xyz_random_offset is required for reset")
-    reset_simulation_and_randomize_object(
-            PICK_PLACE_FLOW_OVERRIDES["source_object_entity_path"],
-            xyz_offset=PICK_PLACE_FLOW_OVERRIDES["object_xyz_random_offset"],
+    if "object_prim_path" not in PICK_PLACE_FLOW_OVERRIDES:
+        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_prim_path is required for reset")
+    reset_simulation_state(
+        str(PICK_PLACE_FLOW_OVERRIDES["object_prim_path"]).strip(),
         post_reset_wait=ROBOT_CFG.post_reset_wait,
         sleep_fn=sim_time.sleep,
     )

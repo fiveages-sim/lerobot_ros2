@@ -1,0 +1,50 @@
+# FiveAges W2 — 双臂搬箱（skill_defaults / skill_params 与 dual_arm.carry* 对齐）
+#
+# 合并顺序：base 扁平化 → skill_defaults（single_arm.pick/place + dual_arm.carry）→ 场景扁平 → skill_params
+# 搬运队列：cache（起势）→ dual_arm.carry → goto_cache
+
+task_key: bimanual_carry
+label: Bimanual Carry
+use_stamped: true
+robot_id: fiveages_w2_bimanual_carry
+default_scene: box01
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  dual_arm.carry:
+    object_prim_path: /World/lift_box/LogisticBox_01/box/box
+    object_dual_arm_half_span_y: 0.29
+    carry_prepare_offset: [-0.3, 0.0, 0.0]
+    arm_merge_distance_y: 0.08
+    object_position_offset: [0.0, 0.0, 0.2]
+    left_base_orientation: [-0.5, 0.5, -0.5, 0.5]
+    right_base_orientation: [-0.5, 0.5, -0.5, 0.5]
+    ee_lift_offset: [0.0, 0.0, 0.1]
+    ee_retreat_offset: [-0.2, 0.0, 0.0]
+
+task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      which: both
+      key: w2_carry_prep_pose
+  - skill: dual_arm.carry
+  - skill: dual_arm.goto_cache_pose
+    params:
+      key: w2_carry_prep_pose
+
+scene_presets:
+  box01:
+    skill_params:
+      dual_arm.carry:
+        object_prim_path: /World/lift_box/LogisticBox_01/box/box
+  warehouse_box01:
+    skill_params:
+      dual_arm.carry:
+        object_prim_path: /World/lift_box_warehouse/LogisticBox_01/box/box
+        ee_retreat_offset: [-0.3, 0.0, 0.0]

@@ -1,0 +1,61 @@
+# FiveAges W2 — 双臂交接（纯 skill_defaults / skill_params）
+#
+# - base_task_overrides：仅流程容差等标量
+# - dual_arm.handover：仅双臂同步段（HandoverSyncConfig）；pick/place 见 single_arm.*
+# - single_arm.pick / place：交接为不同臂时，place 的 arm 写在 single_arm.place（不进入全局 flat，见 composer merge 逻辑）
+
+task_key: handover
+label: Handover
+use_stamped: true
+robot_id: fiveages_w2_bimanual_handover
+default_scene: grab_medicine
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+
+skill_defaults:
+  dual_arm.handover:
+    handover_position: [0.7, 0.0, 1.35]
+    source_handover_orientation: [0.653, 0.271, 0.653, -0.271]
+    receiver_handover_orientation: [0.653, -0.271, 0.653, 0.271]
+    receiver_handover_offset: [0.0, 0.0, -0.04]
+
+  single_arm.place:
+    arm: left
+    place_position: [0.7, 0.3, 1.1]
+    ee_base_orientation: [0.6532920183548978, -0.12549174013187747, 0.7390193620374562, 0.10635668500949247]
+
+  single_arm.pick:
+    arm: right
+    ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+    prepare_offset: [0.0, 0.0, 0.2]
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    ee_pick_axis: +z
+
+task_queue:
+  - skill: robot.cache_ee_pose
+    params:
+      which: both
+      key: ho_prep_pose
+    id: ho_pregrasp
+  - skill: single_arm.pick
+    id: ho_pick
+  - skill: dual_arm.handover_sync
+  - skill: single_arm.place
+  - skill: dual_arm.goto_cache_pose
+    params:
+      key: ho_prep_pose
+
+scene_presets:
+  grab_medicine:
+    skill_params:
+      ho_pick:
+        object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+  grab_bottle:
+    skill_params:
+      ho_pick:
+        object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85

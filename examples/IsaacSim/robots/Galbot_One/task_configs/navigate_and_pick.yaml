@@ -1,0 +1,134 @@
+# Galbot One — 导航抓取、导航放置完整流程
+#
+# 三层参数结构：
+#   task_queue     → 定义执行顺序（id 字段区分同名 skill 的不同实例）
+#   skill_defaults → 各 skill / id 的基准参数；抓取/放置与导航一致，使用
+#                    single_arm.pick / single_arm.place（与 task_queue 里 skill 名对齐）
+#   scene_presets  → 按场景覆盖：可用 skill_params.single_arm.pick|place，或其它 id 的 skill_params
+#
+# 合并优先级：base_task_overrides（仅流程级字段）
+#   → skill_defaults（含 single_arm.pick / place）→ 场景扁平字段
+#   → scene.skill_params → task_queue 内联 params
+
+task_key: navigate_and_pick
+label: Navigate Pick and Place
+use_stamped: true
+robot_id: galbot_one_navigate_and_pick
+default_scene: apple_1
+
+base_task_overrides:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  require_orientation_reach: false
+  use_object_orientation: false
+
+# 执行顺序：
+#   parallel 块内的 skill 同时派发，全部完成后继续下一步
+#   - nav_to_pick 导航期间，全身关节运动到预备抓取配置（prepare_for_pick）
+#   - nav_to_place 导航期间，上半身关节到预备放置姿态
+task_queue:
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_pick
+      - skill: joint.movej_to_config    # 导航期间全身运动到预备抓取姿态，结束后保持 HOLD
+        id: navigate_gesture
+  - skill: joint.movej_to_config        # 右臂运动到抓取预备关节位，完成后切回 OCS2
+    id: right_arm_pregrasp
+  - skill: single_arm.pick
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_place
+      - skill: joint.movej_to_config    # 导航期间全身运动到预备放置姿态，结束后保持 HOLD
+        id: navigate_gesture
+  - skill: joint.movej_to_config    # 导航到位后，全身运动到预备放置姿态，结束后保持 HOLD
+    id: pre_release_gesture
+  - skill: single_arm.place
+
+# 各 skill/id 的跨场景基准参数（键顺序与 task_queue 中首次出现顺序一致；parallel 内先 nav 后 movej）
+skill_defaults:
+  nav_to_pick:
+    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+    approach_offset_x: 0.5
+    approach_offset_y: 0.05
+    yaw: 3.14
+    timeout: 60.0
+
+  navigate_gesture:
+    body_positions:      [0.0, 0.0, 0.0, 0.0]
+    left_arm_positions:  [3.1415, 1.57, 0.0, -2.1, 0.0, -1.0, 0.0]
+    right_arm_positions: [-3.1415, 1.57, 0.0, 2.1, 0.0, 1.0, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+
+  right_arm_pregrasp:
+    body_positions:      [0.0, 0.0, 0.0, 0.0]
+    right_arm_positions: [-1.2298, 0.386, -0.8911, 2.0189, 1.1026, -1.3605, 0.9883]
+    arrival_timeout: 15.0
+    joint_tolerance: 0.05
+    resume_ocs2: true   # 最后一个关节步骤，之后直接 pick（笛卡尔），必须切回 OCS2
+
+  single_arm.pick:
+    arm: right
+    prepare_offset: [0.0, 0.0, 0.2]
+    object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    ee_pick_direction_vector: [0, 0, 1]
+
+  # parallel(nav_to_place, navigate_gesture) — navigate_gesture 见上
+  nav_to_place:
+    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
+    approach_offset_x: -1.0
+    approach_offset_y: 0.4
+    yaw: 0.0
+    timeout: 60.0
+
+  pre_release_gesture:
+    body_positions:      [0.0, 0.0, 0.0, 0.0]
+    right_arm_positions: [-0.0465, 1.612, -0.1924, -2.21, 1.5109, -0.216, 0.9134]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    resume_ocs2: true   # place 是笛卡尔控制，必须在此切回 OCS2
+
+  single_arm.place:
+    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01
+    ee_base_orientation: [0.7, 0.0, 0.7, 0.0]   # 放置时末端姿态（front 方向）
+    ee_place_axis: -x
+    prepare_offset: [-0.3, 0.0, 0.0]   # 放置预接近偏移（工具系）
+    place_insert_clearance: 0.0      # 最终插入偏移，0 = 精确放到目标位
+    object_position_offset: [0.0, 0.0, 0.3]   # 放置目标的空间偏移（物体局部坐标系）
+    ee_retreat_offset: [-0.3, 0.0, 0.1]  # 松夹后撤退
+
+scene_presets:
+  # Apple 1 — 从 -X 方向前方抓取，放置到篮子
+  apple_1:
+    skill_params:
+      single_arm.pick:
+        object_prim_path: /World/grasp_fruits/fruits_01/apple/apple/apple
+
+  # Apple 2 — 从正上方抓取，放置到同一篮子
+  apple_2:
+    skill_params:
+      single_arm.pick:
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+        ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+      nav_to_pick:
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+        approach_offset_x: -0.5
+        approach_offset_y: 0.1
+        yaw: 0.0
+
+record:
+  base_record_overrides:
+    task_name: navigate_and_pick_apple
+    fps: 30
+    camera_info_timeout: 10.0
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
