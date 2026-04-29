@@ -127,4 +127,4 @@ scene_presets:
         orientation_delta_rpy: [0.0, 0.75, 0.0]
       dual_arm.place:
         object_position_offset: [0.0, 0.25, 1.24]
-        retreat_xyz: [-0.3, 0.0, -0.2]
+        retreat_xyz: [-0.35, 0.0, -0.1]

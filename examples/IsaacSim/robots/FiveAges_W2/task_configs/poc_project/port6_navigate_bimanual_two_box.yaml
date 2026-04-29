@@ -10,8 +10,8 @@
 #   skill: env.randomize_object_local_xyz
 #   params: { object_prim_path: /World/.../some_prim, xyz_offset: [0.05, 0.05, 0.0] }
 
-task_key: poc_navigate_bimanual_2box_rev
-label: "[PORT6 Rev] 导航后双臂分别搬蓝箱子"
+task_key: poc_navigate_bimanual_2box
+label: "[PORT6] 导航后双臂分别搬蓝箱子"
 use_stamped: true
 robot_id: fiveages_w2_poc_bimanual_pick_2
 default_scene: two_box
@@ -38,21 +38,21 @@ task_queue:
     - skill: joint.movej_to_config
       id: lower_body_while_nav_to_port2_shelf1
     - skill: dual_arm.bimanual_align
-      id: align_with_body_up
+      id: align_hands_while_lower_body
     - skill: nav.navigate_to_object
       id: nav_to_port2_shelf1
   - skill: dual_arm.place
   - skill: joint.movej_to_config
-    id: nav_gesture
+    id: return_to_navigate_pose
 
 
 # 键顺序与 task_queue 中各块 id / skill 出现顺序一致（便于对照）
 skill_defaults:
   # nav_gesture：首段与 nav 并行的收臂导航位；末段复用 id，回到同一导航位（同 basic_demo/navigate_and_wave 的 retreat_arms_while_nav）
   nav_gesture:
-    body_positions: [-1.35, -2.7, -1.35, -3.1415]
-    left_arm_positions: [ -0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0 ]
-    right_arm_positions: [ 0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0 ]
+    body_positions: [-1.35, -2.7, -1.35, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
 
@@ -61,12 +61,11 @@ skill_defaults:
     object_prim_path: /World/scene/scene/port6/pallet2/pallet2
     approach_offset_x: -1.2
     approach_offset_y: 0.0
-    yaw: 3.1415926535
     timeout: 60.0
 
   # task_queue[1]：到位后进入双臂抓取预备关节
   poc_pick_start_movej:
-    body_positions: [-1.35, -2.35, -1.45, -3.1415]
+    body_positions: [-1.35, -2.35, -1.45, 0.0]
     left_arm_positions: [-0.55, 1.0266, 0.8165, -1.8487, -0.9908, -0.5437, -0.4515]
     right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
     arrival_timeout: 30.0
@@ -90,16 +89,16 @@ skill_defaults:
       ee_base_orientation: [-0.0616, 0.7044, 0.0616, -0.7044]
       ee_retreat_offset: [0.09848, 0.01736, -0.1]
 
-  # task_queue[3].parallel[0]
+  # task_queue[3].parallel[0]（腰高与 port6_bimanual_two_box_rev 的 body_up 一致）
   lower_body_while_nav_to_port2_shelf1:
-    body_positions: [-1.0, -2.0, -0.88, 0]
+    body_positions: [-1.0, -2.0, -0.88, 0.0]
     skip_fsm_change: true
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     resume_ocs2: true
 
   # task_queue[3].parallel[1]
-  align_with_body_up:
+  align_hands_while_lower_body:
     align_position: [0.55, 0.0, -0.15]
     orientation_delta_rpy: [0.0, 0.33, 0.0]
     motion_frame_id: "arm_base"
@@ -109,7 +108,6 @@ skill_defaults:
     object_prim_path: /World/scene/scene/port2/shelf1/shelf1
     approach_offset_x:  1.2
     approach_offset_y: 0.0
-    yaw: 3.1415926535
     timeout: 20.0
 
   dual_arm.place:
@@ -119,13 +117,22 @@ skill_defaults:
     arm_movel_duration: 2.0
     retreat_xyz: [-0.3, 0.0, -0.1]
 
+  retreat_dual_arm:
+    body_positions: [-1.0, -2.0, -1.0, 0]
+    skip_fsm_change: true
+
+  align_with_body_retreat:
+    align_position: [0.35, 0.0, -0.18]
+    orientation_delta_rpy: [0.0, 0.12, 0.0]
+    motion_frame_id: "arm_base"
+
 scene_presets:
   two_box1: {}
 
   two_box2:
     skill_params:
       poc_pick_start_movej:
-        body_positions: [-1.35, -2.35, -1.75, -3.1416]
+        body_positions: [-1.35, -2.35, -1.75, 0.0]
       dual_arm.parallel_pick:
         left_pick:
           object_prim_path: /World/scene/scene/port6/box_blue/small_blue
@@ -133,12 +140,18 @@ scene_presets:
           object_prim_path: /World/scene/scene/port6/box_blue_02/small_blue
       dual_arm.place:
         object_position_offset: [0.0, 0.25, 1.24]
-        retreat_xyz: [-0.37, 0.0, -0.1]
+        retreat_xyz: [-0.3, 0.0, -0.2]
+
       lower_body_while_nav_to_port2_shelf1:
         body_positions: [-0.6, -1.2, -0.6, 0]
-      align_with_body_up:
-        align_position: [ 0.55, 0.0, 0.0 ]
-        orientation_delta_rpy: [ 0.0, 0.75, 0.0 ]
+
+      align_hands_while_lower_body:
+        align_position: [0.55, 0.0, 0.0]
+        orientation_delta_rpy: [0.0, 0.75, 0.0]
+        motion_frame_id: "arm_base"
+
+      retreat_dual_arm:
+        body_positions: [-0.6, -1.2, -0.6, 0]
 
 
 
