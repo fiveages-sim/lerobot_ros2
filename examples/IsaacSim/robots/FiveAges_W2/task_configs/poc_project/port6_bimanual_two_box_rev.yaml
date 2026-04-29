@@ -13,7 +13,6 @@
 task_key: poc_bimanual_2box_rev
 label: "[PORT6 Rev] 双臂分别搬蓝箱子 底盘反向版本"
 use_stamped: true
-robot_id: fiveages_w2_poc_bimanual_pick_2
 default_scene: two_box
 
 runtime_defaults:

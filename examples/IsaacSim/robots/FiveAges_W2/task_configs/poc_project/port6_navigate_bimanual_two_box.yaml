@@ -13,7 +13,6 @@
 task_key: poc_navigate_bimanual_2box
 label: "[PORT6] 导航后双臂分别搬蓝箱子"
 use_stamped: true
-robot_id: fiveages_w2_poc_bimanual_pick_2
 default_scene: two_box
 
 runtime_defaults:

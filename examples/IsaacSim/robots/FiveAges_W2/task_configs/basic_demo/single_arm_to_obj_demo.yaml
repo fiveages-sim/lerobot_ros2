@@ -12,7 +12,6 @@ label: Single Arm To Object Demo
 # 使用 stamped 目标下发（携带 frame_id）
 use_stamped: true
 # 任务级机器人 ID（用于任务条目标识）
-robot_id: fiveages_w2_single_arm_to_obj_demo
 # 默认场景预设（对应 scene_presets 的 key）
 default_scene: right_arm
 

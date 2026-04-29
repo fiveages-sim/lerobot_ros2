@@ -3,7 +3,6 @@
 task_key: pick_place
 label: Pick Place
 use_stamped: false
-robot_id: realman_rm75_pick_place
 default_scene: default
 
 task_queue:

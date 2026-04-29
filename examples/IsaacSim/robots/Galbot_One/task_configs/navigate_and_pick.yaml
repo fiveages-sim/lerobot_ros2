@@ -13,7 +13,6 @@
 task_key: navigate_and_pick
 label: Navigate Pick and Place
 use_stamped: true
-robot_id: galbot_one_navigate_and_pick
 default_scene: apple_1
 
 runtime_defaults:

@@ -5,7 +5,6 @@
 task_key: poc_port7_bimanual_carry
 label: "[PORT7] 双臂搬黑箱子"
 use_stamped: true
-robot_id: fiveages_w2_poc_bimanual_carry
 default_scene: box01
 
 runtime_defaults:

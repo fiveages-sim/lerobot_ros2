@@ -10,7 +10,6 @@
 task_key: handover
 label: 双臂交接
 use_stamped: true
-robot_id: agibot_g1_bimanual_handover
 default_scene: grab_medicine
 
 runtime_defaults:

@@ -6,7 +6,6 @@
 task_key: bimanual_carry
 label: Bimanual Carry
 use_stamped: true
-robot_id: fiveages_w2_bimanual_carry
 default_scene: box01
 
 runtime_defaults:

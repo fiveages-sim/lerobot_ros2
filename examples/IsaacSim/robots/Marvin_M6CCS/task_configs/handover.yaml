@@ -3,7 +3,6 @@
 task_key: handover
 label: Handover
 use_stamped: true
-robot_id: marvin_m6ccs_bimanual_handover
 default_scene: grab_medicine
 
 runtime_defaults:

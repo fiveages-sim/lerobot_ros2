@@ -9,7 +9,6 @@
 task_key: poc_port7_navigate_and_carry
 label: "[PORT7] 导航后双臂搬黑箱子"
 use_stamped: true
-robot_id: galbot_s1_poc_navigate_and_carry
 default_scene: box01
 
 runtime_defaults:

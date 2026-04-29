@@ -7,7 +7,6 @@
 task_key: navigate_and_carry
 label: Navigate and Bimanual Carry
 use_stamped: true
-robot_id: fiveages_w2_navigate_and_carry
 default_scene: box01
 
 runtime_defaults:

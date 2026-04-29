@@ -5,7 +5,6 @@ task_key: navigate_to_object_demo
 # 任务显示名称（UI 或日志中可见）
 label: Navigate to Object Demo
 # 机器人实例 ID，用于绑定执行该任务的机器人
-robot_id: fiveages_w2_navigate_to_object_demo
 # 默认场景预设名称（对应下方 scene_presets 的 key）
 default_scene: default
 

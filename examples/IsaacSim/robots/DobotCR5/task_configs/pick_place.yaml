@@ -9,7 +9,6 @@
 task_key: pick_place
 label: 取放任务
 use_stamped: true
-robot_id: dobot_cr5_pick_place
 default_scene: apple
 
 runtime_defaults:

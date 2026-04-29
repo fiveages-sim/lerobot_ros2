@@ -12,7 +12,6 @@
 task_key: drawer_pick_place
 label: 抽屉取放任务
 use_stamped: true
-robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
 
 runtime_defaults:
