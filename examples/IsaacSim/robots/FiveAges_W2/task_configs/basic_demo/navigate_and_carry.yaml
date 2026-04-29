@@ -2,7 +2,7 @@
 #
 # 合并顺序：base → single_arm.pick（供 nav 默认物体路径）→ dual_arm.carry → 场景 skill_params
 # 队列：并行「导航 + navigate_gesture」→ pre_ocs2_* → carry →
-#   navigate_relative([dx,dy,dyaw]) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
+#   navigate_backup(0.5m) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
 
 task_key: navigate_and_carry
 label: Navigate and Bimanual Carry
@@ -12,60 +12,44 @@ default_scene: box01
 
 base_task_overrides:
   max_stage_duration: 2.0
-  pose_tol_pos: 0.05
+  pose_tol_pos: 0.025
   pose_tol_ori: 0.08
   require_orientation_reach: false
   use_object_orientation: false
 
 task_queue:
-  - skill: robot.cache_ee_pose
-    params:
-      which: both
-      key: nav_carry_prep_pose
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_carry
       - skill: joint.movej_to_config
         id: navigate_gesture
   - skill: joint.movej_to_config
-    id: pre_ocs2_carry_body
-  - skill: joint.movej_to_config
     id: pre_ocs2_carry_arms
   - skill: dual_arm.carry
   - skill: nav.navigate_relative
-    id: post_carry_backup
+    id: pre_shelf_backup
   - parallel:
-      - skill: nav.send_nav_goal
-        id: nav_home_pose
+      - skill: nav.navigate_to_object
+        id: nav_to_shelf2
       - skill: joint.movej_to_config
-        id: lower_body_while_nav_home
-  - skill: nav.wait_nav_arrived
-    id: wait_nav_home
-  - skill: dual_arm.goto_cache_pose
-    params:
-      key: nav_carry_prep_pose
+        id: lower_body_while_nav_to_shelf2
+      - skill: dual_arm.bimanual_align
+  - skill: joint.movej_to_config
+    id: pre_place_body_only
+  - skill: dual_arm.place
+  - parallel:
+      - skill: nav.navigate_relative
+        id: post_carry_backup
+      - skill: joint.movej_to_config
+        id: post_place_navigate_gesture
 
 skill_defaults:
-  # 仅用于 nav.navigate_to_object 缺省 object_prim_path 时读 pick.object_prim_path；队列无 pick skill
-  single_arm.pick:
-    arm: right
-    object_prim_path: /World/lift_box_warehouse/LogisticBox_01/box/box
-
-  dual_arm.carry:
-    object_prim_path: /World/lift_box_warehouse/LogisticBox_01/box/box
-    object_dual_arm_half_span_y: 0.29
-    carry_prepare_offset: [-0.3, 0.0, 0.0]
-    arm_merge_distance_y: 0.08
-    object_position_offset: [0.0, 0.0, 0.15]
-    left_base_orientation: [-0.5, 0.5, -0.5, 0.5]
-    right_base_orientation: [-0.5, 0.5, -0.5, 0.5]
-    ee_lift_offset: [0.0, 0.0, 0.1]
-    ee_retreat_offset: [-0.2, 0.0, 0.0]
-
   nav_to_carry:
+    object_prim_path: /World/lift_box/LogisticBox_01/box/box
     approach_offset_x: 0.95
-    approach_offset_y: 0.0
+    approach_offset_y: 0.02
     yaw: 3.14
+    frame_id: map
     timeout: 60.0
 
   # 导航并行段：双臂目标弧度（左 7 / 右 7）；躯干仍为预备弯腰位
@@ -76,45 +60,80 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
 
-  # 导航结束后：先躯干到位，再双臂到位并切 OCS2（双臂笛卡尔前）
-  pre_ocs2_carry_body:
-    body_positions: [-0.0035, 0.0066, 0.0033, 0.0]
-    arrival_timeout: 30.0
-    joint_tolerance: 0.05
-
+  # 导航结束后：躯干+双臂一次到位并切 OCS2（双臂笛卡尔前）
   pre_ocs2_carry_arms:
-    left_arm_positions:  [0.0135, 0.3641, 0.1266, -2.0974, -1.5777, 0.0209, 0.0]
-    right_arm_positions: [-0.0135, 0.3642, -0.1179, -2.0974, 1.5853, -0.0087, 0.0]
+    body_positions: [-0.0035, 0.0073, 0.0027, 0.0]
+    left_arm_positions: [ 0.0138, 0.3641, 0.1272, -2.0973, -1.5775, 0.021, 0.0002 ]
+    right_arm_positions: [ -0.0126, 0.3851, -0.1182, -2.0973, 1.585, -0.0087, 0.0 ]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     resume_ocs2: true
 
-  post_carry_backup:
+  dual_arm.carry:
+    object_prim_path: /World/lift_box/LogisticBox_01/box/box
+    object_dual_arm_half_span_y: 0.29
+    carry_prepare_offset: [ 0.0, 0.00, 0.03]
+    arm_merge_distance_y: 0.08
+    object_position_offset: [ 0.0, 0.0, 0.15]
+    left_base_orientation: [ -0.5, 0.5, -0.5, 0.5 ]
+    right_base_orientation: [ -0.5, 0.5, -0.5, 0.5 ]
+    ee_lift_offset: [ 0.0, -0.15, 0.0 ]
+    ee_retreat_offset: [ 0.0, 0.0, -0.2 ]
+
+  pre_shelf_backup:
     relative_position: [-0.5, 0.0, 0.0]
-    timeout: 90.0
+    frame_id: map
+    timeout: 5.0
 
-  nav_home_pose:
-    x: 0.0
-    y: 0.0
+  nav_to_shelf2:
+    object_prim_path: /World/lift_box/warehouse_multiple_shelves/Shelf_2/SM_RackShelf_162/SM_RackShelf_01/Section1
+    approach_offset_x: -0.95
+    approach_offset_y: 1.0
     yaw: 0.0
+    frame_id: map
+    timeout: 40.0
 
-  # 与导航并行：不降腰先发 HOLD，避免打断 Nav2；躯干目标同 navigate_gesture 弯腰（可改）
-  lower_body_while_nav_home:
-    body_positions: [-1.3, -2.6, -1.3, 0.0]
+  lower_body_while_nav_to_shelf2:
+    body_positions: [-0.0035, 0.0073, 0.0027, 0.0]
     skip_fsm_change: true
     arrival_timeout: 90.0
     joint_tolerance: 0.05
 
-  wait_nav_home:
-    timeout: 120.0
-    poll_period: 0.1
+  dual_arm.bimanual_align:
+    align_position: [ 0.55, 0.0, 0.0 ]
+    motion_frame_id: "arm_base"
+
+  pre_place_body_only:
+    body_positions: [-0.0035, 0.0073, 0.0027, 0.0]
+    skip_fsm_change: true
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    resume_ocs2: true
+
+  dual_arm.place:
+    reference_object_prim_path: /World/lift_box/warehouse_multiple_shelves/Shelf_2/SM_RackShelf_162/SM_RackShelf_01/Section1
+    object_position_offset: [-1.0, -0.2, 0.135]
+    motion_frame_id: "arm_base"
+    retreat_xyz: [-0.3, 0.0, -0.1]
+
+  post_carry_backup:
+    relative_position: [-0.5, 0.0, 0.0]
+    frame_id: map
+    timeout: 5.0
+
+  post_place_navigate_gesture:
+    body_positions:      [-1.3, -2.6, -1.3, 0.0]
+    left_arm_positions:  [-0.55, 1.0266, 0.8165, -1.8487, -0.9908, -0.5437, -0.4515]
+    right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
 
 scene_presets:
   box01:
     skill_params:
       dual_arm.carry:
         object_prim_path: /World/lift_box/LogisticBox_01/box/box
-        ee_retreat_offset: [-0.3, 0.0, 0.0]
+
 
 record:
   base_record_overrides:

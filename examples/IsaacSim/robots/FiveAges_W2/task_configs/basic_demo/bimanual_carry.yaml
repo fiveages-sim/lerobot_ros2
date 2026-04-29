@@ -20,23 +20,28 @@ skill_defaults:
   dual_arm.carry:
     object_prim_path: /World/lift_box/LogisticBox_01/box/box
     object_dual_arm_half_span_y: 0.29
-    carry_prepare_offset: [-0.3, 0.0, 0.0]
+
+    carry_prepare_offset: [0.0, 0.0, 0.03]
     arm_merge_distance_y: 0.08
-    object_position_offset: [0.0, 0.0, 0.2]
+    object_position_offset: [0.0, 0.0, 0.15]
     left_base_orientation: [-0.5, 0.5, -0.5, 0.5]
     right_base_orientation: [-0.5, 0.5, -0.5, 0.5]
-    ee_lift_offset: [0.0, 0.0, 0.1]
-    ee_retreat_offset: [-0.2, 0.0, 0.0]
+    ee_lift_offset: [0.0, -0.1, 0.0]
+
+    ee_retreat_offset: [ 0.0, 0.0,-0.2]
+
+  carry_start_movej:
+    body_positions: [-0.7057, -1.7579, -1.0379, 0.0]
+    left_arm_positions: [0.0138, 0.3641, 0.1272, -2.0973, -1.5775, 0.021, 0.0002]
+    right_arm_positions: [-0.0126, 0.3851, -0.1182, -2.0973, 1.585, -0.0087, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    resume_ocs2: true
 
 task_queue:
-  - skill: robot.cache_ee_pose
-    params:
-      which: both
-      key: w2_carry_prep_pose
+  - skill: joint.movej_to_config
+    id: carry_start_movej
   - skill: dual_arm.carry
-  - skill: dual_arm.goto_cache_pose
-    params:
-      key: w2_carry_prep_pose
 
 scene_presets:
   box01:
@@ -47,4 +52,6 @@ scene_presets:
     skill_params:
       dual_arm.carry:
         object_prim_path: /World/lift_box_warehouse/LogisticBox_01/box/box
-        ee_retreat_offset: [-0.3, 0.0, 0.0]
+        carry_prepare_offset: [0.0, 0.0, 0.03]
+        object_position_offset: [-0.01, 0.0, 0.15]
+

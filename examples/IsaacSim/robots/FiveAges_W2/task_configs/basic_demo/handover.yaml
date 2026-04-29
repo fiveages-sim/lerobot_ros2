@@ -17,11 +17,26 @@ base_task_overrides:
   require_orientation_reach: false
   use_object_orientation: false
 
+task_queue:
+  - skill: single_arm.pick
+  - skill: dual_arm.handover
+  - skill: single_arm.place
+  - skill: joint.movej_to_config
+    id: movej_ho_finish
+
 skill_defaults:
+  single_arm.pick:
+    arm: right
+    ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+    object_position_offset: [0.0, 0.0, 0.02]
+    prepare_offset: [0.0, 0.0, -0.2]
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    ee_retreat_offset: [0.0, 0.0, -0.05]
+
   dual_arm.handover:
     handover_position: [0.7, 0.0, 1.35]
-    source_handover_orientation: [0.653, 0.271, 0.653, -0.271]
-    receiver_handover_orientation: [0.653, -0.271, 0.653, 0.271]
+    left_handover_orientation: [0.653, -0.271, 0.653, 0.271]
+    right_handover_orientation: [0.653, 0.271, 0.653, -0.271]
     receiver_handover_offset: [0.0, 0.0, -0.04]
 
   single_arm.place:
@@ -29,33 +44,19 @@ skill_defaults:
     place_position: [0.7, 0.3, 1.1]
     ee_base_orientation: [0.6532920183548978, -0.12549174013187747, 0.7390193620374562, 0.10635668500949247]
 
-  single_arm.pick:
-    arm: right
-    ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
-    prepare_offset: [0.0, 0.0, 0.2]
-    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
-    ee_pick_axis: +z
-
-task_queue:
-  - skill: robot.cache_ee_pose
-    params:
-      which: both
-      key: ho_prep_pose
-    id: ho_pregrasp
-  - skill: single_arm.pick
-    id: ho_pick
-  - skill: dual_arm.handover_sync
-  - skill: single_arm.place
-  - skill: dual_arm.goto_cache_pose
-    params:
-      key: ho_prep_pose
+  movej_ho_finish:
+    body_positions: [-0.820305, -1.658063, -0.832522, 0.0]
+    left_arm_positions: [-0.144862, 0.101229, -0.169297, -1.809906, 1.111775, -0.205949, 0.582940]
+    right_arm_positions: [-3.10670, -2.09440, -3.10670, -2.53069, -3.10670, -1.04720, -1.57080]
+    arrival_timeout: 45.0
+    joint_tolerance: 0.05
 
 scene_presets:
   grab_medicine:
     skill_params:
-      ho_pick:
+      single_arm.pick:
         object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
   grab_bottle:
     skill_params:
-      ho_pick:
+      single_arm.pick:
         object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85
