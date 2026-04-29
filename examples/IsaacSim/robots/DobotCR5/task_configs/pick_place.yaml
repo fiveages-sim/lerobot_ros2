@@ -1,6 +1,6 @@
 # Dobot CR5 — pick / place（队列 + skill 参数分层）
 #
-# - base_task_overrides：仅流程级公共字段（容差等；mode 默认为 single_arm，可省略）
+# - runtime_defaults：仅流程级公共字段（容差等；mode 默认为 single_arm，可省略）
 # - skill_defaults：与 task_queue 中 single_arm.pick / single_arm.place 对齐的默认参数
 # - scene_presets：用 skill_params.single_arm.pick|place 按场景覆盖
 #
@@ -12,12 +12,10 @@ use_stamped: true
 robot_id: dobot_cr5_pick_place
 default_scene: apple
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 skill_defaults:
   env.randomize_object_local_xyz:

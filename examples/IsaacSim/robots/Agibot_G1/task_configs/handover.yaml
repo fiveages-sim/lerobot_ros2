@@ -1,6 +1,6 @@
 # Agibot G1 — 双臂交接（队列 + skill 参数分层）
 #
-# - base_task_overrides：流程级公共字段（容差等）
+# - runtime_defaults：流程级公共字段（容差等）
 # - dual_arm.handover：仅双臂同步交接段几何（HandoverSyncConfig）；抓取 / 放置见 single_arm.*
 # - single_arm.pick.arm：交接给出侧默认与之相同；另一侧为接收臂（不必另配 source/receiver）
 #
@@ -13,12 +13,10 @@ use_stamped: true
 robot_id: agibot_g1_bimanual_handover
 default_scene: grab_medicine
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 task_queue:
   - skill: single_arm.pick

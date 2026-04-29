@@ -6,7 +6,7 @@
 #                    single_arm.pick / single_arm.place（与 task_queue 里 skill 名对齐）
 #   scene_presets  → 按场景覆盖：可用 skill_params.single_arm.pick|place，或其它 id 的 skill_params
 #
-# 合并优先级：base_task_overrides（仅流程级字段）
+# 合并优先级：runtime_defaults（仅流程级字段）
 #   → skill_defaults（含 single_arm.pick / place）→ scene 扁平字段
 #   → scene.skill_params → task_queue 内联 params
 
@@ -16,12 +16,10 @@ use_stamped: true
 robot_id: fiveages_w2_navigate_and_pick
 default_scene: apple_1
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 task_queue:
   - parallel:

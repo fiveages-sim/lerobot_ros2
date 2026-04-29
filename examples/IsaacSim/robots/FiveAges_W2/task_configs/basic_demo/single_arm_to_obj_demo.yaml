@@ -16,7 +16,7 @@ robot_id: fiveages_w2_single_arm_to_obj_demo
 # 默认场景预设（对应 scene_presets 的 key）
 default_scene: right_arm
 
-base_task_overrides:
+runtime_defaults:
   # 机器人 base prim 路径（用于构建任务基准 frame）
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
   # 单阶段最长执行时长（秒）
@@ -26,9 +26,7 @@ base_task_overrides:
   # 到位判定：姿态阈值（无量纲）
   pose_tol_ori: 0.05
   # 是否强制姿态达到阈值
-  require_orientation_reach: false
   # 是否使用物体姿态参与通用目标推导（该 demo 不启用）
-  use_object_orientation: false
 
 # 执行队列（按顺序）
 task_queue:

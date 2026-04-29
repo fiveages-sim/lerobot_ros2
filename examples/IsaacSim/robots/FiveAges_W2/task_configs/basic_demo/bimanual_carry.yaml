@@ -9,12 +9,10 @@ use_stamped: true
 robot_id: fiveages_w2_bimanual_carry
 default_scene: box01
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 skill_defaults:
   dual_arm.carry:

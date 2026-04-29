@@ -87,6 +87,6 @@ ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationS
 - [包架构与 README](../../submodules/robot_action_composer/README.md)
 
 - **`train.py`** → **`policy_training/train.py`**：只读 **LeRobot 数据集**与训练配置，**不会**加载 `robots/*/robot_config.py`。要与仿真/实物一致，请用与录制时相同的相机与状态键（数据集 `meta` 即真源）。
-- **`inference.py`**：在线推理时通过 **`robot_action_composer.discovery.registry_loader.load_motion_entries`** 与 **`robot_action_composer.task_config_io.flatten_queue_task_overrides`** 读取与 motion/录制 **同一套** `robots/` 资产；策略与 ROS2 循环在 **`online_infer/core.py`**；仿真服务仍用 `common/isaac_ros2_sim_common`。
+- **`inference.py`**：在线推理时通过 **`robot_action_composer.discovery.registry_loader.load_motion_entries`** 与统一任务配置校验（`runtime_defaults` 仅基础键）读取与 motion/录制 **同一套** `robots/` 资产；策略与 ROS2 循环在 **`online_infer/core.py`**；仿真服务仍用 `common/isaac_ros2_sim_common`。
 
 任务队列运行时（runner、registry、内置 skills）与 **数据集录制**（`robot_action_composer.dataset_recording`、`cli.record_main`）均在 **`robot_action_composer`**；`common/` 保留 Isaac 仿真辅助（如 `isaac_ros2_sim_common`）。

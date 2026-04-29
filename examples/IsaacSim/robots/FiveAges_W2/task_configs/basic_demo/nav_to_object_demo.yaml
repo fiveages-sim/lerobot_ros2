@@ -9,7 +9,7 @@ robot_id: fiveages_w2_navigate_to_object_demo
 # 默认场景预设名称（对应下方 scene_presets 的 key）
 default_scene: default
 
-base_task_overrides:
+runtime_defaults:
   # 机器人底盘基座链接在仿真中的 prim 路径
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
 

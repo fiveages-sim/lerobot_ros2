@@ -8,12 +8,10 @@ use_stamped: true
 robot_id: fiveages_w2_navigate_and_wave
 default_scene: default
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.05
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
 
 task_queue:

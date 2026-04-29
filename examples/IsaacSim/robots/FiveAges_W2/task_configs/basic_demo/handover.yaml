@@ -1,6 +1,6 @@
 # FiveAges W2 — 双臂交接（纯 skill_defaults / skill_params）
 #
-# - base_task_overrides：仅流程容差等标量
+# - runtime_defaults：仅流程容差等标量
 # - dual_arm.handover：仅双臂同步段（HandoverSyncConfig）；pick/place 见 single_arm.*
 # - single_arm.pick / place：交接为不同臂时，place 的 arm 写在 single_arm.place（不进入全局 flat，见 composer merge 逻辑）
 
@@ -10,12 +10,10 @@ use_stamped: true
 robot_id: fiveages_w2_bimanual_handover
 default_scene: grab_medicine
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 task_queue:
   - skill: single_arm.pick

@@ -16,14 +16,10 @@ use_stamped: true
 robot_id: fiveages_w2_poc_bimanual_pick_2
 default_scene: two_box
 
-base_task_overrides:
+runtime_defaults:
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
-  object_prim_path: /World/port6/box_blue_01/small_blue
-  max_stage_duration: 2.0
   pose_tol_pos: 0.007
   pose_tol_ori: 0.05
-  require_orientation_reach: false
-  use_object_orientation: false
 
 task_queue:
   - parallel:
@@ -100,7 +96,7 @@ skill_defaults:
 
   # task_queue[3].parallel[1]
   align_with_body_up:
-    align_position: [0.55, 0.0, -0.15]
+    align_position: [0.55, 0.0, -0.12]
     orientation_delta_rpy: [0.0, 0.33, 0.0]
     motion_frame_id: "arm_base"
 

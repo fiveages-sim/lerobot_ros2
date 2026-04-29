@@ -1,6 +1,6 @@
 # Dobot CR5 — 抽屉：开 → 抓取苹果 → 放置 → 关（队列 + skill 参数分层）
 #
-# - base_task_overrides：流程级公共字段（与 pick_place.yaml 一致）
+# - runtime_defaults：流程级公共字段（与 pick_place.yaml 一致）
 # - skill_defaults：键顺序与 task_queue 中技能出现顺序一致（env 苹果随机 → drawer → pick → place）；柜体整体平移随机另用队列内第二次 env.*
 # - scene_presets：drawer_002 覆盖抽屉几何 + 该场景的苹果 Prim（apple_01）
 #
@@ -15,12 +15,10 @@ use_stamped: true
 robot_id: dobot_cr5_pick_place
 default_scene: drawer_001
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.01
   pose_tol_ori: 0.05
-  require_orientation_reach: false
-  use_object_orientation: false
 
 skill_defaults:
   # env.randomize_object_local_xyz：默认作用于苹果（队列首块）；第二次块通过 params 覆盖 Prim 扰动柜体（与 drawer 几何配置分离）

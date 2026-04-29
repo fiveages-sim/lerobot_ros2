@@ -6,12 +6,10 @@ use_stamped: true
 robot_id: marvin_m6ccs_bimanual_handover
 default_scene: grab_medicine
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 skill_defaults:
   dual_arm.handover:
