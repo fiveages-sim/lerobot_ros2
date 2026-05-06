@@ -10,8 +10,8 @@ default_scene: box01
 
 base_task_overrides:
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
-  max_stage_duration: 8.0
-  pose_tol_pos: 0.018
+  max_stage_duration: 5.0
+  pose_tol_pos: 0.025
   pose_tol_ori: 0.05
   require_orientation_reach: false
   use_object_orientation: false
@@ -21,7 +21,7 @@ skill_defaults:
   single_arm.pick:
     arm: left
     object_prim_path: /World/middle_shelf/middle_shelf/Shelf_01/Level_03/box_01/box
-    object_position_offset: [0.25, -0.245, 0.0]
+    object_position_offset: [0.19, -0.245, 0.0]
     ee_base_orientation: [0.5, 0.5, -0.5, 0.5]
     # Close-in 仍沿工具 +Z（pick_clearance）；「沿 −X 抓」靠 ee_base_orientation 把工具轴对齐 motion_frame_id。
     # ee_pick_axis：抽离方向在 motion_frame_id 下的标签（同 cartesian_stages 的 −x）；要明显后撤可加 ee_lift_offset / ee_retreat_offset（工具系）。
@@ -30,10 +30,11 @@ skill_defaults:
     pick_clearance: 0.0
     arm_movel_duration: 3.0
     # 预接近点：在工具系 −X 方向退 0.1 m（工具系，由 ee_base_orientation 旋到执行系）
-    prepare_offset: [0.0, -0.1, 0.0]
-    # 抓紧后沿工具系 −X 方向拉出 0.1 m
-    ee_lift_offset: [0.0, -0.2, 0.0]
-    ee_retreat_offset: [0.0, -0.2, 0.0]
+    prepare_offset: [0.0, -0.06, 0.0]
+    # 抓紧后沿工具系 −X 方向拉出 0.1 m；lift/retreat 阶段张开夹爪（为后续双臂搬运让位）
+    ee_lift_offset: [0.0, -0.35, 0.0]
+    ee_retreat_offset: [0.0, -0.1, 0.0]
+    retreat_open_gripper: true
 
   # # 抓取前先到与目标 TCP 一致的位姿，减小首段 Cartesian 的姿态插补扭角
   # pre_pick_tcp_waypoint:
@@ -58,7 +59,7 @@ skill_defaults:
     arm_movel_duration: 2.0
 
     object_prim_path: /World/middle_shelf/middle_shelf/Shelf_01/Level_03/box_03/box
-    object_position_offset: [0.01, 0.0, 0.225]
+    object_position_offset: [0.01, 0.0, 0.228]
 
     object_dual_arm_half_span_y: 0.195
     arm_merge_distance_y: 0.04
@@ -68,18 +69,18 @@ skill_defaults:
     ee_lift_offset: [0.1, 0.0, -0.2]
 
   lower_body_while_nav_to_shelf2:
-    body_positions: [-1.35, -2.4, -1.05, 3.14]
+    body_positions: [-1.35, -2.4, -0.6, 3.14]
     skip_fsm_change: true
     arrival_timeout: 20.0
     joint_tolerance: 0.05
 
   dual_arm.bimanual_align:
-    align_position: [0.55, 0.0, -0.085]
+    align_position: [0.4, 0.0, 0.01]
     motion_frame_id: "arm_base"
 
   dual_arm.place:
-    reference_object_prim_path: /World/shelf2/shelf2
-    object_position_offset: [0.2, 0.0, 1.32]
+    reference_object_prim_path: /World/conveyor_01/roller
+    object_position_offset: [0.2, 0.0, 1.4]
     motion_frame_id: "arm_base"
     arm_movel_duration: 2.0
 
