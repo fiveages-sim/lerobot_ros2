@@ -1,0 +1,124 @@
+# Galbot Zero — 导航抓取、导航放置（参考 FiveAges W2 流程）
+
+task_key: navigate_and_pick
+label: Navigate Pick and Place
+use_stamped: true
+default_scene: grab_apple
+
+runtime_defaults:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+
+
+task_queue:
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_pick
+      - skill: joint.movej_to_config
+        id: pre_pick_init_pose
+  - skill: joint.movej_to_config
+    id: right_arm_pregrasp
+  - skill: single_arm.pick
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_place
+      - skill: joint.movej_to_config
+        id: navigate_gesture
+  - skill: joint.movej_to_config
+    id: pre_release_gesture
+  - skill: single_arm.place
+  - skill: joint.movej_to_config
+    id: navigate_gesture
+
+skill_defaults:
+  nav_to_pick:
+    object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+    approach_offset_x: -0.62
+    approach_offset_y: 0.3
+    yaw: 0
+    frame_id: map
+    timeout: 60.0
+
+  pre_pick_init_pose:
+    body_positions:      [0.40]
+    left_arm_positions: [ 0.61959, -1.5708, 1.46608, 1.58127, 0.00698, 0.65275, -0.12043 ]
+    right_arm_positions: [-0.61959, -1.5708, -1.46608, 1.58127, -0.00698, 0.65275, 0.12043 ]
+
+    arrival_timeout: 5.0
+    joint_tolerance: 0.05
+
+  right_arm_pregrasp:
+    body_positions:      [0.10]
+    right_arm_positions: [ -0.61959, -1.5708, -1.46608, 1.58127, -0.00698, 0.65275, 0.12043 ]
+    arrival_timeout: 5.0
+    joint_tolerance: 0.05
+    resume_ocs2: true
+
+  single_arm.pick:
+    arm: right
+    prepare_offset: [0.0, 0.0, 0.0]
+    pick_clearance: 0.0
+    object_position_offset: [-0.0, -0.01, 0.05]
+    object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+    ee_base_orientation: [-0.5, 0.5, -0.5, 0.5]
+    ee_pick_axis: +x
+    
+
+
+  nav_to_place:
+    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_C_01/SM_CratePlastic_C_01
+    approach_offset_x: -1.0
+    approach_offset_y: 0.38
+    yaw: 0.0
+    frame_id: map
+    timeout: 45.0
+
+  navigate_gesture:
+    body_positions:      [0.40]
+
+    left_arm_positions: [ 0.61959, -1.5708, 1.46608, 1.58127, 0.00698, 0.65275, -0.12043 ]
+
+    right_arm_positions: [ -0.61959, -1.5708, -1.46608, 1.58127, -0.00698, 0.65275, 0.12043 ]
+    arrival_timeout: 5.0
+    joint_tolerance: 0.05
+
+  pre_release_gesture:
+    body_positions:      [0.75]
+    right_arm_positions: [-3.1000, -1.5708, -0.0070, 1.5708, 1.5708, 1.5708, 1.5708]
+    arrival_timeout: 5.0
+    joint_tolerance: 0.05
+    resume_ocs2: true
+
+  single_arm.place:
+    # 放置参考体：用货架/箱体 prim 作为参考，偏移用 object_position_offset 微调
+    object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_C_01/SM_CratePlastic_C_01
+    ee_base_orientation: [-0.5, 0.5, -0.5, 0.5]
+    ee_place_axis: +x
+    prepare_offset: [0.0, 0.0, -0.3]
+    place_insert_clearance: 0.0
+    object_position_offset: [0.0, 0.0, 0.3]
+    ee_retreat_offset: [-0.3, 0.0, 0.1]
+
+scene_presets:
+  grab_apple:
+    skill_params:
+      nav_to_pick:
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+      single_arm.pick:
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+
+record:
+  base_record_overrides:
+    task_name: navigate_and_pick_galbot_zero
+    fps: 30
+    camera_info_timeout: 10.0
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
