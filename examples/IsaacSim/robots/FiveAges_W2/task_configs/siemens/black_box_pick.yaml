@@ -64,8 +64,8 @@ skill_defaults:
 
   nav_to_release:
     object_prim_path: /World/simple/bg1/release_port/release
-    approach_offset_x: 0.0
-    approach_offset_y: 0.83
+    approach_offset_x: 0.1
+    approach_offset_y: 0.85
     yaw: -1.5708
     timeout: 60.0
 
