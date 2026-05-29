@@ -1,6 +1,6 @@
 # FiveAges W2 — Siemens 项目：黑箱单臂抓取放置
 #
-# 流程：… → release → 转向 → 转回与底盘 y 偏移（并行）→ 导航至 box1 → 放置
+# 流程：… → release → 转向 → 转回与回原点（并行）→ 导航至 box1 → 放置
 # 参考：basic_demo/pick_place.yaml、navigate_and_pick.yaml（right_arm_pregrasp）
 
 task_key: black_box_pick
@@ -54,7 +54,7 @@ skill_defaults:
     arm: right
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
-    position: [0.55, 0.05, 0.0]
+    position: [0.55, 0.075, -0.075]
     orientation: [0.640811, 0.716770, 0.273431, -0.028946]
     gripper: 0.0
 
@@ -65,28 +65,30 @@ skill_defaults:
   nav_to_release:
     object_prim_path: /World/simple/bg1/release_port/release
     approach_offset_x: 0.0
-    approach_offset_y: 1.0
+    approach_offset_y: 0.83
     yaw: -1.5708
     timeout: 60.0
 
   post_align_nudge:
     arm: right
     motion_frame_id: arm_base
-    arm_movel_duration: 5.0
-    position_delta: [0.15, 0.0, 0.35]
-    orientation_delta_rpy: [0.0, -1.8, 0.0]
+    arm_movel_duration: 6.0
+    position_delta: [0.05, 0.0, 0.2]
+    orientation_delta_rpy: [0.0, -2.0, 0.0]
     gripper: 0.0
 
   post_align_return:
     arm: right
     motion_frame_id: arm_base
-    arm_movel_duration: 4.0
-    position_delta: [-0.15, 0.0, -0.35]
-    orientation_delta_rpy: [0.0, 1.8, 0.0]  # 转回，抵消 post_align_nudge 的 Y 旋转
+    arm_movel_duration: 6.0
+    position_delta: [-0.05, 0.0, -0.2]
+    orientation_delta_rpy: [0.0, 2.0, 0.0]  # 转回，抵消 post_align_nudge 的 Y 旋转
     gripper: 0.0
 
-  pre_place_nav_y_shift:
-    relative_position: [0.0, 0.5, 0.0]  # 底盘：沿当前左向 +0.5 m（机器人 y）
+  nav_to_origin:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
     timeout: 60.0
 
   single_arm.place:
@@ -95,17 +97,20 @@ skill_defaults:
     arm_movel_duration: 2.0
     ee_base_orientation: [0.640811, 0.716770, 0.273431, -0.028946]
     prepare_offset: [0.085, 0.1, -0.2]
-    object_position_offset: [0.06, -0.15, 0.2]
+    object_position_offset: [0.06, 0.03, 0.2]
     ee_retreat_offset: [0.085, 0.1, -0.2]
 
 task_queue:
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_box1
+        skip_when_not_first_scene: true
       - skill: joint.movej_to_config
         id: pre_pick_movej
+        skip_when_not_first_scene: true
   - skill: joint.movej_to_config
     id: right_arm_pregrasp
+    skip_when_not_first_scene: true
   - skill: single_arm.pick
   - parallel:
       - skill: single_arm.move_to_pose
@@ -119,8 +124,8 @@ task_queue:
   - parallel:
       - skill: single_arm.move_relative
         id: post_align_return
-      - skill: nav.navigate_relative
-        id: pre_place_nav_y_shift
+      - skill: nav.navigate_to_pose
+        id: nav_to_origin
   - skill: nav.navigate_to_object
     id: nav_to_box1
   - skill: single_arm.place
@@ -129,14 +134,10 @@ scene_presets:
   default:
     skill_params: {}
 
-  # 若场景内黑箱 prim 路径不同，在此按场景覆盖
-  box1:
-    skill_params:
-      single_arm.pick:
-        object_prim_path: /World/simple/bundle/box3_handle_01/black_box
-  
   box2:
     skill_params:
       single_arm.pick:
         object_prim_path: /World/simple/bundle/box3_handle_02/black_box
+      single_arm.place:
+        object_position_offset: [0.06, -0.15, 0.2]
 
