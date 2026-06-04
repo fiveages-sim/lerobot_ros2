@@ -1,0 +1,143 @@
+# FiveAges W2 — Siemens 项目：黑箱单臂抓取放置
+#
+# 流程：… → release → 转向 → 转回与回原点（并行）→ 导航至 box1 → 放置
+# 参考：basic_demo/pick_place.yaml、navigate_and_pick.yaml（right_arm_pregrasp）
+
+task_key: black_box_pick
+label: Siemens 黑箱抓取放置
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.03
+
+skill_defaults:
+  nav_to_box1:
+    object_prim_path: /World/simple/bundle/box1/box1
+    approach_offset_x: -0.6
+    approach_offset_y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  pre_pick_movej:
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    left_arm_positions: [-0.55, 1.0266, 0.8165, -1.8487, -0.9908, -0.5437, -0.4515]
+    right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  right_arm_pregrasp:
+    right_arm_positions: [0.9241, -0.8, -1.0727, -1.6512, 0.9908, -0.5437, 0.4515]
+    arrival_timeout: 15.0
+    joint_tolerance: 0.05
+    resume_ocs2: true
+
+  single_arm.pick:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/simple/bundle/box3_handle/black_box
+    object_position_offset: [0.06, 0.168, -0.025]
+    ee_base_orientation: [0.640811, 0.716770, 0.273431, -0.028946]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [0.05, 0.0, -0.1]
+    ee_retreat_offset: [0.085, 0.1, -0.2]
+
+  carry_align:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    position: [0.55, 0.075, -0.075]
+    orientation: [0.640811, 0.716770, 0.273431, -0.028946]
+    gripper: 0.0
+
+  carry_x_shift:
+    relative_position: [-0.3, 0.0, 0.0]  # 底盘：沿当前前向 -0.3 m
+    timeout: 60.0
+
+  nav_to_release:
+    object_prim_path: /World/simple/bg1/release_port/release
+    approach_offset_x: 0.1
+    approach_offset_y: 0.85
+    yaw: -1.5708
+    timeout: 60.0
+
+  post_align_nudge:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 6.0
+    position_delta: [0.05, 0.0, 0.2]
+    orientation_delta_rpy: [0.0, -2.0, 0.0]
+    gripper: 0.0
+
+  post_align_return:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 6.0
+    position_delta: [-0.05, 0.0, -0.2]
+    orientation_delta_rpy: [0.0, 2.0, 0.0]  # 转回，抵消 post_align_nudge 的 Y 旋转
+    gripper: 0.0
+
+  nav_to_origin:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  single_arm.place:
+    object_prim_path: /World/simple/bundle/box1/box1
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    ee_base_orientation: [0.640811, 0.716770, 0.273431, -0.028946]
+    prepare_offset: [0.085, 0.1, -0.2]
+    object_position_offset: [0.06, 0.03, 0.2]
+    ee_retreat_offset: [0.085, 0.1, -0.2]
+
+task_queue:
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_box1
+        skip_when_not_first_scene: true
+      - skill: joint.movej_to_config
+        id: pre_pick_movej
+        skip_when_not_first_scene: true
+  - skill: joint.movej_to_config
+    id: right_arm_pregrasp
+    skip_when_not_first_scene: true
+  - skill: single_arm.pick
+  - parallel:
+      - skill: single_arm.move_to_pose
+        id: carry_align
+      - skill: nav.navigate_relative
+        id: carry_x_shift
+  - skill: nav.navigate_to_object
+    id: nav_to_release
+  - skill: single_arm.move_relative
+    id: post_align_nudge
+  - parallel:
+      - skill: single_arm.move_relative
+        id: post_align_return
+      - skill: nav.navigate_to_pose
+        id: nav_to_origin
+  - skill: nav.navigate_to_object
+    id: nav_to_box1
+  - skill: single_arm.place
+
+scene_presets:
+  default:
+    skill_params: {}
+
+  box2:
+    skill_params:
+      single_arm.pick:
+        object_prim_path: /World/simple/bundle/box3_handle_02/black_box
+      single_arm.place:
+        object_position_offset: [0.06, -0.15, 0.2]
+

@@ -1,0 +1,59 @@
+# Galbot Zero — 双臂交接（新版 skill_defaults / skill_params）
+
+task_key: handover
+label: Handover
+use_stamped: true
+default_scene: grab_medicine
+
+runtime_defaults:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+
+task_queue:
+  - skill: single_arm.pick
+  - skill: dual_arm.handover
+  - skill: single_arm.place
+  - skill: joint.movej_to_config
+    id: movej_ho_finish
+
+skill_defaults:
+  single_arm.pick:
+    arm: right
+    object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+    object_position_offset: [0.0, -0.01, 0.12]
+    prepare_offset: [0.0, 0.0, 0.0]
+    pick_clearance: 0.0
+    ee_base_orientation: [ -0.7, 0.7, 0.0, 0.0 ]
+    ee_retreat_offset: [0.0, 0.0, -0.2]
+
+
+  dual_arm.handover:
+    handover_position: [0.5, 0.0, 1.2]
+    left_handover_orientation: [-0.3293, 0.6280, -0.6280, 0.3293]
+    right_handover_orientation: [-0.6230, 0.3431, -0.3431, 0.6230]
+    receiver_handover_offset: [0.0, 0.0, -0.04]
+    arm_movel_duration: 4.0
+
+
+  single_arm.place:
+    arm: left
+    place_position: [0.65, 0.45, 1.0]
+    ee_base_orientation: [0.653, -0.271, 0.653, 0.271]
+
+  movej_ho_finish:
+    left_arm_positions: [-2.0630, -0.3683, 0.2583, -1.5795, 0.0105, -0.8168, 1.6249]
+    right_arm_positions: [2.0647, -0.3683, -0.2548, -1.5795, -0.0070, -0.8168, -1.6249]
+    arrival_timeout: 45.0
+    joint_tolerance: 0.05
+
+
+scene_presets:
+  grab_medicine:
+    skill_params:
+      single_arm.pick:
+        object_prim_path: /World/medicine_handover/FinasterideTablets/tablets/tablets
+  grab_bottle:
+    skill_params:
+      single_arm.pick:
+        object_prim_path: /World/ConvenienceStore01/SM_Bottle_04_85

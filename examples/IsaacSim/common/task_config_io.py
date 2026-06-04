@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from robot_action_composer.task_config_io import (  # pyright: ignore[reportMissingImports]
+    RUNTIME_DEFAULTS_ALLOWED_KEYS,
     TaskConfigDiscovery,
     discover_task_configs,
-    flatten_queue_task_overrides,
     load_task_dict_from_yaml,
+    queue_root_overrides,
+    validate_runtime_defaults_keys,
 )
 
 __all__ = [
+    "RUNTIME_DEFAULTS_ALLOWED_KEYS",
     "TaskConfigDiscovery",
     "discover_task_configs",
-    "flatten_queue_task_overrides",
+    "validate_runtime_defaults_keys",
+    "queue_root_overrides",
     "load_task_dict_from_yaml",
 ]

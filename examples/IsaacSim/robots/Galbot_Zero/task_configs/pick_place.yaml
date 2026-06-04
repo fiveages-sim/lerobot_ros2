@@ -1,0 +1,48 @@
+# Galbot Zero — 抓取苹果
+task_key: pick_place
+label: Pick Apple Only
+use_stamped: true
+default_scene: grab_apple
+
+runtime_defaults:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+
+skill_defaults:
+  single_arm.pick:
+    arm: right
+    object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+    object_position_offset: [-0.01, -0.01, 0.14]
+    prepare_offset: [0.0, 0.0, 0.2]
+    pick_clearance: 0.0
+    ee_base_orientation: [ -0.707, 0.707, 0.0, 0.0 ]
+
+task_queue:
+  - skill: single_arm.pick
+
+scene_presets:
+  grab_apple:
+    skill_params:
+      single_arm.pick:
+        object_prim_path: /World/grasp_fruits/fruits_02/apple/apple/apple
+
+record:
+  base_record_overrides:
+    task_name: pick_place
+    fps: 30
+    camera_info_timeout: 10.0
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
+    - key: fast
+      label: Fast Encode Queue
+      overrides:
+        image_writer_threads: 12
+        video_encoding_batch_size: 10

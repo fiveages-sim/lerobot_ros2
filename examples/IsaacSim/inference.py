@@ -33,6 +33,50 @@ def _parse_launcher_args() -> tuple[argparse.Namespace, list[str]]:
     return parser.parse_known_args()
 
 
+def _iter_queue_blocks(blocks: list[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+
+    def walk(block: Any) -> None:
+        if not isinstance(block, dict):
+            return
+        if "parallel" in block:
+            for sub in block.get("parallel", []):
+                walk(sub)
+            return
+        out.append(block)
+
+    for b in blocks:
+        walk(b)
+    return out
+
+
+def _resolve_inference_object_prim_path(task_cfg: dict[str, Any]) -> str:
+    from robot_action_composer.task_runtime.merge import merge_task_queue_skill_params  # pyright: ignore[reportMissingImports]
+
+    task_queue = task_cfg.get("task_queue")
+    if not isinstance(task_queue, list) or not task_queue:
+        raise ValueError("Inference task requires a non-empty task_queue.")
+    skill_defaults = dict(task_cfg.get("skill_defaults") or {})
+    scene_presets = dict(task_cfg.get("scene_presets") or {})
+    default_scene = task_cfg.get("default_scene")
+    scene_sd = dict(scene_presets.get(default_scene) or {}) if isinstance(default_scene, str) else {}
+    scene_skill_params = dict(scene_sd.get("skill_params") or {})
+
+    merged_blocks = merge_task_queue_skill_params(list(task_queue), skill_defaults, scene_skill_params)
+    for block in _iter_queue_blocks(merged_blocks):
+        skill = str(block.get("skill") or "")
+        if skill in {"single_arm.pick", "single_arm.move_to_object"}:
+            params = dict(block.get("params") or {})
+            raw = params.get("object_prim_path")
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+    raise ValueError(
+        "Inference task missing object_prim_path for reset/source. "
+        "Set it in skill_defaults.single_arm.pick (or move_to_object), "
+        "then override per scene via scene_presets.<scene>.skill_params."
+    )
+
+
 def main() -> None:
     isaac_dir = Path(__file__).resolve().parent
     common_dir = isaac_dir / "common"
@@ -41,12 +85,8 @@ def main() -> None:
             sys.path.insert(0, str(path))
 
     from robot_action_composer.discovery.registry_loader import load_motion_entries  # pyright: ignore[reportMissingImports]
-    from robot_action_composer.task_config_io import flatten_queue_task_overrides  # pyright: ignore[reportMissingImports]
-    from robot_action_composer.task_runtime.merge import (  # pyright: ignore[reportMissingImports]
-        merge_flat_with_skill_carry,
-        merge_flat_with_skill_drawer,
-        merge_flat_with_skill_handover,
-        merge_flat_with_skill_pick_place,
+    from robot_action_composer.task_config_io import (  # pyright: ignore[reportMissingImports]
+        validate_runtime_defaults_keys,
     )
 
     from robot_action_composer.dataset_recording.launcher import (  # pyright: ignore[reportMissingImports]
@@ -73,7 +113,7 @@ def main() -> None:
     task_options = {
         key: value
         for key, value in robot_entry.get("tasks", {}).items()
-        if isinstance(value.get("base_task_overrides"), dict)
+        if isinstance(value.get("runtime_defaults"), dict)
     }
     if not task_options:
         raise RuntimeError(f"No task configs found for robot: {robot_key}")
@@ -95,45 +135,29 @@ def main() -> None:
         raise ValueError(f"Unknown task key: {task_key}")
 
     task_cfg = task_options[task_key]
-    base_task_overrides = merge_flat_with_skill_pick_place(
-        flatten_queue_task_overrides(task_cfg.get("base_task_overrides", {})),
-        task_cfg.get("skill_defaults"),
+    runtime_defaults = validate_runtime_defaults_keys(
+        task_cfg.get("runtime_defaults", {}),
+        context=f"task[{task_key}].runtime_defaults",
     )
-    base_task_overrides = merge_flat_with_skill_handover(
-        base_task_overrides,
-        task_cfg.get("skill_defaults"),
-    )
-    base_task_overrides = merge_flat_with_skill_carry(
-        base_task_overrides,
-        task_cfg.get("skill_defaults"),
-    )
-    base_task_overrides = merge_flat_with_skill_drawer(
-        base_task_overrides,
-        task_cfg.get("skill_defaults"),
-    )
-    required_keys = {"object_prim_path"}
-    if not required_keys.issubset(base_task_overrides.keys()):
-        raise ValueError(
-            f"Task '{task_key}' missing required fields for inference reset: {sorted(required_keys)}"
-        )
+    object_prim_path = _resolve_inference_object_prim_path(task_cfg)
 
     core_script = isaac_dir / "online_infer" / "core.py"
     core_module = _load_module("isaac_inference_core", core_script)
     robot_cfg = robot_entry["robot_cfg"]
-    bl_override = base_task_overrides.get("base_link_entity_path")
+    bl_override = runtime_defaults.get("base_link_entity_path")
     if isinstance(bl_override, str) and bl_override.strip():
         if not is_dataclass(robot_cfg):
             raise TypeError(
-                "base_task_overrides.base_link_entity_path requires robot_cfg to be a @dataclass "
+                "runtime_defaults.base_link_entity_path requires robot_cfg to be a @dataclass "
                 f"(got {type(robot_cfg).__name__})"
             )
         robot_cfg = replace(robot_cfg, base_link_entity_path=bl_override.strip())
     core_module.ROBOT_CFG = robot_cfg
-    core_module.PICK_PLACE_FLOW_OVERRIDES = base_task_overrides
+    core_module.PICK_PLACE_FLOW_OVERRIDES = {"object_prim_path": object_prim_path}
 
     print(
         f"[Selection] robot={robot_key}, task={task_key}, "
-        f"source={base_task_overrides['object_prim_path']}"
+        f"source={object_prim_path}"
     )
 
     old_argv = sys.argv

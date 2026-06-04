@@ -13,17 +13,13 @@
 task_key: poc_bimanual_2box_rev
 label: "[PORT6 Rev] 双臂分别搬蓝箱子 底盘反向版本"
 use_stamped: true
-robot_id: fiveages_w2_poc_bimanual_pick_2
 default_scene: two_box
 
-base_task_overrides:
+runtime_defaults:
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
-  object_prim_path: /World/port6/box_blue_01/small_blue
   max_stage_duration: 2.0
   pose_tol_pos: 0.007
   pose_tol_ori: 0.05
-  require_orientation_reach: false
-  use_object_orientation: false
 
 task_queue:
   - parallel:
@@ -127,4 +123,4 @@ scene_presets:
         orientation_delta_rpy: [0.0, 0.75, 0.0]
       dual_arm.place:
         object_position_offset: [0.0, 0.25, 1.24]
-        retreat_xyz: [-0.3, 0.0, -0.2]
+        retreat_xyz: [-0.35, 0.0, -0.1]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Robot profile config for FiveAges W2 IsaacSim demos."""
+"""Robot profile config for Galbot Zero IsaacSim demos."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from lerobot_camera_ros2 import ROS2CameraConfig  # pyright: ignore[reportMissin
 from ros2_robot_interface import ROS2RobotInterfaceConfig  # pyright: ignore[reportMissingImports]
 
 
-ROBOT_KEY = "fiveages_w2"
-ROBOT_LABEL = "FiveAges W2"
+ROBOT_KEY = "galbot_zero"
+ROBOT_LABEL = "Galbot Zero"
 
 
 @dataclass(frozen=True)
@@ -24,10 +24,9 @@ class RobotConfig:
         if self.ros2_interface is None:
             object.__setattr__(self, "ros2_interface", ROS2RobotInterfaceConfig.default_bimanual(
                 joint_names=(
-                    "body_joint1",
-                    "body_joint2",
-                    "body_joint3",
-                    "body_joint4",
+                    "body_lift_joint",
+                    "head_joint1",
+                    "head_joint2",
                     "left_gripper_joint",
                     "left_joint1",
                     "left_joint2",
@@ -44,35 +43,19 @@ class RobotConfig:
                     "right_joint5",
                     "right_joint6",
                     "right_joint7",
-                    "head_joint1",
-                    "head_joint2",
                 ),
                 pose_position_threshold=self.pose_position_threshold,
                 pose_orientation_threshold=self.pose_orientation_threshold,
-                #body_joint_controller_topic="/body_joint_controller/target_joint_position",
             ))
-    base_link_entity_path: str = "/World/FiveAges_W2/LinkHou_S2/base_footprint/base_link"
-    fsm_switch_delay: float = 0.1
+
+    # Default base_link path verified in current Isaac stage.
+    base_link_entity_path: str = "/World/Galbot_Zero/base_link"
+    fsm_switch_delay: float = 0.13
     post_reset_wait: float = 1.0
-    arrival_timeout: float = 8.0
+    arrival_timeout: float = 2.0
     arrival_poll: float = 0.05
-    gripper_action_wait: float = 2.0
-    cameras: dict[str, ROS2CameraConfig] = field(
-        default_factory=lambda: {
-            "head_camera": ROS2CameraConfig(
-                topic_name="/head_camera/rgb",
-                node_name="lerobot_head_camera",
-            ),
-            "left_hand_camera": ROS2CameraConfig(
-                topic_name="/left_hand_camera/rgb",
-                node_name="lerobot_left_hand_camera",
-            ),
-            "right_hand_camera": ROS2CameraConfig(
-                topic_name="/right_hand_camera/rgb",
-                node_name="lerobot_right_hand_camera",
-            ),
-        }
-    )
+    gripper_action_wait: float = 0.3
+    cameras: dict[str, ROS2CameraConfig] = field(default_factory=dict)
 
 
 ROBOT_CFG = RobotConfig()

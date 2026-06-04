@@ -3,7 +3,6 @@
 task_key: pick_place
 label: Pick Place
 use_stamped: false
-robot_id: realman_rm75_pick_place
 default_scene: default
 
 task_queue:
@@ -17,12 +16,10 @@ task_queue:
     params:
       key: rm75_prep_pose
 
-base_task_overrides:
+runtime_defaults:
   max_stage_duration: 2.0
   pose_tol_pos: 0.025
   pose_tol_ori: 0.08
-  require_orientation_reach: false
-  use_object_orientation: false
 
 skill_defaults:
   env.randomize_object_local_xyz:
