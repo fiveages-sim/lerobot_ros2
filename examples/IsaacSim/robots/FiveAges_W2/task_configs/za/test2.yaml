@@ -1,4 +1,4 @@
-# FiveAges W2 — Siemens 项目：极简双臂抓取箱体任务（修复回转后右臂卡爪无法入把手问题 + end抬高0.08m）
+# FiveAges W2 — Siemens 项目：极简双臂抓取箱体任务
 # 修复点说明：
 # 1. bimanual_lift_push、倾倒/回正、对称校准步骤强制锁定双臂夹持跨度，同时限制末端Y向偏移，防止双臂张开错位
 # 2. lower_body_before_place、dual_arm.place 右臂关节第3轴修正，与抓取姿态镜像对称，消除单侧偏移
