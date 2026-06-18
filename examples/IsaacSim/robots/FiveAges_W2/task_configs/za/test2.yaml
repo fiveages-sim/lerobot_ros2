@@ -1,0 +1,183 @@
+# FiveAges W2 — Siemens 项目：极简双臂抓取箱体任务（修复回转后右臂卡爪无法入把手问题 + end抬高0.08m）
+# 修复点说明：
+# 1. bimanual_lift_push、倾倒/回正、对称校准步骤强制锁定双臂夹持跨度，同时限制末端Y向偏移，防止双臂张开错位
+# 2. lower_body_before_place、dual_arm.place 右臂关节第3轴修正，与抓取姿态镜像对称，消除单侧偏移
+# 3. 所有bimanual_align步骤补充 span_lock_offset 约束，避免回转后左右臂Y向错位
+# 4. 放置姿态双臂末端镜像严格对齐箱体把手，匹配port2标准夹持构型
+task_key: siemens_box_carry_simple
+label: 极简双臂抓箱（修复夹爪错位）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.02
+  pose_tol_ori: 0.03
+
+skill_defaults:
+  nav_before_carry:
+    object_prim_path: /World/warehouse/bg2/start
+    approach_offset_x: -0.76
+    approach_offset_y: -0.001
+    yaw: 0.0
+    timeout: 60.0
+
+  nav_before_place:
+    object_prim_path: /World/warehouse/bg2/end
+    approach_offset_x: 0.872
+    approach_offset_y: 0.0
+    yaw: 3.1415
+    timeout: 60.0
+
+  init_movej:
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_pick_movej:
+    body_positions: [-0.6, -1.6, -1.0, 0.0]
+    left_arm_positions: [-0.55, 1.0266, 0.8125, -1.8487, -0.9908, -0.5437, -0.4515]
+    right_arm_positions: [0.55, 1.0266, -0.8125, -1.8487, 0.9908, -0.5437, 0.4515]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  dual_arm.carry:
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/warehouse/bundle/box1/box1
+    object_position_offset: [0.03, 0.0, 0.235]
+    object_dual_arm_half_span_y: 0.327
+    arm_merge_distance_y: 0.05
+    left_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    right_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    ee_lift_offset: [0.03, 0.0, 0.1]
+    # 搬运全程锁死双臂间距，基础夹持宽度不变
+    lock_bimanual_span: true
+    hold_gripper: true
+
+  nav_to_origin:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  nav_to_release:
+    object_prim_path: /World/warehouse/bg2/release
+    approach_offset_x: 0.11
+    approach_offset_y: -1.056
+    yaw: 1.5708
+    timeout: 60.0
+
+  align_before_place:
+    align_position: [0.55, 0.0, -0.05]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    # 固定左右臂Y向跨度，回转不张开
+    span_lock_offset_y: 0.327
+
+  bimanual_lift_push:
+    align_position: [0.8, 0.0, 0.15]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+  lower_body_before_place:
+    body_positions: [-0.6, -2.6, -1.62, 0.0]
+    left_arm_positions: [-0.55, 1.0266, 0.7395, -1.8487, -0.9908, -0.5437, -0.38]
+    right_arm_positions: [0.55, 1.0266, -0.7395, -1.8487, 0.9908, -0.5437, 0.38]
+    head_positions: [0.0, 0.18]
+    skip_fsm_change: true
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+
+  dual_arm.place:
+    reference_object_prim_path: /World/warehouse/bg2/end/viusal
+    object_position_offset: [0.0, 0.03, 0.10]
+    # 镜像对称手臂关节，解决右臂偏移卡不住把手
+    left_arm_positions: [-0.55, 1.0266, 0.7395, -1.8487, -0.9908, -0.5437, -0.38]
+    right_arm_positions: [0.55, 1.0266, -0.7395, -1.8487, 0.9908, -0.5437, 0.38]
+    orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+  pre_pick_stand:
+    body_positions: [-0.2, -0.3, -0.2, 0.0]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: true
+
+task_queue:
+  - skill: joint.movej_to_config
+    id: init_movej
+  - skill: nav.navigate_to_object
+    id: nav_before_carry
+  - skill: joint.movej_to_config
+    id: pre_pick_movej
+  - skill: dual_arm.carry
+  # - skill: nav.navigate_to_pose
+  #   id: nav_to_origin
+  - parallel:
+      - skill: joint.movej_to_config
+        id: pre_pick_stand
+      - skill: dual_arm.bimanual_align
+        id: align_before_place
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_release
+      - skill: dual_arm.bimanual_align
+        id: bimanual_lift_push
+  # 倾倒步骤强制锁夹持跨度
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.85, 0.0, 0.0]
+      motion_frame_id: arm_base
+      arm_movel_duration: 3.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, -0.9, 0.0]
+  # 回正步骤保持夹持宽度不变
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.85, 0.0, 0.0]
+      motion_frame_id: arm_base
+      arm_movel_duration: 3.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 0.0, 0.0]
+  # 对称校准锁死双臂间距，防止回转张开错位
+  - skill: dual_arm.bimanual_align
+    id: align_before_place
+    params:
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+  - skill: nav.navigate_to_object
+    id: nav_before_place
+  - skill: joint.movej_to_config
+    id: lower_body_before_place
+  - skill: dual_arm.place
+
+scene_presets:
+  default:
+    skill_params: {}
