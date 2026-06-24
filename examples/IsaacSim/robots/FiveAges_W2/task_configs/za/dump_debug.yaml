@@ -1,0 +1,40 @@
+# FiveAges W2 — Siemens box dump debug task
+# Run this with --no-reset after the full task has already grasped/carried the box.
+task_key: siemens_box_dump_debug
+label: Siemens box dump debug only
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.04
+  pose_tol_ori: 5.0
+
+task_queue:
+  # Move to a conservative reachable dump pose without changing EE orientation.
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.65, 0.0, 0.05]
+      motion_frame_id: arm_base
+      arm_movel_duration: 4.0
+
+  # Small relative pitch-down dump. Increase pitch magnitude only after this is stable.
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.65, 0.0, 0.05]
+      motion_frame_id: arm_base
+      arm_movel_duration: 5.0
+      orientation_delta_rpy: [0.0, -0.35, 0.0]
+
+  # Return with the inverse relative pitch so repeated --no-reset trials start sane.
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.65, 0.0, 0.05]
+      motion_frame_id: arm_base
+      arm_movel_duration: 5.0
+      orientation_delta_rpy: [0.0, 0.35, 0.0]
+
+scene_presets:
+  default:
+    skill_params: {}

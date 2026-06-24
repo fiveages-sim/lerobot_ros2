@@ -1,0 +1,217 @@
+# FiveAges W2 — Siemens 箱体抓取调试任务
+# 目的：只看“预备姿态 -> 双臂抓取 -> 抬起 -> 原地翻转/回正”的效果。
+# 不执行导航、不放置；适合在 start 场景里反复调抓取和倾倒动作。
+# 使用前提：机器人已经在箱子旁边，双臂工作空间能覆盖箱子；否则需要先手动/用场景把机器人放到 start 附近。
+task_key: siemens_box_grasp_debug
+label: Siemens box grasp debug only
+# true 表示笛卡尔目标会带 frame_id 发布，下面 motion_frame_id=arm_base 才能稳定生效。
+use_stamped: true
+# 默认场景名；运行命令里 --scene default 会使用 scene_presets.default。
+default_scene: default
+
+runtime_defaults:
+  # 机器人底盘实体路径，用来把 Isaac 世界坐标下的箱子位姿换算到机器人参考系。
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  # 每个笛卡尔小阶段的到位等待上限。调试抓取时太小会更容易 timeout。
+  max_stage_duration: 2.0
+  # 位置到位容忍度，单位米。0.02 表示 2cm 内认为到位。
+  pose_tol_pos: 0.02
+  # 姿态到位容忍度，单位弧度。抓箱时可以略放宽，但太大可能掩盖姿态偏差。
+  pose_tol_ori: 0.03
+
+skill_defaults:
+  init_movej:
+    # 初始收拢/准备姿态：先把身体和双臂放到一个可控起点。
+    # 如果你只是反复调 dual_arm.carry，且机器人已经在预备姿态，可以临时注释 task_queue 里的 init_movej。
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    # 左右臂初始关节位。左右臂符号大多是镜像关系，不建议在抓取调参时先改这里。
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    # movej 到位等待上限。
+    arrival_timeout: 30.0
+    # 关节误差容忍度，单位 rad。
+    joint_tolerance: 0.05
+    # body 控制器插值时间，单位秒。
+    body_movej_duration: 2.0
+    # false 表示本段结束后不立即恢复 OCS2，后面 pre_pick_movej 还会继续 movej。
+    resume_ocs2: false
+
+  pre_pick_movej:
+    # 抓取前预备姿态：降低身体、把双臂摆到箱子附近。
+    # 这里不做导航，所以如果箱子不在双臂前方，后面的 dual_arm.carry 会目标超工作空间或撞箱。
+    body_positions: [-0.6, -1.6, -1.0, 0.0]
+    # 如果还没进入笛卡尔抓取前就明显离箱子太远，优先调这里和机器人初始位置，而不是调 object_position_offset。
+    left_arm_positions: [-0.55, 1.0266, 0.8125, -1.8487, -0.9908, -0.5437, -0.4515]
+    right_arm_positions: [0.55, 1.0266, -0.8125, -1.8487, 0.9908, -0.5437, 0.4515]
+    # 头部姿态，主要为了视角/避让；一般不用动。
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  dual_arm.carry:
+    # 笛卡尔目标所在坐标系。arm_base 下调 x/y/z 最直观：
+    # x 通常是机器人前后，y 通常是左右，z 是上下。
+    motion_frame_id: arm_base
+    # 每段双臂 movel 插值时间。变大更慢更稳，变小更快但可能跟不上或更容易撞。
+    arm_movel_duration: 3.0
+    # 要抓的箱子 Prim 路径，必须和 Isaac Stage 右侧 Property 里显示的 Prim Path 完全一致。
+    # 你当前 start.usd 里是 /World/bundle/box1/box1，不是 /World/warehouse/bundle/box1/box1。
+    object_prim_path: /World/bundle/box1/box1
+
+    # 抓取中心相对箱子原点的偏移 [x, y, z]，单位米。
+    # x：抓取中心向箱子前/后挪；如果两手整体撞箱或够不到，先小步调 x。
+    # y：整体向左/右偏；通常保持 0，左右不对称时优先查箱子姿态/底盘位置。
+    # z：抓取高度；手插得太低/太高，主要调这个。
+    object_position_offset: [0.03, 0.0, 0.235]
+    # 双臂抓取半宽。
+    # object_span_axis=y 时：左手 = 中心 +Y 侧，右手 = 中心 -Y 侧，是老横向插入/左右夹抓。
+    # object_span_axis=x 时：两手在 X 方向分开，然后从上往下抓；这个值就是 X 向半间距。
+    # 调小：两手更靠近中心，可能插得更深，但更容易挤箱子/碰第7关节。
+    # 调大：两手更外侧，更不挤箱子，但可能抓不牢或超工作空间。
+    object_dual_arm_half_span_y: 0.325
+    # y 横抓时的横向预张开距离。
+    # Forward 阶段会比最终抓取位更外侧，CloseIn 再夹进来。
+    # x 竖直下抓时，如果 vertical_approach_clearance_z 没写，才会复用这个值作为上方高度。
+    arm_merge_distance_y: 0.05
+    # x 竖直下抓专用：先到最终抓取点上方多少米，再沿 arm_base Z 方向向下 CloseIn。
+    # 太小：手还没完全避开箱沿就开始下压，容易撞。
+    # 太大：路径更安全但更慢，也可能经过工作空间边缘。
+    vertical_approach_clearance_z: 0.08
+
+    # 是否读取箱子的实时姿态。
+    # true：会读取 Isaac 中点击 Play 后箱子的当前位置和姿态，适合箱子会滑动/倾斜的场景。
+    # false：只用箱子位置，不用姿态，等价于假设箱子水平。
+    use_object_orientation: true
+    # 姿态使用模式：
+    # tilt：只使用 roll/pitch 倾斜，忽略 yaw。适合你的箱子：Stage 里 Orient Y 约 0.878 是滑轨倾角，
+    #       但箱子四元数还带约 90 度 yaw，完整使用 full 反而会把抓取方向转偏。
+    # full：完整使用箱子四元数，一般只有 Prim 局部坐标轴和抓取逻辑完全一致时才用。
+    # none：读取后按水平箱子处理。
+    object_orientation_mode: tilt
+    # 双臂展开轴在哪个坐标系解释：
+    # motion：沿 arm_base 的 object_span_axis 展开，调参直观，当前推荐。
+    # object：沿箱子局部 object_span_axis 展开；如果箱子 Prim 局部轴不符合直觉，会导致两手偏得很大。
+    object_span_frame: motion
+
+    # 抓取模式开关，调试时主要切这里：
+    # y = 老横抓：左右手从两侧横向插入/夹抓。
+    # x = 新竖直下抓：左右手按 X 方向分开，先到箱子上方，再竖直向下抓。
+    object_span_axis: y
+
+    # 手腕姿态参考系：
+    # motion：使用下面 base_orientation + delta 的固定姿态，当前推荐。
+    # object：让手腕姿态跟随箱子姿态旋转；如果箱子 Prim 带 90 度 yaw，可能会大幅偏转。
+    ee_orientation_frame: motion
+    # 左右手基础四元数 [x, y, z, w]。这是抓取姿态的“底座”，通常不直接改。
+    left_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    right_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    # 兼容老字段：如果 lateral_orientation_delta_rpy / vertical_orientation_delta_rpy 没写，就用这个。
+    # RPY 单位是弧度，顺序是 [roll, pitch, yaw]。
+    orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    # object_span_axis=y 时使用。这里约等于 pitch -25 度，是老横抓姿态补偿。
+    lateral_orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    # object_span_axis=x 时使用。yaw=1.5708 约等于 90 度，让手腕朝向适配从上往下抓。
+    vertical_orientation_delta_rpy: [0.0, -0.436332313, 1.5708]
+    # 位移解释方式：
+    # auto：y 横抓时 ee_lift_offset 按工具系解释；x 竖直下抓时按 arm_base/motion 系解释。
+    # 这样 x 模式下 ee_lift_offset 的 z=0.1 就是真正向上抬 10cm。
+    carry_linear_displacement_frame: auto
+
+    # 抓住后抬起位移 [x, y, z]，单位米。
+    # y 横抓时 auto 会按工具系解释；x 竖直下抓时 auto 会按 arm_base 解释。
+    # 如果抓住后一抬就刮箱，可以先把 x 从 0.03 改小，或把 z 从 0.1 改成 0.06 试。
+    ee_lift_offset: [0.03, 0.0, 0.1]
+    # true 表示后续阶段尽量保持双臂间距不漂；抓箱调试建议保持 true。
+    lock_bimanual_span: true
+    # true 表示 Grasp 之后保持夹爪闭合。
+    hold_gripper: true
+
+  pre_pick_stand:
+    # 抓取完成后站起/过渡姿态，同时恢复 OCS2，供后续 bimanual_align 做笛卡尔控制。
+    body_positions: [-0.2, -0.3, -0.2, 0.0]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: true
+
+  align_before_dump:
+    # 持箱对齐：抓起来后先把双臂中点移动到一个相对稳定的位置。
+    # 这个位置是在 arm_base 下的 [x, y, z]，不依赖导航目标。
+    align_position: [0.55, 0.0, -0.05]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    # 保持双臂相对距离和夹爪状态，避免翻转前箱子松动。
+    lock_bimanual_span: true
+    hold_gripper: true
+    # 锁定左右臂 Y 向跨度；如果翻转时箱子变松/双臂张开，优先检查这里。
+    span_lock_offset_y: 0.327
+
+  bimanual_lift_push:
+    # 原 test2 里这一步是和 nav_to_release 并行的。
+    # 这里不导航，只在原地把箱子推/抬到翻转前姿态。
+    align_position: [0.8, 0.0, 0.15]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+task_queue:
+  # 1. 初始关节姿态。
+  - skill: joint.movej_to_config
+    id: init_movej
+  # 2. 抓取前预备姿态。
+  - skill: joint.movej_to_config
+    id: pre_pick_movej
+  # 3. 根据 object_prim_path 读取箱子实时位姿，生成双臂笛卡尔抓取序列。
+  - skill: dual_arm.carry
+  # 4. 抓起后站起来，同时把双臂中点拉到稳定持箱位置。
+  - parallel:
+      - skill: joint.movej_to_config
+        id: pre_pick_stand
+      - skill: dual_arm.bimanual_align
+        id: align_before_dump
+  # 5. 原地执行 test2 里的“到释放点前持箱推/抬”动作，但不做 nav_to_release 导航。
+  - skill: dual_arm.bimanual_align
+    id: bimanual_lift_push
+  # 6. 原地翻转。orientation_delta_rpy 的 pitch 越大，翻得越狠；先小步调，避免超工作空间。
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.45, 0.0, -0.25]
+      motion_frame_id: arm_base
+      arm_movel_duration: 5.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 3.0, 0.0]
+  # 7. 继续翻转/倒料：注意这里是相对当前姿态再叠加 pitch，不是回正。
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.45, 0.0, -0.25]
+      motion_frame_id: arm_base
+      arm_movel_duration: 3.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 1.0, 0.0]
+  # 8. 回到举高持箱位置：姿态不再额外变化，只把双臂中点送回 bimanual_lift_push 的高度附近。
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.8, 0.0, 0.15]
+      motion_frame_id: arm_base
+      arm_movel_duration: 4.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 0.0, 0.0]
+
+scene_presets:
+  default:
+    skill_params: {}
+  # 如果运行时用 --scene start，也允许这个名字；这里参数和 default 一样。
+  # 注意：这只是任务配置里的 scene preset 名，不会自动替你打开 start.usd。
+  start:
+    skill_params: {}
