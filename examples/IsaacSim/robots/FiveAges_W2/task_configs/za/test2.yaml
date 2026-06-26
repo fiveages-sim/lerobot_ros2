@@ -1,11 +1,8 @@
-# FiveAges W2 — Siemens 项目：极简双臂抓取箱体任务
-# 修复点说明：
-# 1. bimanual_lift_push、倾倒/回正、对称校准步骤强制锁定双臂夹持跨度，同时限制末端Y向偏移，防止双臂张开错位
-# 2. lower_body_before_place、dual_arm.place 右臂关节第3轴修正，与抓取姿态镜像对称，消除单侧偏移
-# 3. 所有bimanual_align步骤补充 span_lock_offset 约束，避免回转后左右臂Y向错位
-# 4. 放置姿态双臂末端镜像严格对齐箱体把手，匹配port2标准夹持构型
+# FiveAges W2 — Siemens 项目：双臂抓取、旋转、放置整体流程
+# 流程：第一个导航点抓取 -> 第二个导航点旋转/倒料 -> 第三个导航点放置。
+# 抓取段沿用 grasp_debug.yaml 已验证的老横抓参数：左右手从两侧横向插入/夹抓。
 task_key: siemens_box_carry_simple
-label: 极简双臂抓箱（修复夹爪错位）
+label: Siemens box carry / rotate / place
 # true 表示笛卡尔目标带 frame_id 发送，配合 motion_frame_id 使用，避免坐标系混淆。
 use_stamped: true
 # 默认 Isaac 场景名；运行命令里的 --scene default 会匹配这里。
@@ -14,8 +11,8 @@ default_scene: default
 runtime_defaults:
   # 机器人底盘在 Isaac 世界里的实体路径，用于把物体世界位姿换算到机器人参考系。
   base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
-  # 单个笛卡尔阶段的默认时长上限；超时日志里的 elapsed 通常和这里/robot_config 相关。
-  max_stage_duration: 2.0
+  # 单个笛卡尔阶段的默认时长上限；放置闭爪平移较长，太短会没到位就进入开爪段。
+  max_stage_duration: 4.0
   # 末端到目标位置的容忍度，单位米；过小会更容易报 timeout。
   pose_tol_pos: 0.02
   # 末端到目标姿态的容忍度，单位弧度。
@@ -69,20 +66,17 @@ skill_defaults:
   dual_arm.carry:
     # 抓取/搬运笛卡尔目标使用的坐标系；这里用 arm_base，调参更直观。
     motion_frame_id: arm_base
-    # 双臂 movel 每段插值时长，单位秒。
-    arm_movel_duration: 2.0
-    # Isaac 中箱子 Prim 路径。程序会在执行 carry 时读取它的当前位置。
+    # 沿用 grasp_debug 已验证的横抓节奏。
+    arm_movel_duration: 3.0
+    # test2 这套 warehouse 场景里使用的箱子路径。
     object_prim_path: /World/warehouse/bundle/box1/box1
     # 抓取中心相对箱子原点的偏移 [x, y, z]，单位米。
-    # x 前后、z 高度最常调；y 会叠加到双臂半宽上，通常保持 0。
-    object_position_offset: [0.03, 0.0, 0.235]
-    # 双臂抓取半宽，左手/右手分别在中心两侧展开这个距离。
-    # 变小表示两手更靠近箱子中心，插入更深但更容易挤压。
+    object_position_offset: [-0.17, 0.0, 0.135]
+    # 双臂抓取半宽；横抓时左右手沿 arm_base Y 方向展开。
     object_dual_arm_half_span_y: 0.340
-    # y 横抓时：接近阶段额外张开的距离；只影响 Forward/Approach，CloseIn 会回到半宽。
-    # x 竖直下抓时：如果不写 vertical_approach_clearance_z，则复用这个值作为上方预接近高度。
+    # y 横抓时的横向预张开距离；Forward 阶段外张，CloseIn 再夹进来。
     arm_merge_distance_y: 0.05
-    # x 竖直下抓时：Forward 位姿比最终抓取位高出的距离，单位米；随后 CloseIn 沿 arm_base Z 方向下压。
+    # 竖抓备用参数；横抓模式下不作为主路径使用。
     vertical_approach_clearance_z: 0.08
     # true 表示读取箱子实时姿态；配合 object_orientation_mode 控制使用哪部分姿态。
     use_object_orientation: true
@@ -91,10 +85,8 @@ skill_defaults:
     # 左右手位置展开参考系：
     # motion = 沿 arm_base 的 Y 轴左右展开；object = 沿箱子局部 Y 轴展开。
     object_span_frame: motion
-    # 抓取模式开关：
-    # y = 老方案，左右横向插入/横抓；x = 新方案，双手从上方竖直向下抓。
-    # x 模式下仍用 object_dual_arm_half_span_y 控制两只手在 X 方向的半间距。
-    object_span_axis: x
+    # y = 老横抓：左右手从两侧横向插入/夹抓。
+    object_span_axis: y
     # 手腕姿态参考系：
     # motion = 使用下方固定手腕姿态；object = 固定姿态再跟随箱子姿态旋转。
     # 如果开 object 后手腕偏得很大，优先改回 motion。
@@ -106,12 +98,12 @@ skill_defaults:
     orientation_delta_rpy: [0.0, -0.436332313, 0.0]
     # object_span_axis=y 时使用：老横抓手腕姿态。
     lateral_orientation_delta_rpy: [0.0, -0.436332313, 0.0]
-    # object_span_axis=x 时使用：竖直下抓手腕姿态，yaw=1.5708 约等于旋转 90 度。
-    vertical_orientation_delta_rpy: [0.0, -0.43, 1.5708]
+    # object_span_axis=x 时使用：竖直下抓手腕姿态，横抓主流程不会用到。
+    vertical_orientation_delta_rpy: [0.0, -0.436332313, 1.5708]
     # auto 表示 y 横抓时 ee_lift_offset 按工具系解释，x 竖直下抓时按 arm_base/motion 系解释。
     carry_linear_displacement_frame: auto
     # 抓住后抬箱子的位移 [x, y, z]，单位米；x 模式下 z=0.1 就是真正向上抬 10cm。
-    ee_lift_offset: [0.03, 0.0, 0.1]
+    ee_lift_offset: [0.03, 0.0, 0.0]
     # 搬运全程锁死双臂间距，基础夹持宽度不变
     lock_bimanual_span: true
     # true 表示后续搬运阶段保持夹爪闭合。
@@ -127,13 +119,13 @@ skill_defaults:
   nav_to_release:
     # 倾倒/释放前的导航参考点。
     object_prim_path: /World/warehouse/bg2/release
-    approach_offset_x: 0.11
-    approach_offset_y: -1.056
+    approach_offset_x: 0.112
+    approach_offset_y: -0.856
     yaw: 1.5708
     timeout: 60.0
 
   align_before_place:
-    # 持箱对齐：把双臂中点移动到 arm_base 下的 align_position。
+    # 抓起后、去第二个导航点前的持箱对齐。
     align_position: [0.55, 0.0, -0.05]
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
@@ -145,44 +137,76 @@ skill_defaults:
 
   bimanual_lift_push:
     # 边导航边持箱向前/向上推的对齐目标，用于让箱子保持可控姿态。
-    align_position: [0.8, 0.0, 0.15]
+    align_position: [0.8, 0.0, 0.35]
     motion_frame_id: arm_base
     arm_movel_duration: 2
     lock_bimanual_span: true
     hold_gripper: true
     span_lock_offset_y: 0.327
 
-  lower_body_before_place:
-    # 放置/倾倒前降低身体并调整双臂到目标姿态。
-    body_positions: [-0.6, -2.6, -1.62, 0.0]
-    left_arm_positions: [-0.55, 1.0266, 0.7395, -1.8487, -0.9908, -0.5437, -0.38]
-    right_arm_positions: [0.55, 1.0266, -0.7395, -1.8487, 0.9908, -0.5437, 0.38]
-    head_positions: [0.0, 0.18]
-    # true 表示不切换控制器状态，保持前面 OCS2/hold 状态。
-    skip_fsm_change: true
-    arrival_timeout: 30.0
-    joint_tolerance: 0.05
-    body_movej_duration: 2.0
+  pre_place_align:
+    # 第三个导航点到位后，先把双臂水平粗摆到放置位上方 10cm。
+    # 姿态保持第 9 步回正后的夹爪水平姿态。
+    align_position: [0.45, 0.0, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
 
-  dual_arm.place:
-    # 放置参考物体；程序根据参考物体位置 + object_position_offset 计算放置目标。
+  pre_place_vertical_down:
+    # 双臂保持夹紧，把双臂中点对到 Isaac 里选中的放置参考点。
+    # 这样导航略有误差时，最终闭爪下放不再依赖固定 arm_base 坐标。
     reference_object_prim_path: /World/warehouse/bg2/end/viusal
-    # 相对放置参考物体的偏移 [x, y, z]。
-    object_position_offset: [0.0, 0.03, 0.10]
-    # 镜像对称手臂关节，解决右臂偏移卡不住把手
-    left_arm_positions: [-0.55, 1.0266, 0.7395, -1.8487, -0.9908, -0.5437, -0.38]
-    right_arm_positions: [0.55, 1.0266, -0.7395, -1.8487, 0.9908, -0.5437, 0.38]
-    # 放置阶段手腕姿态微调，单位弧度。
-    orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    # 相对 reference_object_prim_path 的局部偏移 [x, y, z]，用于微调箱子落点。
+    # z 往大调 = 放得更高；z 往小调 = 放得更低。
+    object_position_offset: [0.20, 0.0, 0.20]
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
     lock_bimanual_span: true
     hold_gripper: true
     span_lock_offset_y: 0.327
 
+  lower_body_before_place:
+    # 直接写腰部/body 的 4 个电机目标值：[body_joint1, body_joint2, body_joint3, body_joint4]。
+    # 这里不是相对位移，想让腰再低就直接改这 4 个目标值。
+    body_positions: [-1.2, -2.6, -1.4, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 3.0
+    resume_ocs2: true
+
+  left_arm_level_before_down:
+    # 放下前单独给左臂一个小姿态修正，补偿前面碰撞导致的左右末端不水平。
+    # 这里只转左臂末端，不改右臂；如果方向反了，把 pitch 的符号从 -0.08 改成 0.08。
+    arm: left
+    position_delta: [0.05, 0.0, 0.0]
+    orientation_delta_rpy: [0.0, 0.0, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 1.5
+
+  dual_arm.place:
+    # 前面 pre_place_vertical_down 已经按 reference 对齐；这里不再做额外闭爪平移。
+    translation_xyz: [0.0, 0.0, 0.0]
+    # 松爪前左右臂末端一起加的姿态增量 [roll, pitch, yaw]，单位弧度。
+    orientation_delta_rpy: [0.0, 0.0, 0.0]
+    # 松爪后、水平外抽前，先让右臂末端下降 2cm，避开卡住的边缘。
+    post_release_right_delta_xyz: [0.0, 0.0, 0.0]
+    # 再给右臂绕 y 轴微转约 2 度，避免外抽时钩住边缘。
+    post_release_right_orientation_delta_rpy: [0.0, 0.0, 0.0]
+    # 松爪后双臂末端水平外抽 20cm。
+    spread_half: 0.00
+    # 不做额外整体平移，只执行左右外抽。
+    retreat_xyz: [0.0, 0.0, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 4.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
   pre_pick_stand:
     # 抓取完成后站起/过渡姿态，同时恢复 OCS2 供后续笛卡尔控制。
-    body_positions: [-0.2, -0.3, -0.2, 0.0]
+    body_positions: [-0.0, -0.0, -0.0, 0.0]
     head_positions: [0.0, 0.18]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
@@ -193,61 +217,74 @@ task_queue:
   # 1. 初始姿态
   - skill: joint.movej_to_config
     id: init_movej
-  # 2. 导航到箱子附近
+  # 2. 第一个导航点：到箱子附近抓取
   - skill: nav.navigate_to_object
     id: nav_before_carry
   # 3. 抓取预备姿态
   - skill: joint.movej_to_config
     id: pre_pick_movej
-  # 4. 双臂插入、闭合并抬起箱子
+  # 4. 老横抓：双臂从两侧插入、闭合并抬起箱子
   - skill: dual_arm.carry
   # - skill: nav.navigate_to_pose
   #   id: nav_to_origin
-  # 5. 站起和双臂持箱对齐并行执行
+  # 5. 抓起后站起，并把双臂中点拉到稳定持箱位置
   - parallel:
       - skill: joint.movej_to_config
         id: pre_pick_stand
       - skill: dual_arm.bimanual_align
         id: align_before_place
-  # 6. 导航到释放点，同时双臂保持/推送箱子姿态
+  # 6. 第二个导航点：到旋转/倒料位置，同时双臂保持/推送箱子姿态
   - parallel:
       - skill: nav.navigate_to_object
         id: nav_to_release
       - skill: dual_arm.bimanual_align
         id: bimanual_lift_push
-  # 倾倒步骤强制锁夹持跨度
+  # 7. 在第二个导航点原地翻转
   - skill: dual_arm.bimanual_align
     params:
-      align_position: [0.25, 0.0, 0.0]
+      align_position: [0.55, 0.0, 0.02]
+      motion_frame_id: arm_base
+      arm_movel_duration: 5.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 0.8, 0.0]
+  # 8. 继续翻转/倒料
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.55, 0.0, 0.01]
       motion_frame_id: arm_base
       arm_movel_duration: 3.0
       lock_bimanual_span: true
       hold_gripper: true
       span_lock_offset_y: 0.327
-      orientation_delta_rpy: [0.0, 2.0, 0.0]
-  # 回正步骤保持夹持宽度不变
+      orientation_delta_rpy: [0.0, 1.6, 0.0]
+  # 9. 回到举高持箱位置，准备去第三个导航点
   - skill: dual_arm.bimanual_align
     params:
-      align_position: [0.85, 0.0, 0.0]
+      align_position: [0.7, 0.0, 0.15]
       motion_frame_id: arm_base
-      arm_movel_duration: 3.0
+      arm_movel_duration: 4.0
       lock_bimanual_span: true
       hold_gripper: true
       span_lock_offset_y: 0.327
-      orientation_delta_rpy: [0.0, 0.0, 0.0]
-  # 对称校准锁死双臂间距，防止回转张开错位
-  - skill: dual_arm.bimanual_align
-    id: align_before_place
-    params:
-      lock_bimanual_span: true
-      hold_gripper: true
-      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, -2.0, 0.0]
+  # 10. 第三个导航点：到放置位置
   - skill: nav.navigate_to_object
     id: nav_before_place
-  # 放置前降低身体
+  # 11. 第三个导航点到位后，先把双臂水平粗摆到放置位上方
+  - skill: dual_arm.bimanual_align
+    id: pre_place_align
+  # 12. 直接写腰部/body 的 4 个电机目标值
   - skill: joint.movej_to_config
     id: lower_body_before_place
-  # 最后执行双臂放置/松爪
+  # 13. 放下前单独修正左臂末端水平
+  - skill: single_arm.move_relative
+    id: left_arm_level_before_down
+  # 14. 双臂保持夹紧，按选中的放置参考点对齐下放
+  - skill: dual_arm.bimanual_align
+    id: pre_place_vertical_down
+  # 15. 松爪，并让双臂末端水平外抽 20cm
   - skill: dual_arm.place
 
 scene_presets:

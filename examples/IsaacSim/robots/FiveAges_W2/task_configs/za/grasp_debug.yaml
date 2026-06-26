@@ -64,13 +64,13 @@ skill_defaults:
     # x：抓取中心向箱子前/后挪；如果两手整体撞箱或够不到，先小步调 x。
     # y：整体向左/右偏；通常保持 0，左右不对称时优先查箱子姿态/底盘位置。
     # z：抓取高度；手插得太低/太高，主要调这个。
-    object_position_offset: [0.03, 0.0, 0.235]
+    object_position_offset: [-0.17, 0.0, 0.135]
     # 双臂抓取半宽。
     # object_span_axis=y 时：左手 = 中心 +Y 侧，右手 = 中心 -Y 侧，是老横向插入/左右夹抓。
     # object_span_axis=x 时：两手在 X 方向分开，然后从上往下抓；这个值就是 X 向半间距。
     # 调小：两手更靠近中心，可能插得更深，但更容易挤箱子/碰第7关节。
     # 调大：两手更外侧，更不挤箱子，但可能抓不牢或超工作空间。
-    object_dual_arm_half_span_y: 0.325
+    object_dual_arm_half_span_y: 0.340
     # y 横抓时的横向预张开距离。
     # Forward 阶段会比最终抓取位更外侧，CloseIn 再夹进来。
     # x 竖直下抓时，如果 vertical_approach_clearance_z 没写，才会复用这个值作为上方高度。
@@ -180,33 +180,33 @@ task_queue:
   # 6. 原地翻转。orientation_delta_rpy 的 pitch 越大，翻得越狠；先小步调，避免超工作空间。
   - skill: dual_arm.bimanual_align
     params:
-      align_position: [0.45, 0.0, -0.25]
+      align_position: [0.55, 0.0, -0.05]
       motion_frame_id: arm_base
       arm_movel_duration: 5.0
       lock_bimanual_span: true
       hold_gripper: true
       span_lock_offset_y: 0.327
-      orientation_delta_rpy: [0.0, 3.0, 0.0]
+      orientation_delta_rpy: [0.0, 1.0, 0.0]
   # 7. 继续翻转/倒料：注意这里是相对当前姿态再叠加 pitch，不是回正。
   - skill: dual_arm.bimanual_align
     params:
-      align_position: [0.45, 0.0, -0.25]
+      align_position: [0.55, 0.0, -0.05]
       motion_frame_id: arm_base
       arm_movel_duration: 3.0
       lock_bimanual_span: true
       hold_gripper: true
       span_lock_offset_y: 0.327
-      orientation_delta_rpy: [0.0, 1.0, 0.0]
+      orientation_delta_rpy: [0.0, 1.4, 0.0]
   # 8. 回到举高持箱位置：姿态不再额外变化，只把双臂中点送回 bimanual_lift_push 的高度附近。
   - skill: dual_arm.bimanual_align
     params:
-      align_position: [0.8, 0.0, 0.15]
+      align_position: [0.7, 0.0, 0.15]
       motion_frame_id: arm_base
       arm_movel_duration: 4.0
       lock_bimanual_span: true
       hold_gripper: true
       span_lock_offset_y: 0.327
-      orientation_delta_rpy: [0.0, 0.0, 0.0]
+      orientation_delta_rpy: [0.0, -2.0, 0.0]
 
 scene_presets:
   default:

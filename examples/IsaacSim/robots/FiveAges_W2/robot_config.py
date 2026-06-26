@@ -54,7 +54,7 @@ class RobotConfig:
     base_link_entity_path: str = "/World/FiveAges_W2/LinkHou_S2/base_footprint/base_link"
     fsm_switch_delay: float = 0.1
     post_reset_wait: float = 1.0
-    arrival_timeout: float = 8.0
+    arrival_timeout: float = 3.0
     arrival_poll: float = 0.05
     gripper_action_wait: float = 2.0
     cameras: dict[str, ROS2CameraConfig] = field(
