@@ -23,7 +23,7 @@ class RobotConfig:
             gripper_command_topic="gripper_joint/position_command",
         )
     )
-    base_link_entity_path: str = "/World/DobotCR5_ROS2/DobotCR5/base_link"
+    base_link_entity_path: str = "/World/CR5/base_link"
     fsm_switch_delay: float = 0.1
     post_reset_wait: float = 1.0
     arrival_timeout: float = 3.0
