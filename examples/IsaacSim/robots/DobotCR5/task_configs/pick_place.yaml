@@ -7,14 +7,16 @@
 # 合并顺序与 motion_main / 录制一致：base 扁平化 → skill_defaults → 场景扁平 → skill_params
 
 task_key: pick_place
-label: 取放任务
+label: 把水果放在架子上
 use_stamped: true
 default_scene: apple
 
 runtime_defaults:
   max_stage_duration: 2.0
-  pose_tol_pos: 0.025
-  pose_tol_ori: 0.08
+  pose_tol_pos: 0.05
+  pose_tol_ori: 0.1
+  gripper_open: 1.0
+  gripper_closed: 0.0
 
 skill_defaults:
   env.randomize_object_local_xyz:
@@ -22,31 +24,47 @@ skill_defaults:
     xyz_offset: [0.05, 0.05, 0.0]
   single_arm.pick:
     arm: left
+    gripper_closed: 0.6
     pick_clearance: 0.03
     prepare_offset: [0.0, 0.0, -0.12]
     object_prim_path: /World/fruits/apple/Geometry/model_normalized_0_vis_obj
-    ee_base_orientation: [0.7, 0.7, 0.0, 0.0]
+    object_position_offset: [0.00, 0.0, 0.01]
+    ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
     ee_retreat_offset: [0.0, 0.0, -0.1]
   single_arm.place:
     object_prim_path: /World/fruits/shelf
     object_position_offset: [0.0, 0.0, 0.05]
-    prepare_offset: [0.0, 0.0, -0.2]
-    ee_base_orientation: [0.0, 0.7, 0.7, 0.0]
+    prepare_offset: [0.0, 0.0, -0.1]
+    ee_base_orientation: [0.5, 0.5, 0.5, -0.5]
     ee_retreat_offset: [0.0, 0.0, -0.2]
+
+  movej_cr5_return:
+    left_arm_positions: [0, 0.0, 1.57, 0.0, -1.57, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.02
 
 task_queue:
 #  - skill: env.randomize_object_local_xyz
-  - skill: robot.cache_ee_pose
-    params:
-      key: cr5_prep_pose
+  - skill: joint.movej_to_config
+    id: movej_cr5_return
   - skill: single_arm.pick
   - skill: single_arm.place
-  - skill: single_arm.goto_cache_pose
-    params:
-      key: cr5_prep_pose
+  - skill: joint.movej_to_config
+    id: movej_cr5_return
 
 scene_presets:
   apple: {}
+  lemon:
+    skill_params:
+      env.randomize_object_local_xyz:
+        object_prim_path: /World/fruits/lime/Geometry/lime_01_obj_00
+      single_arm.pick:
+        object_prim_path: /World/fruits/lime/Geometry/lime_01_obj_00
+        object_position_offset: [0.00, 0.0, 0.06]
+        gripper_closed: 0.45
+      single_arm.place:
+        object_prim_path: /World/fruits/shelf
+        object_position_offset: [ 0.0, 0.0, -0.05 ]
 
 record:
   base_record_overrides:

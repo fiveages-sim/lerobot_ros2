@@ -21,6 +21,8 @@ class RobotConfig:
             joint_names=("joint1", "joint2", "joint3", "joint4", "joint5", "joint6"),
             gripper_joint_name="gripper_joint",
             gripper_command_topic="gripper_joint/position_command",
+            left_gripper_controller_name="gripper_controller",
+            left_gripper_target_percent_topic="/gripper_controller/target_percent",
         )
     )
     base_link_entity_path: str = "/World/CR5/base_link"
