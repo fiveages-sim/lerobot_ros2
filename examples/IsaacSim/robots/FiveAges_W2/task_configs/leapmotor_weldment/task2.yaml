@@ -47,14 +47,16 @@ skill_defaults:
       object_prim_path: /World/scene/banjian_04/banjian_3/banjian_3
       object_position_offset: [-0.2, 0.04, 0.0]
       ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
-      ee_lift_offset: [0.0, 0.0, -0.1]
+      ee_lift_offset: [0.0, 0.0, -0.2]
+      ee_retreat_offset: [0.05, 0.0, -0.1]
 
     right_pick:
       motion_frame_id: arm_base
       object_prim_path: /World/scene/banjian_04/banjian_3/banjian_3
-      object_position_offset: [0.2, 0.04, 0.0]
+      object_position_offset: [0.1, 0.04, 0.0]
       ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
-      ee_lift_offset: [0.0, 0.0, -0.1]
+      ee_lift_offset: [0.0, 0.0, -0.2]
+      ee_retreat_offset: [0.05, 0.0, -0.1]
       
 
    #去上料位置
