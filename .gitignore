@@ -22,6 +22,8 @@ build/
 /lerobot_robot_ros2/lerobot_robot_ros2.egg-info/
 /ros2_robot_interface/ros2_robot_interface.egg-info/
 
+.motion_last.json
+
 # Virtual environments
 venv/
 env/

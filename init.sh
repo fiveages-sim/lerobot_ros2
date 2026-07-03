@@ -14,40 +14,55 @@ INSTALL_BACKEND_OVERRIDE=""
 ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
-  echo "用法: $0 [submodules|env [python版本]|install [--conda|--uv]|install-plugins|"
-  echo "      set-backend conda|uv|conda-runtime|pypi-mirror|ros2-workspace [--all]|all [python版本]]"
+  echo "用法: $0 [submodules|update-submodules|env [python版本]|install [--conda|--uv]|"
+  echo "      install-plugins|set-backend conda|uv|conda-runtime|pypi-mirror|"
+  echo "      ros2-workspace [--all]|all [python版本]]"
   echo
-  echo "环境:"
-  echo "  env            按 .fa-env.toml 的 backend 创建环境"
-  echo "  install        按 backend 安装 ros2_robot_interface 与 robot_action_composer"
-  echo "  install-plugins 安装 PyTorch + PyPI lerobot + 插件包"
-  echo "  set-backend    修改 .fa-env.toml 中 backend"
-  echo "  ros2-workspace 按 backend 写 activate 挂钩；--all 则 conda+uv 都写"
-  echo "  配置见 .fa-env.toml；个人覆盖: .fa-env.local.toml；临时: LR_ENV_BACKEND=uv"
+  echo "执行链路:"
+  echo "  submodules         初始化子模块（git submodule update --init）"
+  echo "  update-submodules  将所有子模块更新到 origin/main"
+  echo "  env                按 .fa-env.toml 的 backend 创建环境"
+  echo "  install            安装 ros2_robot_interface 与 robot_action_composer"
+  echo "  install-plugins    安装 PyTorch + PyPI lerobot + 插件包"
+  echo "  all                顺序执行 submodules + env + install + install-plugins"
   echo
-  echo "不带参数时进入交互菜单。"
-  echo "未指定版本时默认使用 Python $DEFAULT_PYTHON_VERSION。"
+  echo "配置:"
+  echo "  set-backend        修改 .fa-env.toml 中 backend (conda/uv)"
+  echo "  ros2-workspace     写入 .fa-env.toml；按 backend 写 activate 挂钩；--all 则 conda+uv 都写"
+  echo "  pypi-mirror        配置 NJU PyPI 镜像"
+  echo "  conda-runtime      写入 conda 运行时库挂钩（LD_LIBRARY_PATH/LD_PRELOAD）"
+  echo
+  echo "配置见 .fa-env.toml；个人覆盖: .fa-env.local.toml；临时: LR_ENV_BACKEND=uv"
+  echo "不带参数时进入交互菜单。未指定版本时默认使用 Python $DEFAULT_PYTHON_VERSION。"
 }
 
 init_submodules() {
-  local submodule_paths=()
-  local path_line
-
   echo ">>> 初始化子模块..."
   git -C "$ROOT_DIR" submodule update --init --recursive
+  echo ">>> 子模块初始化完成。"
+}
+
+update_submodules_to_main() {
+  local submodule_paths=()
+  local path_line
 
   while IFS= read -r path_line; do
     submodule_paths+=("$path_line")
   done < <(git -C "$ROOT_DIR" config --file .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{print $2}')
 
-  echo ">>> 切换子模块到最新 main 分支..."
+  if [[ ${#submodule_paths[@]} -eq 0 ]]; then
+    echo ">>> 未找到子模块配置，请先执行子模块初始化。"
+    return 0
+  fi
+
+  echo ">>> 更新所有子模块到最新 main 分支..."
   for submodule_path in "${submodule_paths[@]}"; do
     local submodule_dir="$ROOT_DIR/$submodule_path"
 
     echo ">>> 处理子模块: $submodule_path"
 
     if ! git -C "$submodule_dir" rev-parse --git-dir >/dev/null 2>&1; then
-      echo "    跳过：目录不是有效 Git 仓库"
+      echo "    跳过：目录不是有效 Git 仓库（可先执行选项 1 初始化）"
       continue
     fi
 
@@ -65,7 +80,7 @@ init_submodules() {
     git -C "$submodule_dir" pull --ff-only origin main
   done
 
-  echo ">>> 子模块初始化并切换 main 完成。"
+  echo ">>> 子模块已更新到最新 main。"
 }
 
 resolve_python_version() {
@@ -320,8 +335,15 @@ install_plugins() {
   echo ">>> PyTorch、$lerobot_pkg 与插件安装完成。"
 }
 
+install_stack() {
+  lr_env_load_config "$ROOT_DIR"
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装子模块包与 lerobot 插件"
+  install_projects
+  install_plugins
+}
+
 configure_ros2_workspace_source() {
-  local ws_input ws_stored apply_all=0
+  local ws_input ws_stored apply_all=0 hook_choice
   local arg
   lr_env_load_config "$ROOT_DIR"
 
@@ -342,7 +364,10 @@ configure_ros2_workspace_source() {
   lr_env_set_ros2_workspace "$ws_stored"
   echo ">>> 已写入 .fa-env.toml [ros2].workspace = $ws_stored"
 
-  if [[ "$apply_all" -eq 1 ]]; then
+  if [[ "$apply_all" -eq 0 ]]; then
+    read -r -p "是否为 conda 与 uv 都写入 activate 挂钩？[y/N]: " hook_choice
+  fi
+  if [[ "$apply_all" -eq 1 || "$hook_choice" =~ ^[Yy]$ ]]; then
     echo ">>> 为 conda 与 uv 环境写入 activate 挂钩..."
     lr_env_apply_ros2_hooks "$ws_stored" 1
   else
@@ -376,14 +401,16 @@ run_all() {
   local python_version="${1:-}"
   init_submodules
   create_env_for_configured_backend "$python_version"
-  install_projects
-  install_plugins
+  install_stack
 }
 
 main() {
   case "${1:-}" in
     submodules)
       init_submodules
+      ;;
+    update-submodules)
+      update_submodules_to_main
       ;;
     env|conda|uv)
       create_env_for_configured_backend "${2:-}"
@@ -421,31 +448,31 @@ main() {
       echo "  当前 backend: $LR_ENV_BACKEND（见 .fa-env.toml）"
       echo "  1) 初始化子模块"
       echo "  2) 按当前 backend 创建环境"
-      echo "  3) 安装 ros2_robot_interface 与 robot_action_composer"
-      echo "  4) 安装 PyTorch + PyPI lerobot + 插件包"
-      echo "  5) 全部执行（1 + 2 + 3 + 4）"
+      echo "  3) 安装子模块包与 lerobot 插件（按 backend）"
+      echo "  -------------------- 执行链路 --------------------"
+      echo "  4) 全部执行（顺序执行 1 + 2 + 3）"
+      echo "  5) 更新所有子模块到最新 main"
+      echo "  -------------------- 配置 --------------------"
       echo "  6) 配置 NJU PyPI 镜像"
-      echo "  7) 配置 conda 运行时库（LD_LIBRARY_PATH/LD_PRELOAD）"
-      echo "  8) 配置 ROS2 工作空间自动 source"
-      echo "  9) 切换 backend (conda/uv)"
+      echo "  7) 配置 ROS2 工作空间（.fa-env.toml + 可选 conda hook）"
+      echo "  8) 切换 backend (conda/uv)"
       echo "  q) 退出"
-      read -r -p "输入选项 [1-9/q]: " choice
+      read -r -p "输入选项 [1-8/q]: " choice
       case "$choice" in
         1) init_submodules ;;
         2)
           read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
           create_env_for_configured_backend "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
           ;;
-        3) install_projects ;;
-        4) install_plugins ;;
-        5)
+        3) install_stack ;;
+        4)
           read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
           run_all "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
           ;;
+        5) update_submodules_to_main ;;
         6) configure_nju_pypi_mirror ;;
-        7) configure_conda_runtime_libs ;;
-        8) configure_ros2_workspace_source ;;
-        9)
+        7) configure_ros2_workspace_source ;;
+        8)
           read -r -p "输入 backend [conda/uv]（当前 $LR_ENV_BACKEND）: " backend_choice
           backend_choice="${backend_choice:-$LR_ENV_BACKEND}"
           lr_env_set_backend "$backend_choice"

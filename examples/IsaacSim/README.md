@@ -78,7 +78,26 @@ ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationS
 ## 5. robot-action-composer 包
 
 动作编排与录制逻辑在子模块 [`submodules/robot_action_composer`](../../submodules/robot_action_composer/)（可 `pip install -e submodules/robot_action_composer`）。  
-本目录下的 `motion_generation.py`、`record_datasets.py` 与 `robots/registry_loader.py` 仅为薄封装；开发与调试可直接 `import robot_action_composer`。
+本目录下的 `record_datasets.py` 与 `robots/registry_loader.py` 仅为薄封装；运动生成请使用 **`motion-generation`** CLI（见下）。开发与调试可直接 `import robot_action_composer`。
+
+### 运动生成（motion-generation）
+
+在包含 `robots/` 的目录下执行（通常为 `examples/IsaacSim`）：
+
+```bash
+cd examples/IsaacSim
+motion-generation
+```
+
+非交互示例：
+
+```bash
+motion-generation --robot dobot_cr5 --task-key pick_place --scene default
+```
+
+工作区默认为**当前工作目录**；也可用 `--workspace /path/to/dir` 指定含 `robots/` 的根目录。上次选择缓存在工作区根目录的 `.motion_last.json`（已 gitignore）。
+
+界面语言：`--lang zh` 或 `--lang en`；也可设置环境变量 `MOTION_GENERATION_LANG=zh`。交互模式下在配置菜单选 **3. 偏好设置**（有上次选择时为 **4**），可配置语言与 object-resolution JSON 录制（默认否），写入 `.motion_last.json` 并在下次自动沿用。
 
 **任务 YAML、`robot_config.py` 与 `robots/` 目录约定**以 composer 内文档为准（不再在 `examples/IsaacSim/docs` 重复维护正文）：
 
