@@ -11,7 +11,7 @@ LeRobot 与 ROS2 的集成工程，支持通过 ROS2 话题与机器人通信。
 3. `lerobot_robot_ros2`：LeRobot 的 ROS2 机器人插件
 4. `lerobot_camera_ros2`：LeRobot 的 ROS2 相机插件
 
-LeRobot 核心库通过 PyPI 安装（默认 `lerobot==0.5.1`，版本在 `.fa-env.toml` 中配置）。
+LeRobot 核心库通过 PyPI 安装（默认 `lerobot==0.5.1`，版本在 `.fa-env.toml` 中配置；首次由 [`.fa-env.toml.example`](.fa-env.toml.example) 生成）。
 
 ## 前置要求
 
@@ -32,17 +32,23 @@ cd lerobot_ros2
 # 2) 安装 uv（若尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 3) 全部初始化（子模块 + 环境 + 依赖 + 插件）
+# 3) 全量初始化（子模块 + 环境 + 任务编排 + lerobot）
 ./init.sh all
+# 仅任务编排（不含 lerobot）：
+# ./init.sh all-motion
 source .venv/bin/activate   # 默认 backend=uv
 ```
 
-交互菜单（`./init.sh`）建议顺序：
+交互菜单（`./init.sh`）：
 
 1. 初始化子模块
 2. 按当前 backend 创建环境
-3. 安装 ros2_robot_interface 与 robot_action_composer
-4. 安装 PyTorch + PyPI lerobot + 插件包
+3. 安装任务编排（`ros2_robot_interface` + `robot_action_composer`）
+4. 安装 lerobot 相关（PyTorch + lerobot + 插件包）
+5. 全部执行（任务编排：1 + 2 + 3）
+6. 全部执行（任务编排 + lerobot：1 + 2 + 3 + 4）
+
+仅跑 `motion-generation` 时，执行 **3** 或 **`./init.sh all-motion`** 即可；录制 / 推理需 **4** 或 **`./init.sh install-lerobot`**。
 
 切换 backend：
 
@@ -84,7 +90,7 @@ uv pip install "lerobot==0.5.1" numpy
 
 ## 环境配置
 
-运行时配置见 [`.fa-env.toml`](.fa-env.toml)：
+运行时配置见 [`.fa-env.toml.example`](.fa-env.toml.example)（复制为本地 `.fa-env.toml`，不纳入 git）：
 
 | 配置项 | 说明 |
 |--------|------|
@@ -94,7 +100,7 @@ uv pip install "lerobot==0.5.1" numpy
 | `[lerobot].version` | PyPI lerobot 版本（默认 `0.5.1`） |
 | `[ros2].workspace` | ROS2 工作空间，激活环境时自动 source |
 
-个人覆盖：`.fa-env.local.toml`（已 gitignore）
+个人覆盖：`.fa-env.local.toml`（已 gitignore）。本地 `.fa-env.toml` 亦已 gitignore。
 
 ## 说明
 

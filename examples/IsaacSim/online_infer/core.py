@@ -36,7 +36,6 @@ from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.policies.factory import make_policy
 from lerobot_robot_ros2 import (
     ROS2Robot,
-    ROS2RobotConfig,
 )
 
 from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_state  # pyright: ignore[reportMissingImports]
@@ -54,7 +53,9 @@ USE_STATE_INPUT = True
 
 DEFAULT_DATASET = None
 DEFAULT_TRAIN_CFG = None
-ROBOT_CFG: Any | None = None
+MOTION_CFG: Any | None = None
+LEROBOT_CFG: Any | None = None
+ROBOT_CFG: Any | None = None  # deprecated alias for MOTION_CFG
 PICK_PLACE_FLOW_OVERRIDES: dict[str, Any] = {}
 
 
@@ -257,21 +258,23 @@ def _sanitize_train_config(cfg_path: Path) -> Path:
 
 def build_robot() -> ROS2Robot:
     """
-    按 grasp_record.py 的设置构建 ROS2 机器人配置，确保话题/相机/关节名一致。
+    按 motion + lerobot 配置构建 ROS2 机器人，确保话题/相机/关节名与录制一致。
     """
-    if ROBOT_CFG is None:
-        raise RuntimeError("ROBOT_CFG is not configured. Run via examples/IsaacSim/inference.py.")
-    camera_config = {
-        name: replace(cfg, fps=FPS)
-        for name, cfg in ROBOT_CFG.cameras.items()
-    }
-    ros2_interface_config = ROBOT_CFG.ros2_interface
-    robot_config = ROS2RobotConfig(
-        id=f"{ROBOT_CFG.robot_id}_inference",
-        cameras=camera_config,
-        ros2_interface=ros2_interface_config,
-        gripper_control_mode=ROBOT_CFG.gripper_control_mode,
+    from robot_action_composer.config.lerobot_bridge import apply_fps_to_cameras, build_ros2_robot_config
+
+    motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
+    if motion_cfg is None or LEROBOT_CFG is None:
+        raise RuntimeError(
+            "MOTION_CFG and LEROBOT_CFG are not configured. Run via examples/IsaacSim/inference.py."
+        )
+    robot_config = build_ros2_robot_config(
+        motion_cfg=motion_cfg,
+        lerobot_cfg=LEROBOT_CFG,
+        fps=int(FPS),
+        robot_id_suffix="_inference",
     )
+    camera_config = apply_fps_to_cameras(robot_config.cameras, int(FPS))
+    robot_config = replace(robot_config, cameras=camera_config)
     return ROS2Robot(robot_config)
 
 
@@ -609,15 +612,18 @@ def main() -> None:
     print("Resetting simulation state...")
     if "object_prim_path" not in PICK_PLACE_FLOW_OVERRIDES:
         raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_prim_path is required for reset")
+    motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
+    if motion_cfg is None:
+        raise RuntimeError("MOTION_CFG is not configured. Run via examples/IsaacSim/inference.py.")
     reset_simulation_state(
         str(PICK_PLACE_FLOW_OVERRIDES["object_prim_path"]).strip(),
-        post_reset_wait=ROBOT_CFG.post_reset_wait,
+        post_reset_wait=motion_cfg.post_reset_wait,
         sleep_fn=sim_time.sleep,
     )
 
     print("Switching FSM: HOLD -> OCS2 ...")
     robot.ros2_interface.send_fsm_command(FSM_HOLD)
-    sim_time.sleep(ROBOT_CFG.fsm_switch_delay)
+    sim_time.sleep(motion_cfg.fsm_switch_delay)
     robot.ros2_interface.send_fsm_command(FSM_OCS2)
     print("[OK] FSM switched to OCS2, starting inference loop...")
 

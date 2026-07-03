@@ -40,10 +40,15 @@ lr_env_primary_config_file() {
 }
 
 lr_env_ensure_config_file() {
-  local root cfg
+  local root cfg example
   root="$(lr_env_root_dir)"
   cfg="${root}/.fa-env.toml"
   if [[ -f "$cfg" ]]; then
+    return 0
+  fi
+  example="${root}/.fa-env.toml.example"
+  if [[ -f "$example" ]]; then
+    cp "$example" "$cfg"
     return 0
   fi
   cat > "$cfg" <<'EOF'

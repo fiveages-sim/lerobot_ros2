@@ -29,6 +29,7 @@ venv/
 env/
 ENV/
 .venv
+.fa-env.toml
 .fa-env.local.toml
 
 # Testing

@@ -1,0 +1,4 @@
+key: fiveages_w2
+label: FiveAges W2
+base_link_entity_path: /World/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+gripper_action_wait: 2.0

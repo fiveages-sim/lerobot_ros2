@@ -1,0 +1,9 @@
+key: dobot_cr5
+label: Dobot CR5
+base_link_entity_path: /World/CR5/base_link
+ros2_interface:
+  preset: ocs2_single_arm
+  gripper_joint_name: gripper_joint
+  gripper_command_topic: gripper_joint/position_command
+  left_gripper_controller_name: gripper_controller
+  left_gripper_target_percent_topic: /gripper_controller/target_percent

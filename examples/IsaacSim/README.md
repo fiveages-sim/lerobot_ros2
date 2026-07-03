@@ -99,7 +99,7 @@ motion-generation --robot dobot_cr5 --task-key pick_place --scene default
 
 界面语言：`--lang zh` 或 `--lang en`；也可设置环境变量 `MOTION_GENERATION_LANG=zh`。交互模式下在配置菜单选 **3. 偏好设置**（有上次选择时为 **4**），可配置语言与 object-resolution JSON 录制（默认否），写入 `.motion_last.json` 并在下次自动沿用。
 
-**任务 YAML、`robot_config.py` 与 `robots/` 目录约定**以 composer 内文档为准（不再在 `examples/IsaacSim/docs` 重复维护正文）：
+**任务 YAML、`robot.yaml` 与 `robots/` 目录约定**以 composer 内文档为准（不再在 `examples/IsaacSim/docs` 重复维护正文）：
 
 - [任务 YAML 说明](../../submodules/robot_action_composer/docs/TASK_CONFIG_YAML.md)
 - [机器人配置说明](../../submodules/robot_action_composer/docs/ROBOT_CONFIG.md)

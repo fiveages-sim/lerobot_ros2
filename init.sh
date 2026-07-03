@@ -15,16 +15,18 @@ ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
   echo "用法: $0 [submodules|update-submodules|env [python版本]|install [--conda|--uv]|"
-  echo "      install-plugins|set-backend conda|uv|conda-runtime|pypi-mirror|"
-  echo "      ros2-workspace [--all]|all [python版本]]"
+  echo "      install-plugins|install-lerobot|set-backend conda|uv|conda-runtime|"
+  echo "      pypi-mirror|ros2-workspace [--all]|all-motion|all [python版本]]"
   echo
   echo "执行链路:"
   echo "  submodules         初始化子模块（git submodule update --init）"
   echo "  update-submodules  将所有子模块更新到 origin/main"
   echo "  env                按 .fa-env.toml 的 backend 创建环境"
-  echo "  install            安装 ros2_robot_interface 与 robot_action_composer"
+  echo "  install            安装任务编排（ros2_robot_interface + robot_action_composer）"
   echo "  install-plugins    安装 PyTorch + PyPI lerobot + 插件包"
-  echo "  all                顺序执行 submodules + env + install + install-plugins"
+  echo "  install-lerobot    同 install-plugins"
+  echo "  all-motion         顺序执行 submodules + env + install（仅任务编排）"
+  echo "  all                顺序执行 submodules + env + install + install-plugins（全量）"
   echo
   echo "配置:"
   echo "  set-backend        修改 .fa-env.toml 中 backend (conda/uv)"
@@ -335,10 +337,15 @@ install_plugins() {
   echo ">>> PyTorch、$lerobot_pkg 与插件安装完成。"
 }
 
-install_stack() {
+install_motion_stack() {
   lr_env_load_config "$ROOT_DIR"
-  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装子模块包与 lerobot 插件"
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装任务编排栈（interface + robot_action_composer）"
   install_projects
+}
+
+install_lerobot_stack() {
+  lr_env_load_config "$ROOT_DIR"
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装 lerobot 相关（录制 / 推理 / 插件）"
   install_plugins
 }
 
@@ -397,11 +404,17 @@ EOF
   echo ">>> 配置文件: $pip_config_file"
 }
 
-run_all() {
+run_all_motion() {
   local python_version="${1:-}"
   init_submodules
   create_env_for_configured_backend "$python_version"
-  install_stack
+  install_motion_stack
+}
+
+run_all_full() {
+  local python_version="${1:-}"
+  run_all_motion "$python_version"
+  install_lerobot_stack
 }
 
 main() {
@@ -424,11 +437,11 @@ main() {
       ;;
     install)
       parse_install_backend_args "${@:2}"
-      install_projects
+      install_motion_stack
       ;;
-    install-plugins)
+    install-plugins|install-lerobot)
       parse_install_backend_args "${@:2}"
-      install_plugins
+      install_lerobot_stack
       ;;
     conda-runtime)
       configure_conda_runtime_libs
@@ -439,8 +452,11 @@ main() {
     pypi-mirror)
       configure_nju_pypi_mirror
       ;;
+    all-motion)
+      run_all_motion "${2:-}"
+      ;;
     all)
-      run_all "${2:-}"
+      run_all_full "${2:-}"
       ;;
     "")
       lr_env_load_config "$ROOT_DIR"
@@ -448,31 +464,38 @@ main() {
       echo "  当前 backend: $LR_ENV_BACKEND（见 .fa-env.toml）"
       echo "  1) 初始化子模块"
       echo "  2) 按当前 backend 创建环境"
-      echo "  3) 安装子模块包与 lerobot 插件（按 backend）"
+      echo "  3) 安装任务编排（ros2_robot_interface + robot_action_composer）"
+      echo "  4) 安装 lerobot 相关（PyTorch + lerobot + 插件包）"
       echo "  -------------------- 执行链路 --------------------"
-      echo "  4) 全部执行（顺序执行 1 + 2 + 3）"
-      echo "  5) 更新所有子模块到最新 main"
+      echo "  5) 全部执行（任务编排：1 + 2 + 3）"
+      echo "  6) 全部执行（任务编排 + lerobot：1 + 2 + 3 + 4）"
+      echo "  7) 更新所有子模块到最新 main"
       echo "  -------------------- 配置 --------------------"
-      echo "  6) 配置 NJU PyPI 镜像"
-      echo "  7) 配置 ROS2 工作空间（.fa-env.toml + 可选 conda hook）"
-      echo "  8) 切换 backend (conda/uv)"
+      echo "  8) 配置 NJU PyPI 镜像"
+      echo "  9) 配置 ROS2 工作空间（.fa-env.toml + 可选 conda hook）"
+      echo "  10) 切换 backend (conda/uv)"
       echo "  q) 退出"
-      read -r -p "输入选项 [1-8/q]: " choice
+      read -r -p "输入选项 [1-10/q]: " choice
       case "$choice" in
         1) init_submodules ;;
         2)
           read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
           create_env_for_configured_backend "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
           ;;
-        3) install_stack ;;
-        4)
+        3) install_motion_stack ;;
+        4) install_lerobot_stack ;;
+        5)
           read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
-          run_all "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
+          run_all_motion "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
           ;;
-        5) update_submodules_to_main ;;
-        6) configure_nju_pypi_mirror ;;
-        7) configure_ros2_workspace_source ;;
-        8)
+        6)
+          read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
+          run_all_full "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
+          ;;
+        7) update_submodules_to_main ;;
+        8) configure_nju_pypi_mirror ;;
+        9) configure_ros2_workspace_source ;;
+        10)
           read -r -p "输入 backend [conda/uv]（当前 $LR_ENV_BACKEND）: " backend_choice
           backend_choice="${backend_choice:-$LR_ENV_BACKEND}"
           lr_env_set_backend "$backend_choice"
