@@ -1,0 +1,108 @@
+# FiveAges W2 — 导航到箱体附近后双臂拿起叶片返回工作台（navigate_and_pick + bimanual_carry 拼合）
+#
+# 合并顺序：base → single_arm.pick（供 nav 默认物体路径）→ dual_arm.carry → 场景 skill_params
+# 队列：并行「导航 + navigate_gesture」→ pre_ocs2_* → carry →
+#   navigate_backup(0.5m) → 并行「send_nav_goal(0,0) + 降腰 MoveJ」→ wait_nav_arrived → 双臂回队列起势位姿
+
+# 任务标识，用于调度系统识别该任务类型
+task_key: Loading And Unloading_task2
+label: 焊接上下件_2
+use_stamped: true
+default_scene: env_1
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.08
+
+skill_defaults:
+  home_pose:
+    body_positions: [-0.71, -1.42, -0.71, 0.0]
+    left_arm_positions: [0.3810, 0.9665, 0.8517, -2.3582, -0.8916, -1.0037, -0.3983]
+    right_arm_positions: [-0.3809, 0.9665, -0.8518, -2.3582, 0.8914, -1.0037, 0.3983]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+
+  nav_to_carry_1:
+    object_prim_path: /World/scene/banjian_04/banjian_3/banjian_3
+    approach_offset_x: 0.
+    approach_offset_y: 0.50
+    yaw: -1.57
+    frame_id: map
+    timeout: 60.0
+
+  pose_1:
+    # joint.movej_to_config
+    body_positions: [-0.71, -1.42, -0.71, 0.0]
+    left_arm_positions: [0.0118, -0.8257, 0.2227, -1.9404, -2.9322, 0.3677, 1.2995]
+    right_arm_positions: [-0.0118, -0.8257, -0.2227, -1.9404, 2.9322, 0.3677, -1.2995]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    gripper: 100.0
+
+  dual_arm_pick_1:
+    left_pick:
+      motion_frame_id: arm_base
+      object_prim_path: /World/scene/banjian_04/banjian_3/banjian_3
+      object_position_offset: [-0.2, 0.04, 0.0]
+      ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+      ee_lift_offset: [0.0, 0.0, -0.1]
+
+    right_pick:
+      motion_frame_id: arm_base
+      object_prim_path: /World/scene/banjian_04/banjian_3/banjian_3
+      object_position_offset: [0.2, 0.04, 0.0]
+      ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+      ee_lift_offset: [0.0, 0.0, -0.1]
+      
+
+   #去上料位置
+  nav_to_carry_2:
+      object_prim_path: /World/scene/banjian_1/banjian_1/banjian_1
+      approach_offset_x: 0.6
+      approach_offset_y: 0.6
+      yaw: 1.57
+      frame_id: map
+      timeout: 60.0
+
+
+ 
+
+task_queue:
+  - skill: joint.movej_to_config
+    id: home_pose
+  - skill: nav.navigate_to_object
+    id: nav_to_carry_1
+  - skill: joint.movej_to_config
+    id: pose_1
+  - skill: dual_arm.parallel_pick
+    id: dual_arm_pick_1
+  - skill: nav.navigate_to_object
+    id: nav_to_carry_2
+
+
+ 
+
+scene_presets:
+  env_1: {}
+
+record:
+  base_record_overrides:
+    task_name: pick_place
+    fps: 30
+    camera_info_timeout: 10.0
+    enable_keypoint_pcd: false
+    include_depth_feature: false
+    image_writer_processes: 0
+    image_writer_threads: 8
+    video_encoding_batch_size: 5
+  profiles:
+    - key: default
+      label: Default
+      overrides: {}
+    - key: fast
+      label: Fast Encode Queue
+      overrides:
+        image_writer_threads: 12
+        video_encoding_batch_size: 10
