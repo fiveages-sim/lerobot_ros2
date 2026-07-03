@@ -1,0 +1,30 @@
+{
+  "records": [
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "nav_before_carry",
+      "skill": "nav.navigate_to_object",
+      "block_index": 1,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "nav_target",
+      "object_prim_path": "/World/warehouse/bg2/start",
+      "include_orientation": true,
+      "frame_id": "map",
+      "pose": {
+        "position": {
+          "x": 1.2724004983901978,
+          "y": -1.9036335945129395,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    }
+  ]
+}

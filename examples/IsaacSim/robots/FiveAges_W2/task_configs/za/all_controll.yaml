@@ -1,0 +1,195 @@
+# FiveAges W2 - 全身无导航流程
+# 参考已验证的 test2 流程，但去掉所有导航步骤。
+# 机器人需要提前放到箱子附近，后面也要提前放到放置目标附近。
+task_key: all_controll
+label: W2 all-body flow without navigation
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 4.0
+  pose_tol_pos: 0.02
+  pose_tol_ori: 6.0
+
+skill_defaults:
+  init_movej:
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_pick_movej:
+    body_positions: [-0.6, -1.6, -1.0, 0.0]
+    left_arm_positions: [-0.55, 1.0266, 0.8125, -1.8487, -0.9908, -0.5437, -0.4515]
+    right_arm_positions: [0.55, 1.0266, -0.8125, -1.8487, 0.9908, -0.5437, 0.4515]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  dual_arm.carry:
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    object_prim_path: /World/bundle/box1/box1
+    object_position_offset: [-0.17, 0.0, 0.135]
+    object_dual_arm_half_span_y: 0.340
+    arm_merge_distance_y: 0.05
+    vertical_approach_clearance_z: 0.08
+    use_object_orientation: true
+    object_orientation_mode: tilt
+    object_span_frame: motion
+    object_span_axis: y
+    ee_orientation_frame: motion
+    left_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    right_base_orientation: [0.7, 0.0, 0.7, 0.0]
+    orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    lateral_orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    vertical_orientation_delta_rpy: [0.0, -0.436332313, 1.5708]
+    carry_linear_displacement_frame: auto
+    ee_lift_offset: [0.03, 0.0, 0.0]
+    lock_bimanual_span: true
+    hold_gripper: true
+
+  pre_pick_stand:
+    body_positions: [-0.0, -0.0, -0.0, 0.0]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: true
+
+  align_before_place:
+    align_position: [0.55, 0.0, -0.05]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+  bimanual_lift_push:
+    align_position: [0.55, 0.0, 0.15]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+  pre_place_align:
+    align_position: [0.45, 0.0, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+  pre_place_vertical_down:
+    reference_object_prim_path: /World/warehouse/bg2/end/viusal
+    object_position_offset: [0.20, 0.0, 0.20]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+  lower_body_before_place:
+    body_positions: [-1.2, -2.6, -1.4, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 3.0
+    resume_ocs2: true
+
+  left_arm_level_before_down:
+    arm: left
+    position_delta: [0.05, 0.0, 0.0]
+    orientation_delta_rpy: [0.0, 0.0, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 1.5
+
+  dual_arm.place:
+    translation_xyz: [0.0, 0.0, 0.0]
+    orientation_delta_rpy: [0.0, 0.0, 0.0]
+    post_release_right_delta_xyz: [0.0, 0.0, 0.0]
+    post_release_right_orientation_delta_rpy: [0.0, 0.0, 0.0]
+    spread_half: 0.00
+    retreat_xyz: [0.0, 0.0, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 4.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.327
+
+task_queue:
+  # 1. 初始姿态。
+  - skill: joint.movej_to_config
+    id: init_movej
+
+  # 2. 抓取前预备姿态。
+  - skill: joint.movej_to_config
+    id: pre_pick_movej
+
+  # 3.1 双臂先张开，到箱子两侧的预接近位。
+  - skill: dual_arm.carry.forward
+
+  # 3.2 双臂从两侧向箱子靠近，进入夹取位。
+  - skill: dual_arm.carry.closein
+
+  # 3.3 闭合夹爪，抓住箱子。
+  - skill: dual_arm.carry.grasp
+
+  # 3.4 抓住后抬起箱子。
+  - skill: dual_arm.carry.lift
+
+  # 4. 抓起后站起，并把持箱姿态稳定住。
+  - parallel:
+      - skill: joint.movej_to_config
+        id: pre_pick_stand
+      - skill: dual_arm.bimanual_align
+        id: align_before_place
+
+  # 5. 不导航，原地执行 test2 里的持箱推/抬动作。
+  - skill: dual_arm.bimanual_align
+    id: bimanual_lift_push
+
+  # 6. 原地翻转开始。
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.55, 0.0, 0.02]
+      motion_frame_id: arm_base
+      arm_movel_duration: 5.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 0.8, 0.0]
+
+  # 7. 继续翻转/倒料。
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.55, 0.0, 0.01]
+      motion_frame_id: arm_base
+      arm_movel_duration: 3.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, 1.6, 0.0]
+
+  # 8. 回到较高的持箱姿态。
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [0.7, 0.0, 0.15]
+      motion_frame_id: arm_base
+      arm_movel_duration: 4.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.327
+      orientation_delta_rpy: [0.0, -2.0, 0.0]
+
+scene_presets:
+  default:
+    skill_params: {}
+  start:
+    skill_params: {}

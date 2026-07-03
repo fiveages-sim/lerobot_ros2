@@ -1,0 +1,82 @@
+{
+  "records": [
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "nav_before_carry",
+      "skill": "nav.navigate_to_object",
+      "block_index": 1,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "nav_target",
+      "object_prim_path": "/World/warehouse/bg2/start",
+      "include_orientation": true,
+      "frame_id": "map",
+      "pose": {
+        "position": {
+          "x": 1.2724004983901978,
+          "y": -1.9036335945129395,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "dual_arm.carry",
+      "skill": "dual_arm.carry",
+      "block_index": 3,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "carry_object",
+      "object_prim_path": "/World/warehouse/bundle/box1/box1",
+      "include_orientation": true,
+      "frame_id": "base_link",
+      "pose": {
+        "position": {
+          "x": 0.8265548183329102,
+          "y": 6.323989856780253e-05,
+          "z": 0.7516380865653612
+        },
+        "orientation": {
+          "x": -0.005432355398696451,
+          "y": 0.005398434370754441,
+          "z": 0.7082962540865337,
+          "w": 0.7058737584498741
+        }
+      }
+    },
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "nav_to_release",
+      "skill": "nav.navigate_to_object",
+      "block_index": 5,
+      "parallel_index": 0,
+      "arm_side": "none",
+      "object_role": "nav_target",
+      "object_prim_path": "/World/warehouse/bg2/release",
+      "include_orientation": true,
+      "frame_id": "map",
+      "pose": {
+        "position": {
+          "x": -0.23548246920108795,
+          "y": 1.6261934041976929,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    }
+  ]
+}

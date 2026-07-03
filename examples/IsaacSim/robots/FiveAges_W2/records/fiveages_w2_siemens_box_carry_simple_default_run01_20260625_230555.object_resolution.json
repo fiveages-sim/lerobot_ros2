@@ -1,0 +1,134 @@
+{
+  "records": [
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "nav_before_carry",
+      "skill": "nav.navigate_to_object",
+      "block_index": 1,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "nav_target",
+      "object_prim_path": "/World/warehouse/bg2/start",
+      "include_orientation": true,
+      "frame_id": "map",
+      "pose": {
+        "position": {
+          "x": 1.2724004983901978,
+          "y": -1.9036335945129395,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "dual_arm.carry",
+      "skill": "dual_arm.carry",
+      "block_index": 3,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "carry_object",
+      "object_prim_path": "/World/warehouse/bundle/box1/box1",
+      "include_orientation": true,
+      "frame_id": "base_link",
+      "pose": {
+        "position": {
+          "x": 0.8413672406660648,
+          "y": -0.0029877935693047503,
+          "z": 0.751625029092649
+        },
+        "orientation": {
+          "x": -0.005428725270000095,
+          "y": 0.00539349109295266,
+          "z": 0.7092763155841278,
+          "w": 0.7048890319384873
+        }
+      }
+    },
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "nav_to_release",
+      "skill": "nav.navigate_to_object",
+      "block_index": 5,
+      "parallel_index": 0,
+      "arm_side": "none",
+      "object_role": "nav_target",
+      "object_prim_path": "/World/warehouse/bg2/release",
+      "include_orientation": true,
+      "frame_id": "map",
+      "pose": {
+        "position": {
+          "x": -0.23548246920108795,
+          "y": 1.6261934041976929,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "nav_before_place",
+      "skill": "nav.navigate_to_object",
+      "block_index": 9,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "nav_target",
+      "object_prim_path": "/World/warehouse/bg2/end",
+      "include_orientation": true,
+      "frame_id": "map",
+      "pose": {
+        "position": {
+          "x": -1.1717851161956787,
+          "y": -1.883545160293579,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "task_key": "siemens_box_carry_simple",
+      "scene": "default",
+      "block_key": "pre_place_vertical_down",
+      "skill": "dual_arm.bimanual_align",
+      "block_index": 13,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "bimanual_align_reference",
+      "object_prim_path": "/World/warehouse/bg2/end/viusal",
+      "include_orientation": true,
+      "frame_id": "base_link",
+      "pose": {
+        "position": {
+          "x": 0.7838102975667812,
+          "y": -0.08839457510579306,
+          "z": 0.4809922270122788
+        },
+        "orientation": {
+          "x": 6.238230582376316e-06,
+          "y": 1.6027033925156078e-05,
+          "z": -0.9988922567163281,
+          "w": -0.047055915423887165
+        }
+      }
+    }
+  ]
+}

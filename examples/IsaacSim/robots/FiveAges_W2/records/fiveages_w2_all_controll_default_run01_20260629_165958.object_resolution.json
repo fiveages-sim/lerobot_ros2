@@ -1,0 +1,30 @@
+{
+  "records": [
+    {
+      "task_key": "all_controll",
+      "scene": "default",
+      "block_key": "dual_arm.carry",
+      "skill": "dual_arm.carry",
+      "block_index": 2,
+      "parallel_index": null,
+      "arm_side": "none",
+      "object_role": "carry_object",
+      "object_prim_path": "/World/bundle/box1/box1",
+      "include_orientation": true,
+      "frame_id": "base_link",
+      "pose": {
+        "position": {
+          "x": 0.780238633088561,
+          "y": 0.0011095701657012102,
+          "z": 0.7601536268733103
+        },
+        "orientation": {
+          "x": -0.00541357499675402,
+          "y": 0.005413622408524469,
+          "z": 0.7070805627342134,
+          "w": 0.7070915525599502
+        }
+      }
+    }
+  ]
+}
