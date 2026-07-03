@@ -27,6 +27,7 @@ venv/
 env/
 ENV/
 .venv
+.fa-env.local.toml
 
 # Testing
 .pytest_cache/

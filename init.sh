@@ -3,15 +3,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_NAME="lerobot-ros2"
+LR_ENV_BACKEND_OVERRIDE="${LR_ENV_BACKEND:-}"
+# shellcheck source=scripts/lr-env.sh
+source "${ROOT_DIR}/scripts/lr-env.sh"
+LR_ENV_ROOT_DIR="$ROOT_DIR"
+
 DEFAULT_PYTHON_VERSION="3.12"
 PYTHON_VERSION="${PYTHON_VERSION:-}"
-LEROBOT_SUBMODULE_PATH="submodules/lerobot"
-LEROBOT_PINNED_COMMIT="55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab"
+INSTALL_BACKEND_OVERRIDE=""
 ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
-  echo "用法: $0 [submodules|lerobot|conda [python版本]|install|install-plugins|conda-runtime|pypi-mirror|ros2-workspace|all [python版本]]"
+  echo "用法: $0 [submodules|env [python版本]|install [--conda|--uv]|install-plugins|"
+  echo "      set-backend conda|uv|conda-runtime|pypi-mirror|ros2-workspace [--all]|all [python版本]]"
+  echo
+  echo "环境:"
+  echo "  env            按 .fa-env.toml 的 backend 创建环境"
+  echo "  install        按 backend 安装 ros2_robot_interface 与 robot_action_composer"
+  echo "  install-plugins 安装 PyTorch + PyPI lerobot + 插件包"
+  echo "  set-backend    修改 .fa-env.toml 中 backend"
+  echo "  ros2-workspace 按 backend 写 activate 挂钩；--all 则 conda+uv 都写"
+  echo "  配置见 .fa-env.toml；个人覆盖: .fa-env.local.toml；临时: LR_ENV_BACKEND=uv"
   echo
   echo "不带参数时进入交互菜单。"
   echo "未指定版本时默认使用 Python $DEFAULT_PYTHON_VERSION。"
@@ -28,14 +40,9 @@ init_submodules() {
     submodule_paths+=("$path_line")
   done < <(git -C "$ROOT_DIR" config --file .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{print $2}')
 
-  echo ">>> 切换常规子模块到最新 main 分支（含 robot_action_composer、ros2_robot_interface；lerobot 单独固定提交）..."
+  echo ">>> 切换子模块到最新 main 分支..."
   for submodule_path in "${submodule_paths[@]}"; do
     local submodule_dir="$ROOT_DIR/$submodule_path"
-
-    if [[ "$submodule_path" == "$LEROBOT_SUBMODULE_PATH" ]]; then
-      echo ">>> 跳过子模块: $submodule_path（该模块固定版本，使用 lerobot 选项单独初始化）"
-      continue
-    fi
 
     echo ">>> 处理子模块: $submodule_path"
 
@@ -58,24 +65,7 @@ init_submodules() {
     git -C "$submodule_dir" pull --ff-only origin main
   done
 
-  echo ">>> 常规子模块初始化并切换 main 完成。"
-}
-
-init_lerobot_submodule() {
-  local lerobot_dir="$ROOT_DIR/$LEROBOT_SUBMODULE_PATH"
-
-  echo ">>> 初始化 lerobot 子模块..."
-  git -C "$ROOT_DIR" submodule update --init "$LEROBOT_SUBMODULE_PATH"
-
-  if [[ ! -d "$lerobot_dir" ]]; then
-    echo "未找到目录: $lerobot_dir"
-    exit 1
-  fi
-
-  echo ">>> 固定 lerobot 到指定提交: $LEROBOT_PINNED_COMMIT"
-  git -C "$lerobot_dir" fetch --all --tags
-  git -C "$lerobot_dir" checkout "$LEROBOT_PINNED_COMMIT"
-  echo ">>> lerobot 初始化完成。"
+  echo ">>> 子模块初始化并切换 main 完成。"
 }
 
 resolve_python_version() {
@@ -107,25 +97,86 @@ with_nounset_disabled() {
   return "$exit_code"
 }
 
-activate_target_conda_env() {
-  eval "$(conda shell.bash hook)"
-  conda activate "$ENV_NAME"
+parse_install_backend_args() {
+  INSTALL_BACKEND_OVERRIDE=""
+  local arg
+  for arg in "$@"; do
+    [[ -z "$arg" ]] && continue
+    case "$arg" in
+      --conda) INSTALL_BACKEND_OVERRIDE="conda" ;;
+      --uv) INSTALL_BACKEND_OVERRIDE="uv" ;;
+      *)
+        echo "未知参数: $arg"
+        print_usage
+        exit 1
+        ;;
+    esac
+  done
 }
 
-ensure_conda_env_active() {
-  local current_env="${CONDA_DEFAULT_ENV:-}"
-  local current_prefix_basename=""
+create_conda_env() {
+  local selected_python_version
+  local env_name
+  selected_python_version="$(resolve_python_version "${1:-}")"
+  lr_env_load_config "$ROOT_DIR"
+  env_name="$LR_ENV_CONDA_NAME"
 
-  if [[ -n "${CONDA_PREFIX:-}" ]]; then
-    current_prefix_basename="$(basename "${CONDA_PREFIX}")"
+  echo ">>> 创建 conda 环境: $env_name (Python $selected_python_version)"
+
+  if ! command -v conda >/dev/null 2>&1; then
+    echo "未检测到 conda，请先安装并配置 conda。"
+    exit 1
   fi
 
-  if [[ "$current_env" == "$ENV_NAME" || "$current_prefix_basename" == "$ENV_NAME" ]]; then
-    echo ">>> 检测到当前已在 conda 环境 '$ENV_NAME'，跳过激活。"
+  if conda env list | awk '{print $1}' | grep -Fxq "$env_name"; then
+    echo "环境 '$env_name' 已存在，跳过创建。"
     return 0
   fi
 
-  with_nounset_disabled activate_target_conda_env
+  conda create -n "$env_name" "python=$selected_python_version" -y
+  echo ">>> conda 环境创建完成: $env_name"
+}
+
+create_uv_env() {
+  local selected_python_version
+  local venv_path
+  selected_python_version="$(resolve_python_version "${1:-}")"
+  lr_env_load_config "$ROOT_DIR"
+  venv_path="$(lr_env_uv_venv_path)"
+
+  echo ">>> 创建 uv 虚拟环境: $venv_path (Python $selected_python_version)"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "未检测到 uv，请先安装: https://docs.astral.sh/uv/"
+    exit 1
+  fi
+
+  if [[ -f "${venv_path}/bin/activate" ]]; then
+    echo "虚拟环境已存在: $venv_path，跳过创建。"
+    return 0
+  fi
+
+  lr_env_create_uv_venv "$selected_python_version" "$venv_path"
+  echo ">>> uv 虚拟环境创建完成: $venv_path（--system-site-packages）"
+  if [[ -n "${LR_ENV_ROS2_WORKSPACE:-}" ]]; then
+    lr_env_write_uv_ros2_hook "$venv_path" "$LR_ENV_ROS2_WORKSPACE"
+    echo ">>> 已根据 .fa-env.toml 为 venv 写入 ROS2 activate 挂钩。"
+  else
+    echo ">>> 提示: 执行 ./init.sh ros2-workspace 后，source .venv/bin/activate 也会自动 source ROS2。"
+  fi
+}
+
+create_env_for_configured_backend() {
+  local python_version="${1:-}"
+  lr_env_load_config "$ROOT_DIR"
+  case "$LR_ENV_BACKEND" in
+    conda) create_conda_env "$python_version" ;;
+    uv) create_uv_env "$python_version" ;;
+    *)
+      echo "未知 backend: $LR_ENV_BACKEND"
+      exit 1
+      ;;
+  esac
 }
 
 configure_conda_runtime_libs() {
@@ -140,15 +191,18 @@ configure_conda_runtime_libs() {
     exit 1
   fi
 
-  if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
-    echo "环境 '$ENV_NAME' 不存在，请先创建 conda 环境。"
+  lr_env_load_config "$ROOT_DIR"
+  if ! conda env list | awk '{print $1}' | grep -Fxq "$LR_ENV_CONDA_NAME"; then
+    echo "环境 '$LR_ENV_CONDA_NAME' 不存在，请先创建 conda 环境。"
     exit 1
   fi
 
-  ensure_conda_env_active
+  set +u
+  eval "$(conda shell.bash hook)"
+  conda activate "$LR_ENV_CONDA_NAME"
   env_prefix="${CONDA_PREFIX:-}"
   if [[ -z "$env_prefix" || ! -d "$env_prefix" ]]; then
-    echo "无法确定 conda 环境路径，请确认环境 '$ENV_NAME' 可正常激活。"
+    echo "无法确定 conda 环境路径，请确认环境 '$LR_ENV_CONDA_NAME' 可正常激活。"
     exit 1
   fi
 
@@ -180,38 +234,13 @@ EOF
   echo "    反激活脚本: $deactivate_script"
 }
 
-create_conda_env() {
-  local selected_python_version
-  selected_python_version="$(resolve_python_version "${1:-}")"
-
-  echo ">>> 创建 conda 环境: $ENV_NAME (Python $selected_python_version)"
-
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "未检测到 conda，请先安装并配置 conda。"
-    exit 1
-  fi
-
-  if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
-    echo "环境 '$ENV_NAME' 已存在，跳过创建。"
-    return 0
-  fi
-
-  conda create -n "$ENV_NAME" "python=$selected_python_version" -y
-  echo ">>> conda 环境创建完成: $ENV_NAME"
-}
-
 install_projects() {
   local interface_dir="$ROOT_DIR/submodules/ros2_robot_interface"
   local rac_dir="$ROOT_DIR/$ROBOT_ACTION_COMPOSER_SUBMODULE_PATH"
 
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "未检测到 conda，请先安装并配置 conda。"
-    exit 1
-  fi
-
-  if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
-    echo "环境 '$ENV_NAME' 不存在，请先创建 conda 环境。"
-    exit 1
+  lr_env_load_config "$ROOT_DIR"
+  if [[ -n "$INSTALL_BACKEND_OVERRIDE" ]]; then
+    LR_ENV_BACKEND="$INSTALL_BACKEND_OVERRIDE"
   fi
 
   for project_dir in "$interface_dir" "$rac_dir"; do
@@ -222,11 +251,12 @@ install_projects() {
     fi
   done
 
-  echo ">>> 激活 conda 环境并安装 ros2_robot_interface 与 robot_action_composer"
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装 ros2_robot_interface 与 robot_action_composer"
   (
-    ensure_conda_env_active
-    python -m pip install -e "$interface_dir"
-    python -m pip install -e "$rac_dir"
+    set +u
+    lr_env_activate "$ROOT_DIR"
+    lr_env_install_editable "$interface_dir"
+    lr_env_install_editable "$rac_dir"
   )
   echo ">>> 安装完成。"
 }
@@ -234,16 +264,12 @@ install_projects() {
 install_plugins() {
   local robot_plugin_dir="$ROOT_DIR/lerobot_robot_ros2"
   local camera_plugin_dir="$ROOT_DIR/lerobot_camera_ros2"
-  local lerobot_dir="$ROOT_DIR/$LEROBOT_SUBMODULE_PATH"
+  local lerobot_pkg=""
 
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "未检测到 conda，请先安装并配置 conda。"
-    exit 1
-  fi
-
-  if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
-    echo "环境 '$ENV_NAME' 不存在，请先创建 conda 环境。"
-    exit 1
+  lr_env_load_config "$ROOT_DIR"
+  lerobot_pkg="lerobot==${LR_ENV_LEROBOT_VERSION}"
+  if [[ -n "$INSTALL_BACKEND_OVERRIDE" ]]; then
+    LR_ENV_BACKEND="$INSTALL_BACKEND_OVERRIDE"
   fi
 
   for project_dir in "$robot_plugin_dir" "$camera_plugin_dir"; do
@@ -253,90 +279,76 @@ install_plugins() {
     fi
   done
 
-  # 插件依赖指定版本的 lerobot，先确保子模块已初始化并固定到目标提交。
-  init_lerobot_submodule
-
-  if [[ ! -d "$lerobot_dir" ]]; then
-    echo "未找到目录: $lerobot_dir"
-    exit 1
-  fi
-
-  echo ">>> 激活 conda 环境并安装 CUDA/PyTorch/ffmpeg 与指定版本 lerobot + 插件包"
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装 PyTorch + $lerobot_pkg + 插件包"
   (
-    ensure_conda_env_active
+    set +u
+    lr_env_activate "$ROOT_DIR"
 
-    echo ">>> 安装 CUDA Toolkit 12.8（conda）"
-    with_nounset_disabled conda install -y -c nvidia cuda-toolkit=12.8
+    if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+      echo ">>> 安装 CUDA Toolkit 12.8（conda）"
+      with_nounset_disabled conda install -y -c nvidia cuda-toolkit=12.8
 
-    echo ">>> 安装 PyTorch 2.7.1/cu128（pip）"
-    pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
+      echo ">>> 安装 ffmpeg（conda-forge）"
+      with_nounset_disabled conda install -y ffmpeg -c conda-forge
 
-    echo ">>> 安装 ffmpeg（conda-forge）"
-    with_nounset_disabled conda install -y ffmpeg -c conda-forge
+      echo ">>> 预装 evdev（conda-forge，避免 pip 本地编译 evdev）"
+      with_nounset_disabled conda install -y evdev -c conda-forge
+    else
+      echo ">>> [uv] 请确保系统已安装 ffmpeg（如 apt install ffmpeg）"
+    fi
 
-    echo ">>> 预装 evdev（conda-forge，避免 pip 本地编译 evdev）"
-    with_nounset_disabled conda install -y evdev -c conda-forge
+    echo ">>> 安装 PyTorch 2.7.1/cu128"
+    lr_env_pip_install_torch
 
-    echo ">>> 固定 NumPy < 2（避免与 ROS/cv_bridge 的 ABI 冲突）"
-    python -m pip install "numpy<2"
+    echo ">>> 安装 PyPI lerobot: $lerobot_pkg"
+    lr_env_pip_install "$lerobot_pkg"
 
-    echo ">>> 安装指定版本 lerobot 与插件包"
-    python -m pip install -e "$lerobot_dir"
-    python -m pip install -e "$robot_plugin_dir" --no-deps
-    python -m pip install -e "$camera_plugin_dir"
+    echo ">>> 固定 numpy 版本（lerobot 0.5.x 要求 >=2.0,<2.3）"
+    lr_env_pip_install "numpy>=2.0,<2.3"
 
-    echo ">>> 再次确认 NumPy < 2（防止被依赖解析升级到 2.x）"
-    python -m pip install "numpy<2"
+    echo ">>> 安装 scipy（覆盖 system-site-packages 中与 numpy 2.x 不兼容的版本）"
+    lr_env_pip_install "scipy>=1.14"
+
+    echo ">>> 安装插件包"
+    lr_env_install_editable "$robot_plugin_dir"
+    lr_env_install_editable "$camera_plugin_dir"
   )
-  configure_conda_runtime_libs
-  echo ">>> CUDA/PyTorch/ffmpeg、指定版本 lerobot 与插件安装完成。"
+
+  if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+    configure_conda_runtime_libs
+  fi
+  echo ">>> PyTorch、$lerobot_pkg 与插件安装完成。"
 }
 
 configure_ros2_workspace_source() {
-  local activate_dir=""
-  local activate_script=""
-  local ws_path=""
+  local ws_input ws_stored apply_all=0
+  local arg
+  lr_env_load_config "$ROOT_DIR"
 
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "未检测到 conda，请先安装并配置 conda。"
-    exit 1
-  fi
-
-  if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
-    echo "环境 '$ENV_NAME' 不存在，请先创建 conda 环境。"
-    exit 1
-  fi
-
-  ensure_conda_env_active
-  local env_prefix="${CONDA_PREFIX:-}"
-  if [[ -z "$env_prefix" || ! -d "$env_prefix" ]]; then
-    echo "无法确定 conda 环境路径，请确认环境 '$ENV_NAME' 可正常激活。"
-    exit 1
-  fi
+  for arg in "$@"; do
+    case "$arg" in
+      --all) apply_all=1 ;;
+      *)
+        echo "未知参数: $arg"
+        print_usage
+        exit 1
+        ;;
+    esac
+  done
 
   read -r -p "输入 ROS2 工作空间路径（默认 ~/ros2_ws）: " ws_input
   ws_input="${ws_input:-~/ros2_ws}"
-  # 展开 ~ 为实际路径
-  ws_path="${ws_input/#\~/$HOME}"
+  ws_stored="$ws_input"
+  lr_env_set_ros2_workspace "$ws_stored"
+  echo ">>> 已写入 .fa-env.toml [ros2].workspace = $ws_stored"
 
-  activate_dir="$env_prefix/etc/conda/activate.d"
-  activate_script="$activate_dir/lerobot_ros2_workspace.sh"
-  mkdir -p "$activate_dir"
-
-  cat > "$activate_script" <<EOF
-#!/usr/bin/env bash
-if [ -f "${ws_path}/install/setup.bash" ]; then
-    source "${ws_path}/install/setup.bash"
-    echo "[conda activate] Sourced ROS2 workspace: ${ws_path}/install/setup.bash"
-else
-    echo "[conda activate] WARN: ROS2 setup.bash not found at ${ws_path}/install/setup.bash"
-fi
-EOF
-
-  chmod +x "$activate_script"
-  echo ">>> 已写入 ROS2 工作空间 source 配置："
-  echo "    激活脚本: $activate_script"
-  echo "    工作空间: ${ws_path}"
+  if [[ "$apply_all" -eq 1 ]]; then
+    echo ">>> 为 conda 与 uv 环境写入 activate 挂钩..."
+    lr_env_apply_ros2_hooks "$ws_stored" 1
+  else
+    echo ">>> 按 backend=$LR_ENV_BACKEND 写入 activate 挂钩..."
+    lr_env_apply_ros2_hooks "$ws_stored" 0
+  fi
 }
 
 configure_nju_pypi_mirror() {
@@ -363,80 +375,80 @@ EOF
 run_all() {
   local python_version="${1:-}"
   init_submodules
-  create_conda_env "$python_version"
+  create_env_for_configured_backend "$python_version"
   install_projects
+  install_plugins
 }
 
 main() {
-  local python_version_arg="${2:-}"
   case "${1:-}" in
     submodules)
       init_submodules
       ;;
-    lerobot)
-      init_lerobot_submodule
+    env|conda|uv)
+      create_env_for_configured_backend "${2:-}"
       ;;
-    conda)
-      create_conda_env "$python_version_arg"
+    set-backend)
+      if [[ -z "${2:-}" ]]; then
+        echo "用法: $0 set-backend conda|uv"
+        exit 1
+      fi
+      lr_env_set_backend "$2"
       ;;
     install)
+      parse_install_backend_args "${@:2}"
       install_projects
       ;;
     install-plugins)
+      parse_install_backend_args "${@:2}"
       install_plugins
       ;;
     conda-runtime)
       configure_conda_runtime_libs
       ;;
     ros2-workspace)
-      configure_ros2_workspace_source
+      configure_ros2_workspace_source "${@:2}"
       ;;
     pypi-mirror)
       configure_nju_pypi_mirror
       ;;
     all)
-      run_all "$python_version_arg"
+      run_all "${2:-}"
       ;;
     "")
+      lr_env_load_config "$ROOT_DIR"
       echo "请选择操作:"
-      echo "  1) 初始化子模块（含 robot_action_composer、ros2_robot_interface；lerobot 除外）"
-      echo "  2) 初始化 lerobot（固定提交）"
-      echo "  3) 创建 lerobot-ros2 conda 环境"
-      echo "  4) 安装 interface 与 robot_action_composer"
-      echo "  5) 安装 lerobot 插件（含 OpenCV 兼容参数）"
-      echo "  6) 全部执行"
-      echo "  7) 配置 NJU PyPI 镜像"
-      echo "  8) 配置 conda 运行时库环境（LD_LIBRARY_PATH/LD_PRELOAD）"
-      echo "  9) 配置 ROS2 工作空间自动 source（conda activate 时生效）"
+      echo "  当前 backend: $LR_ENV_BACKEND（见 .fa-env.toml）"
+      echo "  1) 初始化子模块"
+      echo "  2) 按当前 backend 创建环境"
+      echo "  3) 安装 ros2_robot_interface 与 robot_action_composer"
+      echo "  4) 安装 PyTorch + PyPI lerobot + 插件包"
+      echo "  5) 全部执行（1 + 2 + 3 + 4）"
+      echo "  6) 配置 NJU PyPI 镜像"
+      echo "  7) 配置 conda 运行时库（LD_LIBRARY_PATH/LD_PRELOAD）"
+      echo "  8) 配置 ROS2 工作空间自动 source"
+      echo "  9) 切换 backend (conda/uv)"
       echo "  q) 退出"
-      read -r -p "输入选项 [1/2/3/4/5/6/7/8/9/q]: " choice
+      read -r -p "输入选项 [1-9/q]: " choice
       case "$choice" in
         1) init_submodules ;;
         2)
-          init_lerobot_submodule
-          ;;
-        3)
           read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
-          create_conda_env "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
+          create_env_for_configured_backend "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
           ;;
-        4)
-          install_projects
-          ;;
+        3) install_projects ;;
+        4) install_plugins ;;
         5)
-          install_plugins
-          ;;
-        6)
           read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
           run_all "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
           ;;
-        7)
-          configure_nju_pypi_mirror
-          ;;
-        8)
-          configure_conda_runtime_libs
-          ;;
+        6) configure_nju_pypi_mirror ;;
+        7) configure_conda_runtime_libs ;;
+        8) configure_ros2_workspace_source ;;
         9)
-          configure_ros2_workspace_source
+          read -r -p "输入 backend [conda/uv]（当前 $LR_ENV_BACKEND）: " backend_choice
+          backend_choice="${backend_choice:-$LR_ENV_BACKEND}"
+          lr_env_set_backend "$backend_choice"
           ;;
         q|Q) echo "已退出。" ;;
         *) echo "无效选项。"; exit 1 ;;
@@ -453,4 +465,4 @@ main() {
   esac
 }
 
-main "${1:-}" "${2:-}"
+main "$@"

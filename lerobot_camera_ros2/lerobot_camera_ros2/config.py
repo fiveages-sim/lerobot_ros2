@@ -9,7 +9,7 @@ from lerobot.cameras.configs import CameraConfig
 
 
 @CameraConfig.register_subclass("lerobot_camera_ros2")
-@dataclass
+@dataclass(kw_only=True)
 class ROS2CameraConfig(CameraConfig):
     """Configuration class for ROS 2 cameras.
     

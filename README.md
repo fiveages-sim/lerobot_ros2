@@ -7,15 +7,17 @@ LeRobot 与 ROS2 的集成工程，支持通过 ROS2 话题与机器人通信。
 本项目主要包含：
 
 1. `submodules/ros2_robot_interface`：独立 ROS2 机器人接口包
-2. `lerobot_robot_ros2`：LeRobot 的 ROS2 机器人插件
-3. `lerobot_camera_ros2`：LeRobot 的 ROS2 相机插件
-4. `submodules/lerobot`：固定提交版本的 LeRobot 子模块
+2. `submodules/robot_action_composer`：机器人动作编排
+3. `lerobot_robot_ros2`：LeRobot 的 ROS2 机器人插件
+4. `lerobot_camera_ros2`：LeRobot 的 ROS2 相机插件
+
+LeRobot 核心库通过 PyPI 安装（默认 `lerobot==0.5.1`，版本在 `.fa-env.toml` 中配置）。
 
 ## 前置要求
 
 - ROS2（测试版本：Jazzy）
 - Python >= 3.12
-- Conda（推荐）
+- [uv](https://docs.astral.sh/uv/)（推荐）或 Conda
 
 ## 安装
 
@@ -27,64 +29,79 @@ LeRobot 与 ROS2 的集成工程，支持通过 ROS2 话题与机器人通信。
 git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
 
-# 2) 按需执行初始化脚本
-./init.sh
+# 2) 安装 uv（若尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 3) 全部初始化（子模块 + 环境 + 依赖 + 插件）
+./init.sh all
+source .venv/bin/activate   # 默认 backend=uv
 ```
 
-脚本菜单中建议顺序：
+交互菜单（`./init.sh`）建议顺序：
 
 1. 初始化子模块
-2. 初始化 lerobot（固定提交）
-3. 创建 conda 环境
-4. 安装 interface
-5. 安装 lerobot 插件（会安装 CUDA/PyTorch/ffmpeg/evdev，并安装 lerobot 与插件）
+2. 按当前 backend 创建环境
+3. 安装 ros2_robot_interface 与 robot_action_composer
+4. 安装 PyTorch + PyPI lerobot + 插件包
+
+切换 backend：
+
+```bash
+./init.sh set-backend uv      # 或 conda
+./init.sh env 3.12
+```
 
 </details>
 
 <details>
-<summary>方式二：手动安装（默认参考）</summary>
+<summary>方式二：手动安装（uv）</summary>
 
 ```bash
-# 1) 克隆项目与子模块
 git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
-
-# 2) 初始化/更新子模块
 git submodule update --init --recursive
 
-# 3) 固定 lerobot 到指定提交
-cd submodules/lerobot
-git fetch --all --tags
-git checkout 55e752f0c2e7fab0d989c5ff999fbe3b6d8872ab
-cd ../..
+# 创建 uv 环境（--system-site-packages 以使用系统 ROS2 包）
+uv venv --python python3.12 --system-site-packages .venv
+source .venv/bin/activate
 
-# 4) 创建并激活 conda 环境
-conda create -n lerobot-ros2 python=3.12 -y
-conda activate lerobot-ros2
+# 安装 PyTorch 与 lerobot
+uv pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+  --index-url https://download.pytorch.org/whl/cu128
+uv pip install "lerobot==0.5.1"
 
-# 5) 安装运行依赖
-conda install -y -c nvidia cuda-toolkit=12.8
-pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
-conda install -y ffmpeg -c conda-forge
-conda install -y evdev -c conda-forge
-pip install "numpy<2"
-
-# 6) 安装本地包
-pip install -e submodules/ros2_robot_interface
-pip install -e submodules/lerobot
-pip install -e lerobot_robot_ros2 --no-deps
-pip install -e lerobot_camera_ros2
-
-# 7) 再次固定 numpy，避免被依赖升级到 2.x
-pip install "numpy<2"
+# 安装本地包（ROS 依赖由系统提供）
+uv pip install -e submodules/ros2_robot_interface --no-deps
+uv pip install numpy pyyaml
+uv pip install -e submodules/robot_action_composer --no-deps
+uv pip install -e lerobot_robot_ros2 --no-deps
+uv pip install "lerobot==0.5.1"
+uv pip install -e lerobot_camera_ros2 --no-deps
+uv pip install "lerobot==0.5.1" numpy
 ```
 
 </details>
 
+## 环境配置
+
+运行时配置见 [`.fa-env.toml`](.fa-env.toml)：
+
+| 配置项 | 说明 |
+|--------|------|
+| `backend` | `uv` 或 `conda` |
+| `[conda].name` | conda 环境名（默认 `lerobot-ros2`） |
+| `[uv].venv` | uv 虚拟环境路径（默认 `.venv`） |
+| `[lerobot].version` | PyPI lerobot 版本（默认 `0.5.1`） |
+| `[ros2].workspace` | ROS2 工作空间，激活环境时自动 source |
+
+个人覆盖：`.fa-env.local.toml`（已 gitignore）
+
 ## 说明
 
-- 本项目依赖 ROS2 的系统 OpenCV，当前建议固定 `numpy<2`，避免 `cv_bridge` 与 NumPy 2.x 的 ABI 冲突。
 - `lerobot_robot_ros2` 依赖本地 `ros2-robot-interface`，请先安装 `submodules/ros2_robot_interface`。
+- 相机插件默认使用 **manual 图像转换**（不依赖 `cv_bridge`），以兼容 `lerobot==0.5.1` 所需的 numpy 2.x。若环境支持 cv_bridge，会自动尝试使用；也可设置 `LEROBOT_ROS2_DISABLE_CV_BRIDGE=1` 强制禁用。
+- uv 路径需确保系统已安装 `ffmpeg`（如 `sudo apt install ffmpeg`）。
+- `install-plugins` 会额外安装 `scipy>=1.14`，避免 `--system-site-packages` 下系统 SciPy 与 numpy 2.x 不兼容。
 
 ## 使用
 
@@ -110,5 +127,4 @@ robot.disconnect()
 
 
 https://github.com/user-attachments/assets/a824835a-7614-4833-9d39-4c0005474dbe
-
 

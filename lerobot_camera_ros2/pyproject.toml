@@ -27,9 +27,8 @@ classifiers = [
 ]
 keywords = ["robotics", "deep learning", "pytorch", "ros2", "lerobot", "camera"]
 dependencies = [
-    "lerobot",
+    "lerobot==0.5.1",
     "rclpy",
-    "cv-bridge",
     "sensor-msgs",
     "numpy",
 ]

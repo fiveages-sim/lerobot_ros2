@@ -19,10 +19,6 @@ runtime_defaults:
   gripper_closed: 0.0
 
 skill_defaults:
-  movej_init:
-    left_arm_positions: [ 1.57, 0.0, 0.0, 1.57, 1.57, 0.0 ]
-    arrival_timeout: 30.0
-    joint_tolerance: 0.02
   env.randomize_object_local_xyz:
     object_prim_path: /World/fruits/apple/Geometry/model_normalized_0_vis_obj
     xyz_offset: [0.05, 0.05, 0.0]
@@ -43,14 +39,12 @@ skill_defaults:
     ee_retreat_offset: [0.0, 0.0, -0.2]
 
   movej_cr5_return:
-    left_arm_positions: [3.14, 0.0, -1.57, 0.0, 1.57, 0.0]
+    left_arm_positions: [-3.14, 0.0, -1.57, 0.0, 1.57, 0.0]
     arrival_timeout: 30.0
     joint_tolerance: 0.02
 
 task_queue:
 #  - skill: env.randomize_object_local_xyz
-  - skill: joint.movej_to_config
-    id: movej_init
   - skill: joint.movej_to_config
     id: movej_cr5_return
   - skill: single_arm.pick

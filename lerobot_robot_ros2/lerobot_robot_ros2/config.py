@@ -14,7 +14,7 @@ from ros2_robot_interface import ControlType, ROS2RobotInterfaceConfig
 
 
 @RobotConfig.register_subclass("lerobot_robot_ros2")
-@dataclass
+@dataclass(kw_only=True)
 class ROS2RobotConfig(RobotConfig):
     """Configuration for ROS 2 robots in LeRobot.
     
