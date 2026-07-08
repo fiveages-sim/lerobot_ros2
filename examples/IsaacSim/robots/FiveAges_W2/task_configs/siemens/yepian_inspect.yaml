@@ -1,0 +1,271 @@
+task_key: yepian_inspect
+label: 叶片检测（含抓取-搬运-翻转检测-放回原工位完整流程）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 5.0  # 加长运动超时，解决抓取阶段走不到位超时
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.03
+
+skill_defaults:
+  nav_to_box1:
+    object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
+    approach_offset_x: -0.6
+    approach_offset_y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  pre_pick_movej1:
+    # 初始待机预备姿态：底盘下降、双臂摆至箱体前方安全位
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    left_arm_positions: [ -0.55, 1.0266, 0.8125, -1.8487, -0.9908, -0.5437, -0.4515 ]
+    right_arm_positions: [ 0.55, 1.0266, -0.8125, -1.8487, 0.9908, -0.5437, 0.4515 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_pick_movej:
+    body_positions: [-0.7, -1.4, -0.7, 0.0]
+    left_arm_positions: [ -2.2515, 1.3457, 2.3485, -0.9044, 0.9581, 0.3948, -1.0181 ]
+    right_arm_positions: [ 2.2513, 1.3454, -2.3479, -0.9051, -0.9588, 0.3947, 1.0186 ]
+#    left_arm_positions: [ -2.2706, 1.3487, 2.3616, -0.8981, 0.9772, 0.4009, -1.0245 ]
+#    right_arm_positions: [ 2.2706, 1.3487, -2.3616, -0.8981, -0.9772, 0.4009, 1.0245 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  # 右臂单侧抓取叶片侧边
+  single_arm_r:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
+    object_position_offset: [ 0.49, 0.14, -0.24 ] # [ 0.45, -0.3, -0.2 ]
+#    ee_base_orientation: [ 0.692144, 0.719329, 0.000057, 0.059187 ]
+#    ee_base_orientation: [0.640811, 0.716770, 0.273431, -0.028946]
+    ee_base_orientation: [ 0.687771, 0.714412, -0.070767, -0.107603 ]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [ 0.0, 0.02, 0.0 ]
+    ee_retreat_offset: [ 0.0, 0.0, 0.0 ]
+    hold_gripper: true
+
+  # 左臂单侧抓取叶片侧边
+  single_arm_l:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
+    object_position_offset: [ -0.06, 0.11, -0.24 ]
+#    ee_base_orientation: [ -0.692229, 0.696065, -0.090530, 0.167680 ]
+    ee_base_orientation: [ -0.690702, 0.719313, -0.014486, 0.072877 ]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [ 0.0, 0.02, 0.0 ]
+    ee_retreat_offset: [ 0.0, 0.0, 0.0 ]
+    hold_gripper: true
+
+  drag_out_r:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.05, 0.0, 0.3 ]
+    gripper: 0.0
+
+  drag_out_l:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.05, 0.0, 0.3 ]
+    gripper: 0.0
+#
+#  # 单臂拖拽叶片向外拉出箱体
+#  drag_out:
+#    arm: right
+#    motion_frame_id: arm_base
+#    arm_movel_duration: 3.0
+#    position_delta: [0.0, -0.175, 0.0]
+#    gripper: 0.0
+
+#  # 双臂协同抓取+抬升叶片
+#  dual_arm.carry:
+#    motion_frame_id: arm_base
+##    arm_movel_duration: 2.0
+##    object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
+##    object_position_offset: [ 0.6115, 0, -0.604 ]
+##    object_position_offset: [ 0.26, 0.0, -0.22 ]
+##    object_position_offset: [ 0.2, 0.02, -0.26 ]
+##    object_position_offset: [ 0.0, -0.4, -0.29 ]
+##    object_dual_arm_half_span_y: 0.3
+##    arm_merge_distance_y: 0.015
+##    left_base_orientation: [ -0.692229, 0.696065, -0.090530, 0.167680 ]
+##    right_base_orientation: [ 0.670840, 0.715555, 0.095891, 0.169588 ]
+#    ee_lift_offset: [ -0.05, 0.0, -0.3 ]
+#    lock_bimanual_span: true
+#    hold_gripper: true
+  dual_arm.carry:
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
+    object_position_offset: [ 0.0, -0.28, -0.02 ]
+    object_dual_arm_half_span_y: 0.48
+    arm_merge_distance_y: 0.015
+    left_base_orientation: [ -0.676104, 0.688416, -0.151695, 0.214372 ]
+    right_base_orientation: [ 0.652578, 0.707768, 0.167184, 0.212735 ]
+    ee_lift_offset: [ 0.0, 0.0, 0.5 ]
+    lock_bimanual_span: true
+    hold_gripper: true
+
+  # 搬运途中高位对齐姿态
+  align_before_place:
+    align_position: [ 0.55, 0.0, 0.15 ]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+
+  # 放置前降低躯干高度，适配低位放回箱体
+#  lower_body_before_place:
+#    body_positions: [ -0.9, -1.8, -0.9, 0.0 ]
+#    head_positions: [ 0.0, 0.18 ]
+#    arrival_timeout: 30.0
+#    joint_tolerance: 0.05
+#    body_movel_duration: 3.0
+#    resume_ocs2: true
+  lower_body_before_place:
+    body_positions: [ -0.9, -1.8, -0.9, 0.0 ]
+    # 新增左臂关节
+    left_arm_positions: [ -3.1067, 2.0695, 2.8396, 0.9209, 0.373, -0.3326, -0.6758 ]
+    # 新增右臂关节
+    right_arm_positions: [ 2.8092, 1.0137, -2.6151, -1.0745, -0.4432, 0.3562, 1.1552 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movel_duration: 3.0
+    resume_ocs2: true
+
+
+  #  # 双臂放置叶片技能：放回箱体原抓取位置
+  dual_arm.place:
+    reference_object_prim_path: /World/scene/boxes/white_box_05/box/box
+    object_position_offset: [0.0, 0.0, 0.17] # 和抓取carry偏移完全一致，原位放回
+    left_arm_positions: [-0.55, 1.0266, 0.7395, -1.8487, -0.9908, -0.5437, -0.38]
+    right_arm_positions: [1.8315, 1.4517, -2.0627, -0.7121, -0.6070, 0.0630, -0.1417]
+    orientation_delta_rpy: [0.0, -0.436332313, 0.0]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    lock_bimanual_span: true
+    hold_gripper: true
+    span_lock_offset_y: 0.238 # 统一全流程跨度
+
+  # 抓取搬运完成后躯干复位站立姿态
+  pre_pick_stand:
+    body_positions: [ 0.0, 0.0, 0.0, 0.0 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: true
+
+  # 导航至检测终点工位
+  nav_to_end:
+    x: -0.67
+    y: -0.6
+    yaw: -3.128
+    timeout: 60.0
+
+  # 【新增】导航返回初始抓取箱体工位
+  nav_to_start:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+# 完整任务队列（新增回流放回整套流程）
+task_queue:
+  # 1. 初始待机预备姿态
+  - skill: joint.movej_to_config
+    id: pre_pick_movej1
+  - skill: joint.movej_to_config
+    id: pre_pick_movej
+  - parallel:
+      - skill: single_arm.pick
+        id: single_arm_r
+      - skill: single_arm.pick
+        id: single_arm_l
+  # 2. 双臂抓取叶片，内部抬升0.5m脱离箱体
+#  - skill: dual_arm.carry
+#  - parallel:
+#      - skill: single_arm.move_relative
+#        id: drag_out_r
+#      - skill: single_arm.move_relative
+#        id: drag_out_l
+#  # 3. 抓取后高位对齐，稳定夹持
+  - skill: dual_arm.bimanual_align
+    id: align_before_place
+  # 4. 底盘行驶至检测终点
+  - skill: nav.navigate_to_pose
+    id: nav_to_end
+
+#   6. 翻转检测
+#  # 低位翻转对齐
+#  - skill: dual_arm.bimanual_align
+#    params:
+#      align_position: [ 0.55, 0.0, 0.25 ]
+#      motion_frame_id: arm_base
+#      arm_movel_duration: 5.0
+#      lock_bimanual_span: true
+#      hold_gripper: true
+#      span_lock_offset_y: 0.239
+#      orientation_delta_rpy: [ 0.0, 0.6, 0.0 ]
+#  # 翻转倒料
+#  - skill: dual_arm.bimanual_align
+#    params:
+#      align_position: [ 0.55, 0.0, 0.25 ]
+#      motion_frame_id: arm_base
+#      arm_movel_duration: 3.0
+#      lock_bimanual_span: true
+#      hold_gripper: true
+#      span_lock_offset_y: 0.239
+#      orientation_delta_rpy: [ 0.0, 1.2, 0.0 ]
+  - skill: dual_arm.bimanual_align
+    params:
+      align_position: [ 0.55, 0.0, 0.25 ]
+      motion_frame_id: arm_base
+      arm_movel_duration: 3.0
+      lock_bimanual_span: true
+      hold_gripper: true
+      span_lock_offset_y: 0.239
+      orientation_delta_rpy: [ -0.0, -0.6, 0.0 ]
+
+
+  # ========== 新增放回原抓取位置完整流程 ==========
+  # 7. 底盘导航返回初始箱体抓取工位
+  - skill: nav.navigate_to_pose
+    id: nav_to_start
+#  # 8. 双臂对齐至箱体上方原位预放置点位
+#  - skill: dual_arm.bimanual_align
+#    params:
+#      align_position: [ 0.55, 0.0, 0.2 ]
+#      motion_frame_id: arm_base
+#      arm_movel_duration: 3.0
+#      lock_bimanual_span: true
+#      hold_gripper: true
+#      span_lock_offset_y: 0.238
+
+  # 5. 降低躯干准备放置
+#  - skill: joint.movej_to_config
+#    id: lower_body_before_place
+#  # 9. 双臂下放叶片至原抓取位置，松开夹爪完成放回
+  - skill: dual_arm.place
+  # 10. 放回完成，双臂退回初始安全待机姿态
+#  - skill: joint.movej_to_config
+#    id: pre_pick_movej1
+
+scene_presets:
+  default:
+    skill_params: {}
