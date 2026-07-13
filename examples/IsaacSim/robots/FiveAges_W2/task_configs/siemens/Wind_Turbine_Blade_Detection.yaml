@@ -46,7 +46,7 @@ skill_defaults:
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
     object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
-    object_position_offset: [ 0.49, 0.14, -0.24 ] # [ 0.45, -0.3, -0.2 ]
+    object_position_offset: [ 0.49, 0.16, -0.24 ] # [ 0.45, -0.3, -0.2 ]
 #    ee_base_orientation: [ 0.692144, 0.719329, 0.000057, 0.059187 ]
 #    ee_base_orientation: [0.640811, 0.716770, 0.273431, -0.028946]
     ee_base_orientation: [ 0.687771, 0.714412, -0.070767, -0.107603 ]
@@ -62,7 +62,7 @@ skill_defaults:
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
     object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
-    object_position_offset: [ -0.06, 0.11, -0.24 ]
+    object_position_offset: [ -0.06, 0.13, -0.24 ]
 #    ee_base_orientation: [ -0.692229, 0.696065, -0.090530, 0.167680 ]
     ee_base_orientation: [ -0.690702, 0.719313, -0.014486, 0.072877 ]
     ee_pick_axis: +z
@@ -153,8 +153,8 @@ skill_defaults:
   dual_arm.place:
     reference_object_prim_path: /World/scene/boxes/white_box_05/box/box
     object_position_offset: [0.0, 0.0, 0.17] # 和抓取carry偏移完全一致，原位放回
-    left_arm_positions: [-0.55, 1.0266, 0.7395, -1.8487, -0.9908, -0.5437, -0.38]
-    right_arm_positions: [1.8315, 1.4517, -2.0627, -0.7121, -0.6070, 0.0630, -0.1417]
+    left_base_orientation: [ -0.690702, 0.719313, -0.014486, 0.072877 ]
+    right_base_orientation: [ 0.687771, 0.714412, -0.070767, -0.107603 ]
     orientation_delta_rpy: [0.0, -0.436332313, 0.0]
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
