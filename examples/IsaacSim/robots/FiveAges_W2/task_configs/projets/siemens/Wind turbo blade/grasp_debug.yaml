@@ -1,9 +1,9 @@
-# FiveAges W2 — Siemens 箱体抓取调试任务
+# FiveAges W2 — Factory Poc 箱体抓取调试任务
 # 目的：只看“预备姿态 -> 双臂抓取 -> 抬起 -> 原地翻转/回正”的效果。
 # 不执行导航、不放置；适合在 start 场景里反复调抓取和倾倒动作。
 # 使用前提：机器人已经在箱子旁边，双臂工作空间能覆盖箱子；否则需要先手动/用场景把机器人放到 start 附近。
 task_key: siemens_box_grasp_debug
-label: Siemens box grasp debug only
+label: Factory Poc box grasp debug only
 # true 表示笛卡尔目标会带 frame_id 发布，下面 motion_frame_id=arm_base 才能稳定生效。
 use_stamped: true
 # 默认场景名；运行命令里 --scene default 会使用 scene_presets.default。

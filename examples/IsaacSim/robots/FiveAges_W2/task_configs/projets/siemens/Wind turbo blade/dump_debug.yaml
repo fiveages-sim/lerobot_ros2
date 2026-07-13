@@ -1,7 +1,7 @@
-# FiveAges W2 — Siemens box dump debug task
+# FiveAges W2 — Factory Poc box dump debug task
 # Run this with --no-reset after the full task has already grasped/carried the box.
 task_key: siemens_box_dump_debug
-label: Siemens box dump debug only
+label: Factory Poc box dump debug only
 use_stamped: true
 default_scene: default
 
