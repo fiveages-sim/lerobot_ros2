@@ -1,0 +1,118 @@
+# 任务总标题：FiveAges W2机器人蹲姿连续行走+右臂往复左右摆动检测任务
+task_key: inspect
+label: 检测
+use_stamped: true
+default_scene: default
+
+#==================== 全局运行限制参数 ====================
+runtime_defaults:
+  max_stage_duration: 4.0                  # 单段并行任务最大允许执行时长(秒)
+  pose_tol_pos: 0.05                       # 末端/底盘到达判定：位置误差阈值(m)
+  pose_tol_ori: 0.08                       # 末端/底盘到达判定：姿态四元数误差阈值
+  base_link_entity_path: /root/workshop/robot1/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link  # 机器人基坐标系USD路径
+
+#==================== 技能预设参数库 ====================
+skill_defaults:
+  # 单臂抓取技能默认配置（本任务未使用，预留复用）
+  single_arm.pick:
+    object_prim_path: /root/workshop/car1/car  # 待抓取工件USD路径
+    object_position_offset: [0, 0, 0]          # 抓取点相对工件原点三维偏移
+
+  # -------- 底盘导航分段点位预设 --------
+  nav_03:  # 第一段导航目标：X=0.3m
+    x: 0.3
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0  # 导航超时阈值，超时判定任务失败
+  nav_06:  # 第二段导航目标：X=0.6m
+    x: 0.6
+    y: 0.3
+    yaw: 0.0
+    timeout: 60.0
+  nav_09:  # 第三段导航目标：X=0.9m，带航向转向
+    x: 0.9
+    y: -0.3
+    yaw: 1.518
+    timeout: 60.0
+  nav_12:  # 第四段导航目标：X=1.2m
+    x: 1.2
+    y: -0.18
+    yaw: 0.0
+    timeout: 60.0
+  nav_15:  # 第五段导航目标：X=1.5m
+    x: 1.5
+    y: 0.12
+    yaw: 0
+    timeout: 60.0
+  nav_18:  # 第六段导航目标：X=1.8m
+    x: 1.8
+    y: -0.3
+    yaw: 0.0
+    timeout: 60.0
+  nav_21:  # 第七段导航终点：X=2.1m，带航向转向
+    x: 2.1
+    y: 0.1
+    yaw: 0.7
+    timeout: 60.0
+
+  # -------- 右臂摆动目标位姿预设 --------
+  swing_left:  # 右臂向左水平摆动目标末端位姿
+    arm: right                      # 控制臂：右臂
+    motion_frame_id: arm_base       # 位姿参考坐标系：机械臂基座
+    position: [ 0.472216, 0.328699, 0.308733 ]  # 末端笛卡尔坐标 [x,y,z]
+    orientation: [ -0.114720, 0.329117, 0.820857, 0.452454 ]  # 姿态四元数 [qx,qy,qz,qw]
+
+  swing_right:  # 右臂向右水平摆动目标末端位姿
+    arm: right                      # 控制臂：右臂
+    motion_frame_id: arm_base       # 位姿参考坐标系：机械臂基座
+    position: [ 0.450640, -0.297431, 0.382554 ]  # 末端笛卡尔坐标 [x,y,z]
+    orientation: [ 0.107415, 0.107250, 0.699688, 0.698138 ]  # 姿态四元数 [qx,qy,qz,qw]
+
+#==================== 任务执行队列（底盘行走+右臂摆动并行执行） ====================
+task_queue:
+  # 阶段1：底盘行进至0.3m点位 + 右臂同步摆至右侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_03
+      - skill: single_arm.move_to_pose
+        id: swing_right
+  # 阶段2：底盘行进至0.6m点位 + 右臂同步摆至左侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_06
+      - skill: single_arm.move_to_pose
+        id: swing_left
+  # 阶段3：底盘行进至0.9m转向点位 + 右臂同步摆至右侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_09
+      - skill: single_arm.move_to_pose
+        id: swing_right
+  # 阶段4：底盘行进至1.2m点位 + 右臂同步摆至左侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_12
+      - skill: single_arm.move_to_pose
+        id: swing_left
+  # 阶段5：底盘行进至1.5m点位 + 右臂同步摆至右侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_15
+      - skill: single_arm.move_to_pose
+        id: swing_right
+  # 阶段6：底盘行进至1.8m点位 + 右臂同步摆至左侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_18
+      - skill: single_arm.move_to_pose
+        id: swing_left
+  # 阶段7：底盘行进至2.1m终点转向点位 + 右臂同步摆至右侧
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_21
+      - skill: single_arm.move_to_pose
+        id: swing_right
+
+#==================== 场景预设配置 ====================
+scene_presets:
+  default: {}  # 默认场景无额外加载参数
