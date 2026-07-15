@@ -1,0 +1,256 @@
+task_key: loading_and_unloading
+label: 上下料
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.02
+  pose_tol_ori: 0.03
+
+
+#task_queue:
+#  # 1. 初始关节复位运动，到达初始基础构型
+#  - skill: joint.movej_to_config
+#    id: init_movej
+#  # 2. 导航移动至 nav1 指定位姿
+#  - skill: nav.navigate_to_pose
+#    id: nav1
+#  # 3. 预抓取姿态调整，执行第一版预抓取关节构型
+#  - skill: joint.movej_to_config
+#    id: pre_pick_movej
+#  # 4. 导航移动至 nav2 指定位姿
+#  - skill: nav.navigate_to_pose
+#    id: nav2
+#  # 5. 预抓取姿态微调，执行第二版预抓取关节构型
+#  - skill: joint.movej_to_config
+#    id: pre_pick_movej2
+#  # 6. 单侧手臂执行抓取动作
+#  - skill: single_arm.pick
+#  # 7. 导航移动至 nav3 指定位姿
+#  - skill: nav.navigate_to_pose
+#    id: nav3
+#  # 8. 放置前上半身关节姿态调整
+#  - skill: joint.movej_to_config
+#    id: higher_body_before_place
+#  # 9. 导航移动至 nav4 指定位姿
+#  - skill: nav.navigate_to_pose
+#    id: nav4
+#  # 10. 单侧手臂（右臂）二次抓取，保持夹爪锁死
+#  - skill: single_arm.pick
+#    id: single_arm.pick1
+#  # 11. 手臂相对运动，执行向外拖拽拉出物件动作
+#  - skill: single_arm.move_relative
+#    id: drag_out
+#  # 12. 放置前第二版上半身关节姿态调整
+#  - skill: joint.movej_to_config
+#    id: higher_body_before_place1
+#  # 13. 单侧手臂执行物料放置动作
+#  - skill: single_arm.place
+
+task_queue:
+  - skill: joint.movej_to_config
+    id: init_movej
+  - skill: nav.navigate_to_pose
+    id: nav1
+  - skill: joint.movej_to_config
+    id: pre_pick_movej
+  - skill: nav.navigate_to_pose
+    id: nav2
+  - skill: joint.movej_to_config
+    id: pre_pick_movej2
+  - skill: single_arm.pick
+  - skill: nav.navigate_to_pose
+    id: nav3
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav4
+      - skill: joint.movej_to_config
+        id: higher_body_before_place
+  - skill: single_arm.pick
+    id: single_arm.pick1
+  - skill: single_arm.move_relative
+    id: drag_out
+  - skill: joint.movej_to_config
+    id: higher_body_before_place1
+  - skill: single_arm.place
+    # 搬运返程（未完成 两个碰撞体会打架 拿不走那个组件）
+#  - skill: single_arm.pick
+#  - skill: single_arm.move_relative
+#    id: drag_in
+#  - skill: joint.movej_to_config
+#    id: aft_place_movej1
+#  - skill: joint.movej_to_config
+#    id: aft_place_movej2
+#  - parallel:
+#      - skill: nav.navigate_to_pose
+#        id: nav1
+#      - skill: joint.movej_to_config
+#        id: pre_pick_movej2
+#  - skill: nav.navigate_to_pose
+#    id: nav2
+#  - skill: single_arm.place
+#    params:
+#      arm: left
+#      object_prim_path: /World/foam_board_01/board/board/foam_board/Mesh_30_001
+#      motion_frame_id: arm_base
+#      arm_movel_duration: 2.0
+#      ee_base_orientation: [ 0.493789, 0.482261, 0.542709, 0.478606 ]
+#      prepare_offset: [ 0.0, 0.0, 0.0 ] #[0.0, 0.1, 0.1]
+#      object_position_offset: [ 0.0, 0.3, 0.05 ] #[0.0, 0.1, 0.1]第二个左正右负 第三个上正下负
+#      ee_retreat_offset: [ 0.0, 0.0, 0.0 ] # [ 0.1, 0.1, -0.2 ]
+
+skill_defaults:
+  nav1:
+    x: 0.0
+    y: 0.1
+    yaw: -3.1415
+    timeout: 60.0
+
+  nav2:
+    x: -0.28
+    y: 0.1
+    yaw: -3.1415
+    timeout: 60.0
+
+  nav3:
+    x: 0.0
+    y: 0.0
+    yaw: 1.5708
+    timeout: 60.0
+
+  nav4:
+    x: 0.36
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  init_movej:
+    body_positions: [-0.3, -0.6, -0.35, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+ #设置两个预抓取防止撞架子
+  pre_pick_movej:
+    body_positions: [-0.3, -0.6, -0.35, 0.0] #[-0.5, -1.1, -0.7, 0.0] 上半身更后仰
+    left_arm_positions: [-1.1865, 1.2833, 1.7684, -1.9168, -1.8261, -0.3190, -0.0889]
+    right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_pick_movej2:
+    body_positions: [-0.3, -0.6, -0.35, 0.0]
+    left_arm_positions: [ -1.1142,1.176,1.5072,-1.8503,-1.9493,-0.1009,-0.1409] #[ -1.1842, 1.2842, 1.7674, -1.9149, -1.8347, -0.3183, -0.0888 ]
+    right_arm_positions: [ 0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  aft_place_movej1:
+    body_positions: [ -0.3, -0.6, -0.35, 0.0 ]
+    left_arm_positions: [ -1.1142,1.176,1.5072,-1.8503,-1.9493,-0.1009,-0.1409 ] #[ -1.1842, 1.2842, 1.7674, -1.9149, -1.8347, -0.3183, -0.0888 ]
+    right_arm_positions: [ 0.7082, -0.6079, -0.9083, -1.3589, 0.8244, -0.0851, 0.9495 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+  aft_place_movej2:
+    body_positions: [ -0.3, -0.6, -0.35, 0.0 ]
+    left_arm_positions: [ -1.3352, 1.0551, 0.1212, -2.4038, -2.9322, 0.2716, 1.1063 ] #[ -1.1842, 1.2842, 1.7674, -1.9149, -1.8347, -0.3183, -0.0888 ]
+    right_arm_positions: [0.8519, -0.2524, -1.0340, -1.8478, 0.5765, 0.1123, 0.8247]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  # 左臂抓取组件
+  single_arm.pick:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/component/c/c/component/component
+    object_position_offset: [0.15, 0.0, -0.03] #[0.15, 0.0, -0.03]
+    ee_base_orientation: [0.499634, 0.515196, 0.498666, 0.486078]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [0.0, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.1, 0.0] #[0.0, 0.1, -0.2]
+
+  # 右臂抓取侧边边框
+  single_arm.pick1:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /World/aging_chamber/board/b/b/b/b/board_handle_left
+    object_position_offset: [-0.04, 0.14, -0.02]
+    ee_base_orientation: [0.640811, 0.716770, 0.273431, -0.028946]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [0.0, 0.0, 0.03]
+    ee_retreat_offset: [0.0, 0.0, 0.0]
+    hold_gripper: true   # 关键：抓取完成持续锁死夹爪，不会自动张开
+
+  # 钩住后向外拉出托盘
+  drag_out:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ -0.175, 0.0, -0.005]
+    gripper: 0.0
+  # 钩住后向外拉出托盘
+  drag_in:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.175, 0.0, -0.005 ]
+    gripper: 0.0
+
+  #左臂摆开避免撞箱 右臂拉取把手预备姿态
+  higher_body_before_place:
+    body_positions: [ 0.0, 0.0, 0.0, 0.0]
+    left_arm_positions: [ -0.8863, 1.5828, 0.5024, -2.0515, -2.0447, -0.613, 0.1369 ]
+    right_arm_positions: [ 0.1806, -0.6693, -0.1806, -1.4292, 0.7828, 0.3559, 0.1711 ]
+    skip_fsm_change: true
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  #左臂绕开托盘先举上去 避免抓取时路径经过碰撞体
+  higher_body_before_place1:
+    body_positions: [ 0.0, 0.0, 0.0, 0.0 ]
+    left_arm_positions: [ 0.7779, 1.2452, 0.22, -1.7649, -2.6414, 0.9792, -1.2965 ]
+    right_arm_positions: [ 0.7542, -0.6758, -0.8584, -1.6149, 0.8794, 0.1858, 0.8246 ]
+    skip_fsm_change: true
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  single_arm.place:
+    arm: left
+    object_prim_path: /World/placement_rack/end/placement_rack/visual/end/end
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    ee_base_orientation: [0.493789, 0.482261, 0.542709, 0.478606]
+    prepare_offset:  [0.0, 0.0, 0.0] #[0.0, 0.1, 0.1]
+    object_position_offset:  [-0.08, 0.0, 0.1] #[0.0, 0.1, 0.1]第二个左正右负 第三个上正下负
+    ee_retreat_offset: [0.1, 0.1, -0.15]
+
+scene_presets:
+  default:
+    skill_params: {}
+
+
