@@ -1,10 +1,10 @@
-# FiveAges W2 — Siemens 项目：黑箱单臂抓取放置
+# FiveAges W2 — Factory Poc 项目：黑箱单臂抓取放置
 #
 # 流程：… → release → 转向 → 转回与回原点（并行）→ 导航至 box1 → 放置
 # 参考：basic_demo/pick_place.yaml、navigate_and_pick.yaml（right_arm_pregrasp）
 
 task_key: black_box_pick
-label: Siemens 黑箱抓取放置
+label: Factory Poc 黑箱抓取放置
 use_stamped: true
 default_scene: default
 

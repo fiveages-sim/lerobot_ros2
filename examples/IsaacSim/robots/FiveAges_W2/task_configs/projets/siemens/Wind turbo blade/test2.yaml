@@ -1,8 +1,8 @@
-# FiveAges W2 — Siemens 项目：双臂抓取、旋转、放置整体流程
+# FiveAges W2 — Factory Poc 项目：双臂抓取、旋转、放置整体流程
 # 流程：第一个导航点抓取 -> 第二个导航点旋转/倒料 -> 第三个导航点放置。
 # 抓取段沿用 grasp_debug.yaml 已验证的老横抓参数：左右手从两侧横向插入/夹抓。
 task_key: siemens_box_carry_simple
-label: Siemens box carry / rotate / place
+label: Factory Poc box carry / rotate / place
 # true 表示笛卡尔目标带 frame_id 发送，配合 motion_frame_id 使用，避免坐标系混淆。
 use_stamped: true
 # 默认 Isaac 场景名；运行命令里的 --scene default 会匹配这里。

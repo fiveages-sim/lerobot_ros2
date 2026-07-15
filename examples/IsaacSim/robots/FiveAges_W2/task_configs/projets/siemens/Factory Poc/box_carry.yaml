@@ -1,10 +1,10 @@
-# FiveAges W2 — Siemens 项目：双臂搬运箱子
+# FiveAges W2 — Factory Poc 项目：双臂搬运箱子
 #
 # 流程：… → dual_arm.carry →（回原点 ∥ 对齐）→（降腰 ∥ 导航至放置点）→ dual_arm.place
-# 参考：siemens/black_box_pick.yaml（pre_pick_movej）、poc_project/port7_bimanual_carry.yaml
+# 参考：Factory Poc/black_box_pick.yaml（pre_pick_movej）、Bosch POC/port7_bimanual_carry.yaml
 
 task_key: siemens_box_carry
-label: Siemens 双臂搬箱
+label: Factory Poc 双臂搬箱
 use_stamped: true
 default_scene: default
 
