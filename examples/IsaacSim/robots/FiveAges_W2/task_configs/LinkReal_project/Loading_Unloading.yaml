@@ -68,10 +68,10 @@ task_queue:
         id: nav4
       - skill: joint.movej_to_config
         id: higher_body_before_place
-  - skill: single_arm.pick
-    id: single_arm.pick1
-  - skill: single_arm.move_relative
-    id: drag_out
+#  - skill: single_arm.pick
+#    id: single_arm.pick1
+#  - skill: single_arm.move_relative
+#    id: drag_out
   - skill: joint.movej_to_config
     id: higher_body_before_place1
   - skill: single_arm.place
@@ -181,7 +181,7 @@ skill_defaults:
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
     object_prim_path: /World/component/c/c/component/component
-    object_position_offset: [0.15, 0.0, -0.03] #[0.15, 0.0, -0.03]
+    object_position_offset: [0.15, 0.0, 0.01] #[0.15, 0.0, -0.03] #
     ee_base_orientation: [0.499634, 0.515196, 0.498666, 0.486078]
     ee_pick_axis: +z
     pick_clearance: 0.0
@@ -221,7 +221,8 @@ skill_defaults:
   higher_body_before_place:
     body_positions: [ 0.0, 0.0, 0.0, 0.0]
     left_arm_positions: [ -0.8863, 1.5828, 0.5024, -2.0515, -2.0447, -0.613, 0.1369 ]
-    right_arm_positions: [ 0.1806, -0.6693, -0.1806, -1.4292, 0.7828, 0.3559, 0.1711 ]
+    right_arm_positions: [ 0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515 ]
+#    right_arm_positions: [ 0.1806, -0.6693, -0.1806, -1.4292, 0.7828, 0.3559, 0.1711 ]
     skip_fsm_change: true
     arrival_timeout: 30.0
     joint_tolerance: 0.05
@@ -232,7 +233,8 @@ skill_defaults:
   higher_body_before_place1:
     body_positions: [ 0.0, 0.0, 0.0, 0.0 ]
     left_arm_positions: [ 0.7779, 1.2452, 0.22, -1.7649, -2.6414, 0.9792, -1.2965 ]
-    right_arm_positions: [ 0.7542, -0.6758, -0.8584, -1.6149, 0.8794, 0.1858, 0.8246 ]
+    right_arm_positions: [0.55, 1.0266, -0.8165, -1.8487, 0.9908, -0.5437, 0.4515]
+#    right_arm_positions: [ 0.7542, -0.6758, -0.8584, -1.6149, 0.8794, 0.1858, 0.8246 ]
     skip_fsm_change: true
     arrival_timeout: 30.0
     joint_tolerance: 0.05
@@ -244,10 +246,11 @@ skill_defaults:
     object_prim_path: /World/placement_rack/end/placement_rack/visual/end/end
     motion_frame_id: arm_base
     arm_movel_duration: 2.0
-    ee_base_orientation: [0.493789, 0.482261, 0.542709, 0.478606]
+#    ee_base_orientation: [0.493789, 0.482261, 0.542709, 0.478606]
+    ee_base_orientation: [0.499634, 0.515196, 0.498666, 0.486078]
     prepare_offset:  [0.0, 0.0, 0.0] #[0.0, 0.1, 0.1]
-    object_position_offset:  [-0.08, 0.0, 0.1] #[0.0, 0.1, 0.1]第二个左正右负 第三个上正下负
-    ee_retreat_offset: [0.1, 0.1, -0.15]
+    object_position_offset:  [0.08, 0.0, 0.01] #[0.0, 0.1, 0.1]第一个靠近身体是负第二个左正右负 第三个上正下负
+    ee_retreat_offset: [0.0, 0.1, -0.15]
 
 scene_presets:
   default:
