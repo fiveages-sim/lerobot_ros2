@@ -432,17 +432,33 @@ lr_env_pip_install_editable() {
   fi
 }
 
+# Shared bash snippet: register ros2-stack tab completion when the CLI is on PATH.
+# Kept as a function so conda/uv activate hooks stay in sync.
+lr_env_ros2_stack_completion_snippet() {
+  local log_prefix="${1:-[env activate]}"
+  cat <<EOF
+# ros2-stack tab completion (same env that sources ROS2)
+if [[ -n "\${BASH_VERSION:-}" ]] && command -v ros2-stack >/dev/null 2>&1; then
+    # shellcheck disable=SC1090
+    eval "\$(ros2-stack completion bash 2>/dev/null)" && \\
+      echo "${log_prefix} Registered ros2-stack bash completion" || true
+fi
+EOF
+}
+
 lr_env_write_conda_ros2_hook() {
   local env_prefix="$1"
   local ws_path="$2"
-  local activate_dir activate_script
+  local activate_dir deactivate_dir activate_script deactivate_script
 
   [[ -n "$env_prefix" && -d "$env_prefix" ]] || return 0
 
   ws_path="$(lr_env_expand_path "$ws_path")"
   activate_dir="${env_prefix}/etc/conda/activate.d"
+  deactivate_dir="${env_prefix}/etc/conda/deactivate.d"
   activate_script="${activate_dir}/lr_ros2_workspace.sh"
-  mkdir -p "$activate_dir"
+  deactivate_script="${deactivate_dir}/lr_ros2_stack_completion.sh"
+  mkdir -p "$activate_dir" "$deactivate_dir"
 
   cat >"$activate_script" <<EOF
 #!/usr/bin/env bash
@@ -454,9 +470,21 @@ if [ -f "${ws_path}/install/setup.bash" ]; then
 else
     echo "[conda activate] WARN: ROS2 setup.bash not found at ${ws_path}/install/setup.bash"
 fi
+$(lr_env_ros2_stack_completion_snippet "[conda activate]")
 EOF
   chmod +x "$activate_script"
+
+  cat >"$deactivate_script" <<'EOF'
+#!/usr/bin/env bash
+# Drop ros2-stack completion registered on activate (harmless if absent)
+if [[ -n "${BASH_VERSION:-}" ]] && complete -p ros2-stack >/dev/null 2>&1; then
+    complete -r ros2-stack 2>/dev/null || true
+fi
+EOF
+  chmod +x "$deactivate_script"
+
   echo ">>> conda activate.d: $activate_script"
+  echo ">>> conda deactivate.d: $deactivate_script"
 }
 
 lr_env_write_uv_ros2_hook() {
@@ -489,6 +517,7 @@ elif [[ -f "/opt/ros/\${ROS_DISTRO:-jazzy}/setup.bash" ]]; then
 else
     echo "[venv activate] WARN: 未找到 ROS2 setup.bash（工作空间或 /opt/ros）"
 fi
+$(lr_env_ros2_stack_completion_snippet "[venv activate]")
 EOF
   chmod +x "$hook_script"
 

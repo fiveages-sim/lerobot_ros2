@@ -23,6 +23,10 @@ build/
 /ros2_robot_interface/ros2_robot_interface.egg-info/
 
 .motion_last.json
+.ros2_stack_last.json
+
+# ROS 2 stack runtime state (pid/log/json under workspace cwd)
+.ros2_stack/
 
 # Virtual environments
 venv/

@@ -1,4 +1,3 @@
-# FiveAges W2 — 导航到白色箱体，同时运动到初始收拢姿态
 task_key: transfer_blade
 label: 将风电叶片从料箱转移到工作台
 use_stamped: true

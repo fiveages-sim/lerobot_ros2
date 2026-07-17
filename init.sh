@@ -179,7 +179,7 @@ create_uv_env() {
     lr_env_write_uv_ros2_hook "$venv_path" "$LR_ENV_ROS2_WORKSPACE"
     echo ">>> 已根据 .fa-env.toml 为 venv 写入 ROS2 activate 挂钩。"
   else
-    echo ">>> 提示: 执行 ./init.sh ros2-workspace 后，source .venv/bin/activate 也会自动 source ROS2。"
+    echo ">>> 提示: 执行 ./init.sh ros2-workspace 后，source .venv/bin/activate 会自动 source ROS2，并注册 ros2-stack 补全。"
   fi
 }
 

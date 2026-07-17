@@ -2,3 +2,21 @@ key: fiveages_w2
 label: FiveAges W2
 base_link_entity_path: /World/FiveAges_W2/LinkHou_S2/base_footprint/base_link
 gripper_action_wait: 2.0
+
+ros2_stack:
+  defaults:
+    args:
+      robot: fiveages_w2
+      hardware: isaac
+  motion:
+    required: true
+    preset: ocs2-fullbody
+    args:
+      type: rg75
+  navigation:
+    required: auto
+    package: robot_common_launch
+    launch_file: navigation_isaac_gt.launch.py
+    profile: default
+    ready_when:
+      node_name_contains: [controller_server]
