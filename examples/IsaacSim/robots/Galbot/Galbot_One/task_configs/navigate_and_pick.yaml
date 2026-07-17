@@ -63,7 +63,6 @@ skill_defaults:
     right_arm_positions: [-1.2298, 0.386, -0.8911, 2.0189, 1.1026, -1.3605, 0.9883]
     arrival_timeout: 15.0
     joint_tolerance: 0.05
-    resume_ocs2: true   # 最后一个关节步骤，之后直接 pick（笛卡尔），必须切回 OCS2
 
   single_arm.pick:
     arm: right
@@ -85,7 +84,6 @@ skill_defaults:
     right_arm_positions: [-0.0465, 1.612, -0.1924, -2.21, 1.5109, -0.216, 0.9134]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
-    resume_ocs2: true   # place 是笛卡尔控制，必须在此切回 OCS2
 
   single_arm.place:
     object_prim_path: /World/grasp_fruits/warehouse_multiple_shelves/Shelf_1/SM_CratePlastic_A_01/SM_CratePlastic_A_01

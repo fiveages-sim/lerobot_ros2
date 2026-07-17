@@ -26,7 +26,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
-    resume_ocs2: false
 
   pre_pick_movej:
     body_positions: [-0.7, -1.4, -0.7, 0.0]
@@ -38,7 +37,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
-    resume_ocs2: false
 
   # 右臂单侧抓取叶片侧边
   single_arm_r:
@@ -135,7 +133,6 @@ skill_defaults:
 #    arrival_timeout: 30.0
 #    joint_tolerance: 0.05
 #    body_movel_duration: 3.0
-#    resume_ocs2: true
   lower_body_before_place:
     body_positions: [ -0.9, -1.8, -0.9, 0.0 ]
     # 新增左臂关节
@@ -146,7 +143,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movel_duration: 3.0
-    resume_ocs2: true
 
 
   #  # 双臂放置叶片技能：放回箱体原抓取位置
@@ -169,7 +165,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
-    resume_ocs2: true
 
   # 导航至检测终点工位
   nav_to_end:

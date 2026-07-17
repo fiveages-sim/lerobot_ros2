@@ -36,7 +36,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
-    resume_ocs2: false
 
   pre_pick_movej:
     body_positions: [-0.6, -1.6, -1.0, 0.0]
@@ -46,7 +45,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
-    resume_ocs2: false
 
   dual_arm.carry:
     motion_frame_id: arm_base

@@ -23,7 +23,6 @@ skill_defaults:
     joint_tolerance: 0.05
     body_movej_duration: 2.0
     # 与 navigate_and_carry 中 pre_ocs2_carry_arms 一致：关节到位后再 HOLD→OCS2，后续 carry 笛卡尔段才能跟得上
-    resume_ocs2: true
 
   dual_arm.carry:
     motion_frame_id: "arm_base"

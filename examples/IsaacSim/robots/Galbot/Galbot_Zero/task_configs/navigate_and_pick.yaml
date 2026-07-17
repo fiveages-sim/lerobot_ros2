@@ -53,7 +53,6 @@ skill_defaults:
     right_arm_positions: [ -0.61959, -1.5708, -1.46608, 1.58127, -0.00698, 0.65275, 0.12043 ]
     arrival_timeout: 5.0
     joint_tolerance: 0.05
-    resume_ocs2: true
 
   single_arm.pick:
     arm: right
@@ -88,7 +87,6 @@ skill_defaults:
     right_arm_positions: [-3.1000, -1.5708, -0.0070, 1.5708, 1.5708, 1.5708, 1.5708]
     arrival_timeout: 5.0
     joint_tolerance: 0.05
-    resume_ocs2: true
 
   single_arm.place:
     # 放置参考体：用货架/箱体 prim 作为参考，偏移用 object_position_offset 微调

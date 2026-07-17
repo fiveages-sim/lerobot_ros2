@@ -59,7 +59,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
-    resume_ocs2: true
 
   dual_arm.carry:
     motion_frame_id: "arm_base"

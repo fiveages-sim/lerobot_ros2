@@ -22,7 +22,6 @@ skill_defaults:
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     # 与 navigate_and_carry 中 pre_ocs2_carry_arms 一致：关节到位后再 HOLD→OCS2，后续 carry 笛卡尔段才能跟得上
-    resume_ocs2: true
 
   dual_arm.carry:
     object_prim_path: /World/port6/pallet2
