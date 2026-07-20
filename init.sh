@@ -15,8 +15,8 @@ ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
   echo "用法: $0 [submodules|update-submodules|env [python版本]|install [--conda|--uv]|"
-  echo "      install-plugins|install-lerobot|set-backend conda|uv|conda-runtime|"
-  echo "      pypi-mirror|ros2-workspace [--all]|all-motion|all [python版本]]"
+  echo "      install-plugins|install-lerobot|set-backend conda|uv|install-uv|install-miniconda|"
+  echo "      pypi-mirror|uv-mirror|conda-runtime|ros2-workspace [--all]|all-motion|all [python版本]]"
   echo
   echo "执行链路:"
   echo "  submodules         初始化子模块（git submodule update --init）"
@@ -30,8 +30,11 @@ print_usage() {
   echo
   echo "配置:"
   echo "  set-backend        修改 .fa-env.toml 中 backend (conda/uv)"
+  echo "  install-uv         安装 uv 包管理器（https://astral.sh/uv/）"
+  echo "  install-miniconda  安装 Miniconda 到 ~/miniconda3 并关闭 base 自动激活"
+  echo "  pypi-mirror        配置 pip 使用 NJU PyPI 镜像"
+  echo "  uv-mirror          配置 uv 使用清华 PyPI 镜像（backend=uv 时生效）"
   echo "  ros2-workspace     写入 .fa-env.toml；按 backend 写 activate 挂钩；--all 则 conda+uv 都写"
-  echo "  pypi-mirror        配置 NJU PyPI 镜像"
   echo "  conda-runtime      写入 conda 运行时库挂钩（LD_LIBRARY_PATH/LD_PRELOAD）"
   echo
   echo "配置见 .fa-env.toml；个人覆盖: .fa-env.local.toml；临时: LR_ENV_BACKEND=uv"
@@ -404,6 +407,86 @@ EOF
   echo ">>> 配置文件: $pip_config_file"
 }
 
+install_miniconda() {
+  local miniconda_dir="${HOME}/miniconda3"
+  local installer="${miniconda_dir}/miniconda.sh"
+  local conda_bin="${miniconda_dir}/bin/conda"
+
+  if [[ -x "$conda_bin" ]]; then
+    echo ">>> Miniconda 已安装: $miniconda_dir ($("$conda_bin" --version))"
+  elif command -v conda >/dev/null 2>&1; then
+    echo ">>> 已检测到 conda: $(command -v conda)（非 ~/miniconda3），跳过 Miniconda 安装。"
+    return 0
+  else
+    echo ">>> 安装 Miniconda 到 $miniconda_dir ..."
+
+    if ! command -v wget >/dev/null 2>&1; then
+      echo "未检测到 wget，请先安装 wget。"
+      exit 1
+    fi
+
+    mkdir -p "$miniconda_dir"
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O "$installer"
+    bash "$installer" -b -u -p "$miniconda_dir"
+    rm -f "$installer"
+    echo ">>> Miniconda 安装完成: $miniconda_dir"
+  fi
+
+  export PATH="${miniconda_dir}/bin:${PATH}"
+
+  echo ">>> 配置 conda：初始化 shell 并关闭 base 自动激活..."
+  # shellcheck disable=SC1091
+  source "${miniconda_dir}/bin/activate"
+  conda init --all
+  conda config --set auto_activate_base False
+  echo ">>> conda 配置完成（auto_activate_base=False）。"
+  echo ">>> 若当前 shell 找不到 conda，请重新打开终端。"
+}
+
+install_uv() {
+  if command -v uv >/dev/null 2>&1; then
+    echo ">>> uv 已安装: $(command -v uv) ($(uv --version))"
+    return 0
+  fi
+
+  echo ">>> 安装 uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+  # 安装脚本默认写入 ~/.local/bin
+  if [[ -d "${HOME}/.local/bin" ]]; then
+    export PATH="${HOME}/.local/bin:${PATH}"
+  fi
+
+  if command -v uv >/dev/null 2>&1; then
+    echo ">>> uv 安装完成: $(command -v uv) ($(uv --version))"
+  else
+    echo ">>> uv 安装脚本已执行，但未在当前 PATH 中找到 uv。"
+    echo ">>> 请重新打开终端，或将 ~/.local/bin 加入 PATH。"
+    exit 1
+  fi
+}
+
+configure_uv_mirror() {
+  local uv_config_dir="$HOME/.config/uv"
+  local uv_config_file="$uv_config_dir/uv.toml"
+
+  mkdir -p "$uv_config_dir"
+
+  if [[ -f "$uv_config_file" ]]; then
+    cp "$uv_config_file" "$uv_config_file.bak.$(date +%Y%m%d%H%M%S)"
+    echo ">>> 已备份现有配置: $uv_config_file.bak.<timestamp>"
+  fi
+
+  cat > "$uv_config_file" <<'EOF'
+[[index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+EOF
+
+  echo ">>> 已配置 uv PyPI 镜像为清华: https://pypi.tuna.tsinghua.edu.cn/simple"
+  echo ">>> 配置文件: $uv_config_file"
+}
+
 run_all_motion() {
   local python_version="${1:-}"
   init_submodules
@@ -415,6 +498,106 @@ run_all_full() {
   local python_version="${1:-}"
   run_all_motion "$python_version"
   install_lerobot_stack
+}
+
+interactive_menu() {
+  lr_env_load_config "$ROOT_DIR"
+  echo "请选择要执行的操作 (backend=$LR_ENV_BACKEND)"
+  echo
+  echo "  [子模块]"
+  echo "    1) 初始化子模块"
+  echo "    2) 更新所有子模块到最新 main"
+  echo
+  echo "  [环境与安装]"
+  echo "    3) 按当前 backend 创建环境"
+  echo "    4) 安装任务编排（interface + robot_action_composer）"
+  echo "    5) 安装 lerobot 相关（PyTorch + lerobot + 插件）"
+  echo
+  echo "  [一键执行]"
+  echo "    6) 全部执行（任务编排：子模块 + 环境 + 安装）"
+  echo "    7) 全部执行（任务编排 + lerobot）"
+  echo
+  echo "  [配置]"
+  if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+    echo "    8) 安装 Miniconda"
+    echo "    9) 配置 NJU PyPI 镜像（pip）"
+  else
+    echo "    8) 安装 uv"
+    echo "    9) 配置 uv PyPI 镜像（清华）"
+  fi
+  echo "    10) 配置 ROS2 工作空间"
+  echo "    11) 切换 backend (conda/uv)"
+  if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+    echo "    12) 配置 conda 运行时库"
+  fi
+  echo
+  echo "  [其他]"
+  echo "    q) 退出"
+  echo
+  if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+    read -r -p "输入选项 [1-12/q]: " choice
+  else
+    read -r -p "输入选项 [1-11/q]: " choice
+  fi
+
+  case "$choice" in
+    1)
+      init_submodules
+      ;;
+    2)
+      update_submodules_to_main
+      ;;
+    3)
+      read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
+      create_env_for_configured_backend "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
+      ;;
+    4)
+      install_motion_stack
+      ;;
+    5)
+      install_lerobot_stack
+      ;;
+    6)
+      read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
+      run_all_motion "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
+      ;;
+    7)
+      read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
+      run_all_full "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
+      ;;
+    8)
+      if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+        install_miniconda
+      else
+        install_uv
+      fi
+      ;;
+    9)
+      if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+        configure_nju_pypi_mirror
+      else
+        configure_uv_mirror
+      fi
+      ;;
+    10)
+      configure_ros2_workspace_source
+      ;;
+    11)
+      read -r -p "输入 backend [conda/uv]（当前 $LR_ENV_BACKEND）: " backend_choice
+      backend_choice="${backend_choice:-$LR_ENV_BACKEND}"
+      lr_env_set_backend "$backend_choice"
+      ;;
+    12)
+      if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
+        configure_conda_runtime_libs
+      else
+        echo "无效选项。"
+        exit 1
+      fi
+      ;;
+    q|Q) echo "已退出。" ;;
+    *) echo "无效选项。"; exit 1 ;;
+  esac
 }
 
 main() {
@@ -443,6 +626,12 @@ main() {
       parse_install_backend_args "${@:2}"
       install_lerobot_stack
       ;;
+    install-uv)
+      install_uv
+      ;;
+    install-miniconda)
+      install_miniconda
+      ;;
     conda-runtime)
       configure_conda_runtime_libs
       ;;
@@ -452,6 +641,9 @@ main() {
     pypi-mirror)
       configure_nju_pypi_mirror
       ;;
+    uv-mirror)
+      configure_uv_mirror
+      ;;
     all-motion)
       run_all_motion "${2:-}"
       ;;
@@ -459,50 +651,7 @@ main() {
       run_all_full "${2:-}"
       ;;
     "")
-      lr_env_load_config "$ROOT_DIR"
-      echo "请选择操作:"
-      echo "  当前 backend: $LR_ENV_BACKEND（见 .fa-env.toml）"
-      echo "  1) 初始化子模块"
-      echo "  2) 按当前 backend 创建环境"
-      echo "  3) 安装任务编排（ros2_robot_interface + robot_action_composer）"
-      echo "  4) 安装 lerobot 相关（PyTorch + lerobot + 插件包）"
-      echo "  -------------------- 执行链路 --------------------"
-      echo "  5) 全部执行（任务编排：1 + 2 + 3）"
-      echo "  6) 全部执行（任务编排 + lerobot：1 + 2 + 3 + 4）"
-      echo "  7) 更新所有子模块到最新 main"
-      echo "  -------------------- 配置 --------------------"
-      echo "  8) 配置 NJU PyPI 镜像"
-      echo "  9) 配置 ROS2 工作空间（.fa-env.toml + 可选 conda hook）"
-      echo "  10) 切换 backend (conda/uv)"
-      echo "  q) 退出"
-      read -r -p "输入选项 [1-10/q]: " choice
-      case "$choice" in
-        1) init_submodules ;;
-        2)
-          read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
-          create_env_for_configured_backend "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
-          ;;
-        3) install_motion_stack ;;
-        4) install_lerobot_stack ;;
-        5)
-          read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
-          run_all_motion "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
-          ;;
-        6)
-          read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
-          run_all_full "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
-          ;;
-        7) update_submodules_to_main ;;
-        8) configure_nju_pypi_mirror ;;
-        9) configure_ros2_workspace_source ;;
-        10)
-          read -r -p "输入 backend [conda/uv]（当前 $LR_ENV_BACKEND）: " backend_choice
-          backend_choice="${backend_choice:-$LR_ENV_BACKEND}"
-          lr_env_set_backend "$backend_choice"
-          ;;
-        q|Q) echo "已退出。" ;;
-        *) echo "无效选项。"; exit 1 ;;
-      esac
+      interactive_menu
       ;;
     -h|--help|help)
       print_usage

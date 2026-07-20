@@ -41,14 +41,12 @@ source .venv/bin/activate   # 默认 backend=uv
 
 交互菜单（`./init.sh`）：
 
-1. 初始化子模块
-2. 按当前 backend 创建环境
-3. 安装任务编排（`ros2_robot_interface` + `robot_action_composer`）
-4. 安装 lerobot 相关（PyTorch + lerobot + 插件包）
-5. 全部执行（任务编排：1 + 2 + 3）
-6. 全部执行（任务编排 + lerobot：1 + 2 + 3 + 4）
+- **子模块**：1 初始化 / 2 更新到最新 main
+- **环境与安装**：3 创建环境 / 4 安装任务编排 / 5 安装 lerobot
+- **一键执行**：6 仅任务编排 / 7 任务编排 + lerobot
+- **配置**：8 安装 uv 或 Miniconda / 9 配置镜像 / 10 ROS2 工作空间 / 11 切换 backend
 
-仅跑 `motion-generation` 时，执行 **3** 或 **`./init.sh all-motion`** 即可；录制 / 推理需 **4** 或 **`./init.sh install-lerobot`**。
+仅跑 `motion-generation` 时，执行 **4** 或 **`./init.sh all-motion`** 即可；录制 / 推理需 **5** 或 **`./init.sh install-lerobot`**。
 
 切换 backend：
 
