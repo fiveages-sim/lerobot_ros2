@@ -11,6 +11,8 @@ ros2_stack:
   motion:
     required: true
     preset: ocs2-fullbody
+    # true -> launch_mode:=control_only（无 RViz）；false -> full
+    headless: true
     args:
       type: rg75
   navigation:
@@ -18,5 +20,7 @@ ros2_stack:
     package: robot_common_launch
     launch_file: navigation_isaac_gt.launch.py
     profile: default
+    # true -> use_rviz:=false；false -> 启 Nav2 RViz
+    headless: true
     ready_when:
       node_name_contains: [controller_server]

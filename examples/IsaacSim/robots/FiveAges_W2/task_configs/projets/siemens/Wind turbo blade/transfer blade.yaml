@@ -9,6 +9,9 @@ runtime_defaults:
   pose_tol_pos: 0.006
   pose_tol_ori: 0.03
 
+# 场景物体 prim / grasps 在同目录 .meta/objects/（wind_turbo_blade、bg_cube）
+active_object: wind_turbo_blade
+
 skill_defaults:
   nav_to_box:
     object_prim_path: /World/scene/boxes/white_box_05
@@ -35,23 +38,21 @@ skill_defaults:
     joint_tolerance: 0.05
     body_movej_duration: 2.0
 
-  # 双臂同时各抓叶片两侧（同 single_arm.pick 语义，同步执行）
+  # 双臂同时各抓叶片两侧（offset 由 USD grasp frame 自动解析）
   # ee_base 按「导航到位后最近的 π/2 档」标定；aligned_object_yaw: auto 自动吸附 0/±1.57/±3.14
   dual_arm.parallel_pick:
     ee_orientation_frame: object
     object_orientation_mode: yaw
     aligned_object_yaw: auto
     left_pick:
-      object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
-      object_position_offset: [-0.002694, -0.07, -0.06]
+      grasp_id: small_1
       prepare_offset: [0.0, 0.0, -0.1]
       pick_clearance: 0.0
       ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
       ee_retreat_offset: [0.0, 0.0, -0.2]
     right_pick:
-      object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
-      object_position_offset: [0.475, -0.07, -0.03]
-      prepare_offset: [0.0, 0.00, -0.1]
+      grasp_id: big_1
+      prepare_offset: [0.0, 0.0, -0.1]
       pick_clearance: 0.0
       ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
       ee_retreat_offset: [0.0, 0.0, -0.2]
@@ -77,9 +78,9 @@ skill_defaults:
     joint_tolerance: 0.05
     body_movej_duration: 3.0
 
-  # 导航到场景 bg_1 碰撞体 Cube 附近（接近偏移可按实测微调）
+  # 导航到场景 bg_cube 附近（接近偏移可按实测微调）
   nav_to_bg_cube:
-    object_prim_path: /World/scene/bg_1/collision/Cube
+    object_key: bg_cube
     approach_offset_x: 0.0
     approach_offset_y: 1.0
     yaw: 1.5708
@@ -90,13 +91,13 @@ skill_defaults:
     commands: [ ARMS_COUPLED, BODY_TRACKING ]
     wait_timeout: 5.0
 
-  # 双手中点对齐 Cube+offset（物体系）→ 松爪 → 外张 → 后撤
+  # 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤
   place_on_cube:
-    reference_object_prim_path: /World/scene/bg_1/collision/Cube
-    object_position_offset: [0.0, 0.3, 0.22]
+    reference_object_key: bg_cube
+    object_position_offset: [0.0, 0.3, 0.20]
     motion_frame_id: base_footprint
     arm_movel_duration: 2.0
-    retreat_xyz: [0.1, 0.0, 0.2]
+    retreat_xyz: [0.15, 0.0, 0.05]
 
 task_queue:
   - parallel:

@@ -18,8 +18,8 @@
 
 ```bash
 cd examples/IsaacSim
-ros2-stack start --robot fiveages_w2 --group "projets/siemens/Wind turbo blade" --force-nav
-# 或交互：ros2-stack start
+ros2-stack launch --robot fiveages_w2 --group "projets/siemens/Wind turbo blade" --force-nav
+# 或交互：ros2-stack launch
 # motion-generation 也可在跑任务前 ensure：
 motion-generation --robot fiveages_w2 --task-key transfer_blade --ensure-ros2-stack
 ```
