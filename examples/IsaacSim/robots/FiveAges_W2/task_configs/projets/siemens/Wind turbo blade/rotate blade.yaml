@@ -39,8 +39,7 @@ skill_defaults:
   # 2) 双臂同时抓起叶片（offset 由 USD grasp frame 自动解析）
   dual_arm.parallel_pick:
     ee_orientation_frame: object
-    object_orientation_mode: yaw
-    aligned_object_yaw: auto
+    object_orientation_mode: yaw_roll
     left_pick:
       grasp_id: small_4
       prepare_offset: [0.0, 0.0, -0.1]
