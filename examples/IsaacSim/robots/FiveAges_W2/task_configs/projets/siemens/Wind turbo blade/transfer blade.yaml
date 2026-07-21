@@ -39,7 +39,7 @@ skill_defaults:
     body_movej_duration: 2.0
 
   # 双臂同时各抓叶片两侧（offset 由 USD grasp frame 自动解析）
-  # yaw_roll：aligned_object_yaw/roll 默认 auto，吸附到最近 k·π/2
+  # yaw_roll：yaw/pitch/roll 默认 auto 吸附到最近 k·π/2（倾倒常在 pitch）
   dual_arm.parallel_pick:
     ee_orientation_frame: object
     object_orientation_mode: yaw_roll
@@ -90,13 +90,20 @@ skill_defaults:
     commands: [ ARMS_COUPLED, BODY_TRACKING ]
     wait_timeout: 5.0
 
-  # 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤
+  # 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤 x
   place_on_cube:
     reference_object_key: bg_cube
-    object_position_offset: [0.0, 0.3, 0.2]
+    object_position_offset: [-0.05, 0.3, 0.19]
     motion_frame_id: base_footprint
     arm_movel_duration: 2.0
-    retreat_xyz: [0.15, 0.0, 0.1]
+    retreat_xyz: [0.15, 0.0, -0.05]
+
+  # 耦合下仅发左臂：后撤后再抬 z（右臂跟随）
+  retreat_z:
+    arm: left
+    motion_frame_id: base_footprint
+    position_delta: [0.0, 0.0, 0.15]
+    arm_movel_duration: 2.0
 
 task_queue:
   - parallel:
@@ -120,6 +127,8 @@ task_queue:
     id: reenable_arms_coupled
   - skill: dual_arm.place
     id: place_on_cube
+  - skill: single_arm.move_relative
+    id: retreat_z
 
 scene_presets:
   default:

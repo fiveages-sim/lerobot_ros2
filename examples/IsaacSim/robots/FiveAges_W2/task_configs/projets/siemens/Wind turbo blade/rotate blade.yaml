@@ -64,13 +64,20 @@ skill_defaults:
     arm_movel_duration: 4.0
     gripper: 0.0
 
-  # 4) 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤
+  # 4) 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤 x
   place_on_cube:
     reference_object_key: bg_cube
-    object_position_offset: [0.0, 0.3, 0.2]
+    object_position_offset: [-0.05, 0.3, 0.195]
     motion_frame_id: base_footprint
     arm_movel_duration: 2.0
-    retreat_xyz: [0.15, 0.0, 0.1]
+    retreat_xyz: [0.15, 0.0, -0.05]
+
+  # 5) 耦合下仅发左臂：后撤后再抬 z（右臂跟随）
+  retreat_z:
+    arm: left
+    motion_frame_id: base_footprint
+    position_delta: [0.0, 0.0, 0.15]
+    arm_movel_duration: 2.0
 
 task_queue:
   - parallel:
@@ -87,6 +94,8 @@ task_queue:
     id: rotate_90
   - skill: dual_arm.place
     id: place_on_cube
+  - skill: single_arm.move_relative
+    id: retreat_z
 
 scene_presets:
   default:
@@ -100,8 +109,6 @@ scene_presets:
           grasp_id: small_3
         right_pick:
           grasp_id: big_3
-      place_on_cube:
-        object_position_offset: [ 0.0, 0.3, 0.19 ]
 
   angle270:
     skill_params:
@@ -110,9 +117,6 @@ scene_presets:
           grasp_id: small_2
         right_pick:
           grasp_id: big_2
-      place_on_cube:
-        object_position_offset: [ 0.0, 0.2, 0.19 ]
-        retreat_xyz: [0.15, 0.0, 0.1]
 
   angle360:
     skill_params:
