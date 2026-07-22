@@ -1,0 +1,231 @@
+# FiveAges W2
+
+task_key: weifu_box
+label: 周转箱搬运
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /root/dispensing_glue/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.0165
+  pose_tol_ori: 0.03
+
+skill_defaults:
+  nav_before_carry:
+    object_prim_path: /root/box2_12/box/box/top/Mesh_526
+    approach_offset_x: 0.02
+    approach_offset_y: 0.8
+    yaw: -1.5708
+    timeout: 60.0
+
+  nav_before_place:
+    object_prim_path: /root/Transport_Cart_/car/car_board/Mesh_16
+    approach_offset_x: 0.0
+    approach_offset_y: -0.93
+    yaw: 1.5708
+    timeout: 60.0
+
+  init_movej:
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_place_movej:
+    body_positions: [-0.85, -1.8, -0.9, 0.0]
+#    left_arm_positions: [ -0.5785, -0.1340, 0.1771, -2.1338, -1.6332, 0.0304, 0.6899 ]
+#    right_arm_positions: [ 0.5785, -0.1340, -0.1771, -2.1338, 1.6332, 0.0304, -0.6899 ]
+##    right_arm_positions: [ 0.5705, -0.0940, -0.1845, -2.1104, 1.6266, 0.0379, -0.6272 ]
+    head_positions: [0.0, 0.18]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  # 双臂同时抓取
+  dual_arm_pick_1:
+    left_pick:
+      object_prim_path: /root/box2_12/box/box/top/Mesh_526
+      #相对物体中心的抓取偏移
+      object_position_offset: [ 0.295, 0.05, 0.08 ]
+      # 抓取姿态四元数
+      ee_base_orientation: [ 0.583775, 0.389819, 0.477159, 0.528742 ]
+      #抓取后抬升
+      ee_lift_offset: [0.0, 0.2, 0.0]
+    right_pick:
+      object_prim_path: /root/box2_12/box/box/top/Mesh_526
+      #相对物体中心的抓取偏移
+      object_position_offset: [ -0.295, 0.05, 0.08 ]
+      # 抓取姿态四元数
+      ee_base_orientation: [ -0.580739, 0.395228, -0.440533, 0.558987 ]
+      ee_lift_offset: [0.0, -0.2, 0.0]
+  # 双臂同时抓取
+  dual_arm_pick_2:
+    left_pick:
+      object_prim_path: /root/box2_12/box/box/top/Mesh_526
+      #相对物体中心的抓取偏移
+      object_position_offset: [ 0.32, -0.05, -0.08 ]
+      # 抓取姿态四元数
+      ee_base_orientation: [ 0.583775, 0.389819, 0.477159, 0.528742 ]
+      #抓取后抬升
+      ee_lift_offset: [ 0.0, 0.1, 0.0 ]
+    right_pick:
+      object_prim_path: /root/box2_12/box/box/top/Mesh_526
+      #相对物体中心的抓取偏移
+      object_position_offset: [ -0.32, -0.05, -0.08 ]
+      # 抓取姿态四元数
+      ee_base_orientation: [ -0.580739, 0.395228, -0.440533, 0.558987 ]
+      ee_lift_offset: [ 0.0, -0.1, 0.0 ]
+
+
+  dual_arm.carry:
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /root/box2_12/box/box/top/Mesh_526
+    object_position_offset: [0.017, 0.0, 0.08]
+    object_dual_arm_half_span_y: 0.315
+    arm_merge_distance_y: 0.04
+    left_base_orientation: [ 0.583775, 0.389819, 0.477159, 0.528742 ]
+    right_base_orientation: [ -0.580739, 0.395228, -0.440533, 0.558987 ]
+#    right_base_orientation: [ -0.553036, 0.397659, -0.492892, 0.541365 ]
+#    orientation_delta_rpy: [0.0, -0.436332313, 0.0]  # 在基础姿态上绕 Y 轴 -25°
+    ee_lift_offset: [0.0, 0.1, -0.1]
+  # 右臂抓取箱体侧边边框
+
+  single_arm.pick_r:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /root/box2_12/box/box/top/Mesh_526
+    object_position_offset: [-0.31, 0.0, 0.04]
+    ee_base_orientation: [ -0.580739, 0.395228, -0.440533, 0.558987 ]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [0.0, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.02, 0.0]
+    hold_gripper: true
+
+  single_arm.pick_l:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+    object_prim_path: /root/box2_12/box/box/top/Mesh_526
+    object_position_offset: [0.31, 0.012, 0.04]
+    ee_base_orientation: [ 0.583775, 0.389819, 0.477159, 0.528742 ]
+    ee_pick_axis: +z
+    pick_clearance: 0.0
+    prepare_offset: [0.0, 0.0, 0.0]
+    ee_retreat_offset: [0.0, 0.02, 0.0]
+    hold_gripper: true
+
+  drag_out_r:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [0.0, -0.1, 0.0]
+    gripper: 0.0
+  drag_out_l:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [0.0, 0.1, 0.0]
+    gripper: 0.0
+  move_relative_left_1:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.0, 0.0, -0.28 ]
+    gripper: 0.0
+  move_relative_right_1:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.0, 0.0, -0.28 ]
+    gripper: 0.0
+
+  nav_to_origin:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  align_before_place:
+    align_position: [0.55, 0.0, -0.05]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+
+  lower_body_before_place:
+    body_positions: [-1.1, -2.0, -0.82, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    skip_fsm_change: true
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+
+  dual_arm.place:
+    reference_object_prim_path: /root/Transport_Cart_/car/car_board/Mesh_16
+    object_position_offset: [-0.55, 0.235, 0.05]
+    motion_frame_id: arm_base
+    arm_movel_duration: 2.0
+
+task_queue:
+#  - skill: joint.movej_to_config
+#    id: init_movej
+  - skill: nav.navigate_to_object
+    id: nav_before_carry
+
+#  - parallel:
+#      - skill: single_arm.pick
+#        id: single_arm.pick_r
+#      - skill: single_arm.pick
+#        id: single_arm.pick_l
+
+#  - parallel:
+#      - skill: single_arm.move_relative
+#        id: drag_in_r
+#      - skill: single_arm.move_relative
+#        id: drag_in_l
+#  - skill: joint.movej_to_config
+#    id: init_movej
+#  - skill: joint.movej_to_config
+#    id: pre_pick_movej
+  - skill: dual_arm.parallel_pick
+    id: dual_arm_pick_1
+# 抬手臂
+  - parallel:
+    - skill: single_arm.move_relative
+      id: move_relative_left_1
+    - skill: single_arm.move_relative
+      id: move_relative_right_1
+  - parallel:
+      - skill: single_arm.move_relative
+        id: drag_out_l
+      - skill: single_arm.move_relative
+        id: drag_out_r
+  - skill: dual_arm.parallel_pick
+    id: dual_arm_pick_2
+  - skill: nav.navigate_to_object
+    id: nav_before_place
+#  - skill: joint.movej_to_config
+#    id: pre_place_movej
+#      - skill: dual_arm.bimanual_align
+#        id: align_before_place
+#  - skill: nav.navigate_to_object
+#    id: nav_before_place
+  - skill: joint.movej_to_config
+    id: lower_body_before_place
+  - parallel:
+      - skill: single_arm.move_relative
+        id: drag_out_l
+      - skill: single_arm.move_relative
+        id: drag_out_r
+#  - skill: dual_arm.place
+
+scene_presets:
+  default:
+    skill_params: {}
