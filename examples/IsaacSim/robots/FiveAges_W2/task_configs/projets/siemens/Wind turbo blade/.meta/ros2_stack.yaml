@@ -2,9 +2,11 @@
 # Merged over robot.yaml ros2_stack; do not add task_key / task_queue here.
 motion:
   preset: ocs2-fullbody
+  headless: false
   args:
     type: rg75
 navigation:
   profile: map_only
+  headless: false
   args:
     map: wind_turbo_task1

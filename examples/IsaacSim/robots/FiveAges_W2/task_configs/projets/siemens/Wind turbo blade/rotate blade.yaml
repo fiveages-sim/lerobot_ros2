@@ -9,20 +9,24 @@ runtime_defaults:
   pose_tol_pos: 0.006
   pose_tol_ori: 0.03
 
+# 场景物体 prim / grasps 在同目录 .meta/objects/（wind_turbo_blade、bg_cube）
+# 任务只需 active_object；换 instance 时用 objects: 或 scene_presets.*.objects 覆盖
+active_object: wind_turbo_blade
+
 skill_defaults:
-  # 1) 并行：导航到 bg_1/Cube + 预抓 MoveJ
+  # 1) 并行：导航到 bg_cube + 预抓 MoveJ
   nav_to_bg_cube:
-    object_prim_path: /World/scene/bg_1/collision/Cube
+    object_key: bg_cube
     approach_offset_x: 0.0
     approach_offset_y: 1.0
     yaw: 1.5708
     timeout: 60.0
 
   pre_pick_movej:
-    body_positions: [-1.2, -1.6, -0.8, -3.1415]
+    body_positions: [-1.2, -1.6, -0.4, -3.1415]
     head_positions: [0.0, 0.18]
-    left_arm_positions: [-0.5, -0.4, 0.4, -1.8202, -1.5708, 0.0, 0.0]
-    right_arm_positions: [0.5, -0.4, -0.4, -1.8202, 1.5708, 0.0, 0.0]
+    left_arm_positions: [-0.5, 0.4, 0.4, -2.0, -1.5708, 0.0, 0.0]
+    right_arm_positions: [0.5, 0.4, -0.4, -2.0, 1.5708, 0.0, 0.0]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
     body_movej_duration: 2.0
@@ -32,24 +36,20 @@ skill_defaults:
     command: [BODY_FREE]
     wait_timeout: 5.0
 
-  # 2) 双臂同时抓起叶片
+  # 2) 双臂同时抓起叶片（offset 由 USD grasp frame 自动解析）
   dual_arm.parallel_pick:
     ee_orientation_frame: object
-    object_orientation_mode: yaw
-    aligned_object_yaw: auto
+    object_orientation_mode: yaw_roll
     left_pick:
-      object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
-      object_position_offset: [-0.002694, -0.02, -0.08]
-      prepare_offset: [0.0, 0.0, -0.05]
+      grasp_id: small_4
+      prepare_offset: [0.0, 0.0, -0.1]
       ee_base_orientation: [0.0, 1.0, 0.0, 0.0]
       ee_retreat_offset: [0.0, 0.0, -0.075]
     right_pick:
-      object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
-      object_position_offset: [0.48, 0.06, -0.02]
-      prepare_offset: [0.0, 0.0, -0.05]
+      grasp_id: big_4
+      prepare_offset: [0.0, 0.0, -0.1]
       ee_base_orientation: [0.0, 1.0, 0.0, 0.0]
       ee_retreat_offset: [0.0, 0.0, -0.075]
-
   # 抓取后：身体追踪 + 双臂耦合（一次确认全部 mode）
   enable_tracking_and_coupled:
     commands: [ ARMS_COUPLED]
@@ -64,13 +64,20 @@ skill_defaults:
     arm_movel_duration: 4.0
     gripper: 0.0
 
-  # 4) 双手中点对齐 Cube+offset（物体系）→ 松爪 → 外张 → 后撤
+  # 4) 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤 x
   place_on_cube:
-    reference_object_prim_path: /World/scene/bg_1/collision/Cube
-    object_position_offset: [0.0, 0.3, 0.22]
+    reference_object_key: bg_cube
+    object_position_offset: [-0.05, 0.3, 0.195]
     motion_frame_id: base_footprint
     arm_movel_duration: 2.0
-    retreat_xyz: [0.05, 0.0, 0.1]
+    retreat_xyz: [0.15, 0.0, -0.05]
+
+  # 5) 耦合下仅发左臂：后撤后再抬 z（右臂跟随）
+  retreat_z:
+    arm: left
+    motion_frame_id: base_footprint
+    position_delta: [0.0, 0.0, 0.15]
+    arm_movel_duration: 2.0
 
 task_queue:
   - parallel:
@@ -87,24 +94,34 @@ task_queue:
     id: rotate_90
   - skill: dual_arm.place
     id: place_on_cube
+  - skill: single_arm.move_relative
+    id: retreat_z
 
 scene_presets:
   default:
     skill_params: {}
 
-  # 叶片绕竖直轴转 180°：左右抓取点沿物体系 x 对调
+  # 换抓取点：覆盖 grasp_id（small_1..4 / big_1..4）
   angle180:
     skill_params:
       dual_arm.parallel_pick:
         left_pick:
-          object_position_offset: [-0.002694, -0.028, -0.075]
+          grasp_id: small_3
         right_pick:
-          object_position_offset: [0.475, -0.028, -0.075]
+          grasp_id: big_3
 
   angle270:
     skill_params:
       dual_arm.parallel_pick:
         left_pick:
-          object_position_offset: [ -0.002694, -0.01, -0.13 ]
+          grasp_id: small_2
         right_pick:
-          object_position_offset: [ 0.475, -0.023, -0.18 ]
+          grasp_id: big_2
+
+  angle360:
+    skill_params:
+      dual_arm.parallel_pick:
+        left_pick:
+          grasp_id: small_1
+        right_pick:
+          grasp_id: big_1

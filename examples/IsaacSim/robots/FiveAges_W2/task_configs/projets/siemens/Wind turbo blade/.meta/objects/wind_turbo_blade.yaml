@@ -1,0 +1,11 @@
+object_key: wind_turbo_blade
+object_prim_path: /World/scene/wind_turbo_blade/turbo_blade
+grasps:
+  small_1: small_side/point_01
+  small_2: small_side/point_02
+  small_3: small_side/point_03
+  small_4: small_side/point_04
+  big_1: big_side/point_01
+  big_2: big_side/point_02
+  big_3: big_side/point_03
+  big_4: big_side/point_04
