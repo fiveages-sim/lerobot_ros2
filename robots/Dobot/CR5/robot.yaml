@@ -1,0 +1,17 @@
+key: dobot_cr5
+label: Dobot CR5
+gripper_action_wait: 2.0
+base_link_entity_path: /World/CR5/base_link
+
+ros2_stack:
+  defaults:
+    args:
+      robot: cr5
+      hardware: isaac
+  motion:
+    required: true
+    preset: ocs2-demo
+    # true -> launch_mode:=control_only（无 RViz）；false -> full
+    headless: false
+    args:
+      type: AG2F90-C

@@ -30,7 +30,8 @@ SERVICE_RETRY_DELAY = 0.2
 T = TypeVar("T")
 
 _service_node: Node | None = None
-_service_lock = threading.Lock()
+_service_clients: dict[str, object] = {}
+_service_lock = threading.RLock()
 
 
 def _ensure_service_node() -> Node:
@@ -48,6 +49,17 @@ def _ensure_service_node() -> Node:
         return _service_node
 
 
+def _get_service_client(service_type: type, service_name: str) -> tuple[Node, object]:
+    """Reuse one client per service name (avoid destroy-after-timeout → Isaac sendResponse spam)."""
+    node = _ensure_service_node()
+    with _service_lock:
+        client = _service_clients.get(service_name)
+        if client is None:
+            client = node.create_client(service_type, service_name)
+            _service_clients[service_name] = client
+        return node, client
+
+
 def _call_service_once(
     service_type: type,
     service_name: str,
@@ -55,9 +67,8 @@ def _call_service_once(
     *,
     timeout: float = SERVICE_CALL_TIMEOUT,
 ) -> object:
-    node = _ensure_service_node()
-    client = node.create_client(service_type, service_name)
-    try:
+    node, client = _get_service_client(service_type, service_name)
+    with _service_lock:
         if not client.wait_for_service(timeout_sec=max(0.1, timeout)):
             raise RuntimeError(f"Service '{service_name}' unavailable within {timeout:.1f}s")
         future = client.call_async(request)
@@ -69,11 +80,6 @@ def _call_service_once(
         if future.exception() is not None:
             raise RuntimeError(f"Service '{service_name}' call failed: {future.exception()}")
         return future.result()
-    finally:
-        try:
-            node.destroy_client(client)
-        except Exception:
-            pass
 
 
 def _call_service_with_retry(
