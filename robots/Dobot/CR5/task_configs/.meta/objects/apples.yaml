@@ -1,0 +1,7 @@
+# drawer_apples 场景中的三颗苹果（drawer_apples.usda: apple_01/02/03）
+apple_1:
+  object_prim_path: /World/scene/apple_01/Geometry/model_normalized_0_vis_obj
+apple_2:
+  object_prim_path: /World/scene/apple_02/Geometry/model_normalized_0_vis_obj
+apple_3:
+  object_prim_path: /World/scene/apple_03/Geometry/model_normalized_0_vis_obj
