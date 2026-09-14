@@ -74,10 +74,13 @@ uv pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
   --index-url https://download.pytorch.org/whl/cu128
 uv pip install "lerobot==0.5.1"
 
-# 安装本地包（ROS 依赖由系统提供）
+# 安装本地包（ROS 依赖由系统提供；必须 --no-deps，否则会去 PyPI 找 rclpy 失败）
 uv pip install -e submodules/ros2_robot_interface --no-deps
 uv pip install numpy pyyaml
 uv pip install -e submodules/robot_action_composer --no-deps
+# 抓取生成 UI（可选）
+uv pip install "viser>=0.2"
+# 若写了 extras：不要用裸 pip；且 grasp extra 仍会解析 rclpy —— 请改用上面 --no-deps + 单独装 viser
 uv pip install -e lerobot_robot_ros2 --no-deps
 uv pip install "lerobot==0.5.1"
 uv pip install -e lerobot_camera_ros2 --no-deps
@@ -99,6 +102,31 @@ uv pip install "lerobot==0.5.1" numpy
 | `[ros2].workspace` | ROS2 工作空间，激活环境时自动 source |
 
 个人覆盖：`.fa-env.local.toml`（已 gitignore）。本地 `.fa-env.toml` 亦已 gitignore。
+
+### 常见坑：`externally-managed-environment` / 装不上 composer
+
+Ubuntu 上裸跑 `pip install ...` 往往会打到 **系统** `/usr/bin/pip`，报 PEP 668。本仓约定：
+
+1. **只在本仓库开发与配环境**（见 [`docs/ENV_THIS_CHECKOUT.md`](docs/ENV_THIS_CHECKOUT.md)）。
+2. **先确认进对了本仓 `.venv`**（不要用 `submodules/hug/.venv` 装 ros2-stack / grasp-generation；那是 HUG 专用 Python 3.10）  
+   ```bash
+   cd /home/fiveages/lerobot_ros2
+   source .venv/bin/activate
+   which python; python -c "import sys; print(sys.prefix)"
+   # 必须是 .../lerobot_ros2/.venv ，不是 /usr ，也不是 hug/.venv
+   ```
+3. **用 `uv pip`，不要用系统 `pip`**；本地包加 **`--no-deps`**（`rclpy` 来自 ROS 系统包）：
+   ```bash
+   bash scripts/setup_grasp_dev_env.sh
+   # 或手动：
+   uv pip install -e submodules/ros2_robot_interface --no-deps
+   uv pip install -e submodules/robot_action_composer --no-deps
+   uv pip install "viser>=0.2"
+   which ros2-stack grasp-generation
+   ```
+4. 若 `.venv` 残缺：删掉后重跑 `bash scripts/setup_grasp_dev_env.sh`，或 `uv venv --python python3.12 --system-site-packages .venv`。**不要**对系统 Python 加 `--break-system-packages`。
+
+运控 + 抓取冒烟：[`submodules/robot_action_composer/docs/GRASP_GENERATION.md`](submodules/robot_action_composer/docs/GRASP_GENERATION.md)。
 
 ## 说明
 

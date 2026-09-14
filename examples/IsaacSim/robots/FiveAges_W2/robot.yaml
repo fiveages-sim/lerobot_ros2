@@ -11,10 +11,12 @@ ros2_stack:
   motion:
     required: true
     preset: ocs2-fullbody
-    # true -> launch_mode:=control_only（无 RViz）；false -> full
-    headless: true
+    # true -> launch_mode:=control_only（无 RViz）；false -> full（有 RViz）
+    # 抓取联调需要 RViz 看 marker / FSM；无头再改回 true
+    headless: false
     args:
-      type: rg75
+      # 与仿真 dexhand_o7_new / 运控 EEF 一致（勿用 rg75）
+      type: linkerhand_o7
   navigation:
     required: auto
     package: robot_common_launch

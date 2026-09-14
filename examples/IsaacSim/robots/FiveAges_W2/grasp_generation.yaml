@@ -1,0 +1,34 @@
+# FiveAges W2 — grasp-generation (HUG → wrist follow). Does not replace ros2-stack.
+# Used by: grasp-generation serve --robot fiveages_w2
+#
+# Prerequisite: ros2-stack launch --robot fiveages_w2  (motion topics up)
+
+robot_key: fiveages_w2
+arm: right
+motion_frame_id: base_link
+base_frame: base_link
+
+camera_frames:
+  - head_camera
+  - head_camera_optical_frame
+  - head_link2
+
+camera_prim: /World/FiveAges_W2/Head_V1/head_link2/head_camera/head_camera
+base_prim: /World/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+
+rgb_topic: /head_camera/rgb
+depth_topic: /head_camera/depth
+info_topic: /head_camera/camera_info
+
+viser_port: 8080
+capture_dir: data/w2_head_capture
+sampling_steps: 1
+position_only: false
+# HUG 腕 → 装配 tip（仿真手挂在 tcp；env 可改 tcp 朝向，偏移用 live TF）
+hug_tip_frame: right_tcp
+control_tip_frame: right_eef
+# MANO 腕轴 → tcp 轴校正（ROS rpy deg）。恒等常错：MANO 指尖≈−X，O7 掌心偏置≈tcp 系 +Z
+# 先试 [0,-90,0]；不对再用 diagnose-orientation + 90° 步进试
+mano_to_tip_rpy_deg: [0, -90, 0]
+arrival_timeout: 8.0
+execute_default: false
