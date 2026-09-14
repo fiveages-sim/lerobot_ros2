@@ -2,8 +2,8 @@
 
 上游公开仓：[KevinyWu/hug](https://github.com/KevinyWu/hug) — **不要直接 push 我们的补丁**。
 
-公司 fork：[fiveages-sim/hug](https://github.com/fiveages-sim/hug)  
-Submodule URL（`.gitmodules`）：`git@github.com:fiveages-sim/hug.git`
+公司仓（空仓 push 公司补丁，非 GitHub Fork 按钮）：[fiveages-sim/HUG](https://github.com/fiveages-sim/HUG)  
+Submodule URL（`.gitmodules`）：`git@github.com:fiveages-sim/HUG.git`
 
 本仓以 submodule 挂在 `submodules/hug`，并带有 **公司本地提交**（uv 环境、HF 离线加载、`pcl_rgb` 推理修复、W2 smoke 脚本等）；补丁应 push 到公司 fork 的 `main`。
 
@@ -17,8 +17,16 @@ git submodule update --init submodules/hug
 
 本地 `submodules/hug` 建议 remotes：
 
-- `origin` → `git@github.com:fiveages-sim/hug.git`（日常 push）
+- `origin` → `git@github.com:fiveages-sim/HUG.git`（日常 push）
 - `upstream` → `https://github.com/KevinyWu/hug.git`（仅参考 / 同步上游）
+
+首次把本地补丁送上公司仓（**仅普通 push，无 force**）：
+
+```bash
+bash scripts/push_hug_company_remote.sh
+# 或手动：
+# cd submodules/hug && git push -u origin main
+```
 
 ## 不要提交进 git 的内容
 
