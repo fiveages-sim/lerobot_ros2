@@ -6,4 +6,4 @@
 	url = git@github.com:fiveages-sim/robot_action_composer.git
 [submodule "submodules/hug"]
 	path = submodules/hug
-	url = https://github.com/KevinyWu/hug.git
+	url = git@github.com:fiveages-sim/hug.git

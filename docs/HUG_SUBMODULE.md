@@ -2,32 +2,23 @@
 
 上游公开仓：[KevinyWu/hug](https://github.com/KevinyWu/hug) — **不要直接 push 我们的补丁**。
 
-本仓以 submodule 挂在 `submodules/hug`，并带有 **公司本地提交**（uv 环境、HF 离线加载、`pcl_rgb` 推理修复、W2 smoke 脚本等）。
+公司 fork：[fiveages-sim/hug](https://github.com/fiveages-sim/hug)  
+Submodule URL（`.gitmodules`）：`git@github.com:fiveages-sim/hug.git`
+
+本仓以 submodule 挂在 `submodules/hug`，并带有 **公司本地提交**（uv 环境、HF 离线加载、`pcl_rgb` 推理修复、W2 smoke 脚本等）；补丁应 push 到公司 fork 的 `main`。
 
 ## 别人 clone 后怎么拿到补丁
 
-当前 `.gitmodules` 仍指向上游 URL。上游 **没有** 我们的 commit SHA，因此：
-
 ```bash
 git submodule update --init submodules/hug
-# 只会落到上游能看到的历史；公司补丁需另同步
 ```
 
-**推荐（分享 / CI 前做一次）：**
+父仓记录的 gitlink SHA 指向公司 fork 上已推送的 commit（例如 `3a0e67d`）。
 
-1. 在 `fiveages-sim`（或公司 Git）建 fork：`fiveages-sim/hug`
-2. 把本机 `submodules/hug` 的分支 push 到该 fork（含补丁 commit）
-3. 改父仓 `.gitmodules`：
+本地 `submodules/hug` 建议 remotes：
 
-```gitconfig
-[submodule "submodules/hug"]
-	path = submodules/hug
-	url = git@github.com:fiveages-sim/hug.git
-```
-
-4. 父仓记录的 gitlink SHA 指向 fork 上已推送的 commit
-
-**临时（仅本机 / 内网拷贝）：** 直接拷贝整个 `submodules/hug`（含 `.git`）或 `git bundle` 传补丁 commit。
+- `origin` → `git@github.com:fiveages-sim/hug.git`（日常 push）
+- `upstream` → `https://github.com/KevinyWu/hug.git`（仅参考 / 同步上游）
 
 ## 不要提交进 git 的内容
 
