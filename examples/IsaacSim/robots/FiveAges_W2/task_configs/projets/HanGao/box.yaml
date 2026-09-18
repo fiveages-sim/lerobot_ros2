@@ -1,0 +1,209 @@
+# 任务总标题：FiveAges W2机器人上下料
+task_key: move cartons
+label: 搬箱子
+use_stamped: true
+default_scene: default
+
+#==================== 全局运行限制参数 ====================
+runtime_defaults:
+  max_stage_duration: 4.0                  # 单段并行任务最大允许执行时长(秒)
+  pose_tol_pos: 0.05                       # 末端/底盘到达判定：位置误差阈值(m)
+  pose_tol_ori: 0.08                       # 末端/底盘到达判定：姿态四元数误差阈值
+  base_link_entity_path: /World/FiveAges_W2/Linkhou_S2/base_footprint/base_link  # 机器人基坐标系USD路径
+
+#==================== 技能预设参数库 ====================
+skill_defaults:
+  single_arm.pick:
+    object_prim_path: /World/scene/boxes/box_3/Mesh_2  # 待抓取工件USD路径
+    object_position_offset: [0, 0, 0]          # 抓取点相对工件原点三维偏移
+
+  pre_movej:
+    body_positions: [ -1.2396, -2.3185, -1.1882, 0.0011 ]
+    left_arm_positions: [ 0.5184, 0.4648, 0.8485, 0.4755, 0.5488, 0.5237, 0.4881 ]
+    right_arm_positions: [ 0.5384, -0.4819, 0.8531, -0.4817, 0.4507, -0.5444, 0.5689 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pick_movej:
+    body_positions: [ -1.2, -2.5, -1.18, 0.0 ]
+    left_arm_positions: [ 1.0971, -0.8093, -0.4026, -0.9484, 0.3920, 0.0324, 0.7388 ]
+    right_arm_positions: [ -1.0458, -0.8818, 0.3915, -0.8052, -0.4586, -0.0868, -0.8240 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_left_arm: # 左臂预备
+    arm: left                      # 控制臂：左臂
+    motion_frame_id: arm_base       # 位姿参考坐标系：机械臂基座
+    position: [ 0.5815, 0.5099, 0.7106 ]  # 末端笛卡尔坐标 [x,y,z]
+    orientation: [ -0.4941, 0.5818, -0.4985, 0.4109 ]  # 姿态四元数 [qx,qy,qz,qw]
+
+  pre_right_arm: # 右臂预备
+    arm: right                    # 控制臂：右臂
+    motion_frame_id: arm_base       # 位姿参考坐标系：机械臂基座
+    position: [ 0.5702, -0.5212, 0.7227 ]  # 末端笛卡尔坐标 [x,y,z]
+    orientation: [ 0.4649, 0.5675, 0.5314, 0.4235 ]  # 姿态四元数 [qx,qy,qz,qw]
+
+  drag_up_r:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.0, 0.0, 0.25 ]
+    gripper: 0.0
+
+  drag_up_l:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.0, 0.0, 0.25 ]
+    gripper: 0.0
+
+  init_movej:
+    body_positions: [-0.3, -0.6, -0.35, 0.0]
+    left_arm_positions: [-0.638, 1.528, 1.562, -1.680, 0.0, -0.787, 0.0]
+    right_arm_positions: [0.638, 1.528, -1.562, -1.680, 0.0, -0.787, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  carry_movej:
+    body_positions: [ -0.8, -1.6, -0.8, 0.0 ]
+    left_arm_positions: [ 0.9220, -0.4955, -0.3492, -1.4144, 0.2419, 0.1856, 0.5041 ]
+    right_arm_positions: [ -0.8759, -0.4635, 0.2909, -1.3835, -0.2533, 0.1154, -0.5044 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+  # -------- 底盘导航分段点位预设 --------
+  nav_1:
+    x: -0.3
+    y: 0.0
+    yaw: 0
+    timeout: 60.0  # 导航超时阈值，超时判定任务失败
+  nav_11:
+    x: 1.14
+    y: 0.93
+    yaw: 1.575
+    timeout: 60.0
+  nav_12:
+    x: 2.0
+    y: 0.93
+    yaw: 1.575
+    timeout: 60.0
+  nav_2:
+    x: 2.02
+    y: 1.83
+    yaw: 3.1414
+    timeout: 60.0
+  nav_13:
+    x: -0.15
+    y: 1.83
+    yaw: 0.0
+    timeout: 60.0
+  nav_21:
+    x: -0.3
+    y: 2.6
+    yaw: 0.0
+    timeout: 60.0
+  nav_22:
+    x: 1.18
+    y: 2.6
+    yaw: -1.57
+    timeout: 60.0
+#  preplace_movej:
+#    body_positions: [ -0.9064, -1.9055, -0.9353, -0.0006 ]
+#    left_arm_positions: [ 1.0873, -0.6889, -0.3885, -1.2229, 0.3370, 0.2118, 0.7220 ]
+#    right_arm_positions: [ -1.2542, -0.5854, 0.4964, -1.2506, -0.4254, 0.1427, -0.8329 ]
+#    head_positions: [ 0.0, 0.18 ]
+#    arrival_timeout: 30.0
+#    joint_tolerance: 0.05
+#    body_movej_duration: 2.0
+#    resume_ocs2: false
+
+  preplace_movej:
+    body_positions: [ -1.0931, -2.2044, -1.0969, 0.0015 ]
+    left_arm_positions: [ 1.1754, -0.7801, -0.5725, -1.1054, 0.4831, 0.1987, 0.7500 ]
+    right_arm_positions: [ -1.1343, -0.7721, 0.5333, -1.0187, -0.5127, 0.1727, -0.7698 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  place_movej:
+    body_positions: [ -1.1875, -2.4085, -1.1897, -0.0002 ]
+    left_arm_positions: [ 1.3174, -0.5139, -0.8472, -0.7557, 0.8114, 0.1639, 1.0388 ]
+    right_arm_positions: [ -1.3957, -0.5325, 0.8708, -0.8887, -0.7935, 0.0542, -1.0476 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+#==================== 任务执行队列（底盘行走+右臂摆动并行执行） ====================
+task_queue:
+#    最左边的物块
+  - skill: joint.movej_to_config
+    id: pick_movej
+  - parallel:
+      - skill: single_arm.move_relative
+        id: drag_up_l
+      - skill: single_arm.move_relative
+        id: drag_up_r
+  - skill: joint.movej_to_config
+    id: carry_movej
+  - skill: nav.navigate_to_pose
+    id: nav_1
+  - skill: nav.navigate_to_pose
+    id: nav_13
+  - skill: joint.movej_to_config
+    id: preplace_movej
+
+# 第二块
+#  - skill: joint.movej_to_config
+#    id: pick_movej
+#  - parallel:
+#      - skill: single_arm.move_relative
+#        id: drag_up_l
+#      - skill: single_arm.move_relative
+#        id: drag_up_r
+#  - skill: joint.movej_to_config
+#    id: carry_movej
+#  - skill: nav.navigate_to_pose
+#    id: nav_1
+#  - skill: nav.navigate_to_pose
+#    id: nav_21
+#  - skill: nav.navigate_to_pose
+#    id: nav_22
+#  - skill: joint.movej_to_config
+#    id: preplace_movej
+
+#  第三块
+#  - skill: joint.movej_to_config
+#    id: pick_movej
+#  - parallel:
+#      - skill: single_arm.move_relative
+#        id: drag_up_l
+#      - skill: single_arm.move_relative
+#        id: drag_up_r
+#  - skill: joint.movej_to_config
+#    id: carry_movej
+#  - skill: nav.navigate_to_pose
+#    id: nav_1
+#  - skill: nav.navigate_to_pose
+#    id: nav_11
+#  - skill: joint.movej_to_config
+#    id: preplace_movej
+
+
+
+#==================== 场景预设配置 ====================
+scene_presets:
+  default: {}  # 默认场景无额外加载参数

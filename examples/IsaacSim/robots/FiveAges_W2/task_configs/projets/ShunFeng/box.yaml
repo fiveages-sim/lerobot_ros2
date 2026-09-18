@@ -1,0 +1,145 @@
+task_key: Express carton handling
+label: 顺丰搬箱子
+use_stamped: true
+default_scene: default
+
+#==================== 全局运行限制参数 ====================
+runtime_defaults:
+  max_stage_duration: 4.0                  # 单段并行任务最大允许执行时长(秒)
+  pose_tol_pos: 0.05                       # 末端/底盘到达判定：位置误差阈值(m)
+  pose_tol_ori: 0.08                       # 末端/底盘到达判定：姿态四元数误差阈值
+  base_link_entity_path: /World/FiveAges_W2/Linkhou_S2/base_footprint/base_link  # 机器人基坐标系USD路径
+
+#==================== 技能预设参数库 ====================
+skill_defaults:
+  single_arm.pick:
+    object_prim_path: /World/scene/box/Mesh_0/Mesh_0  # 待抓取工件USD路径
+    object_position_offset: [0, 0, 0]          # 抓取点相对工件原点三维偏移
+
+  pre_movej:
+    body_positions: [ -0.6798, -1.3906, -0.6263, 0.0124 ]
+    left_arm_positions: [ 0.3424, -0.9877, -0.1860, -0.7922, 0.1651, 0.0755, 0.3748 ]
+    right_arm_positions: [ -0.2482, -1.2158, 0.0807, -0.3800, -0.1385, -0.0900, -0.3876 ]
+    head_positions: [ -0.0001, 0.0006 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+#  两个bug能work
+  pick_movej:
+    body_positions: [ -0.6807, -1.3870, -0.6329, 0.0117 ]
+    left_arm_positions: [ 0.3274, -1.0586, -0.1486, -0.7577, 0.1829, 0.0878, 0.3555 ]
+    right_arm_positions: [ -0.2821, -1.1549, 0.0945, -0.5482, -0.1632, -0.0482, -0.3563 ]
+    head_positions: [ -0.0001, 0.0006 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+  lift_movej:
+    body_positions: [ -0.6793, -1.3880, -0.6171, 0.0096 ]
+    left_arm_positions: [ 0.1137, -1.2721, -0.0673, -0.3585, 0.1256, -0.1034, 0.2318 ]
+    right_arm_positions: [ -0.0927, -1.3344, 0.0391, -0.2026, -0.1057, -0.2045, -0.2225 ]
+    head_positions: [ -0.0001, 0.0006 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre_left_arm: # 左臂预备
+    arm: left                      # 控制臂：左臂
+    motion_frame_id: arm_base       # 位姿参考坐标系：机械臂基座
+    position: [ 0.5815, 0.5099, 0.7106 ]  # 末端笛卡尔坐标 [x,y,z]
+    orientation: [ -0.4941, 0.5818, -0.4985, 0.4109 ]  # 姿态四元数 [qx,qy,qz,qw]
+
+  pre_right_arm: # 右臂预备
+    arm: right                    # 控制臂：右臂
+    motion_frame_id: arm_base       # 位姿参考坐标系：机械臂基座
+    position: [ 0.5702, -0.5212, 0.7227 ]  # 末端笛卡尔坐标 [x,y,z]
+    orientation: [ 0.4649, 0.5675, 0.5314, 0.4235 ]  # 姿态四元数 [qx,qy,qz,qw]
+
+  drag_up_r:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.0, 0.0, 0.25 ]
+    gripper: 0.0
+
+  drag_up_l:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.0, 0.0, 0.25 ]
+    gripper: 0.0
+
+  carry_movej:
+    body_positions: [ -0.8, -1.6, -0.8, 0.0 ]
+    left_arm_positions: [ 0.9220, -0.4955, -0.3492, -1.4144, 0.2419, 0.1856, 0.5041 ]
+    right_arm_positions: [ -0.8759, -0.4635, 0.2909, -1.3835, -0.2533, 0.1154, -0.5044 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+  # -------- 底盘导航分段点位预设 --------
+  nav_1:
+    x: -1.49
+    y: 0.0
+    yaw: -1.51
+    timeout: 60.0
+  nav_2:
+    x: -1.49
+    y: -0.94
+    yaw: -1.51
+    timeout: 60.0
+#  nav_3:
+#    x: -1.475
+#    y: -0.9
+#    yaw: -1.52
+#    timeout: 60.0
+  nav_3:
+    x: -1.477
+    y: -0.882
+    yaw: -1.51
+    timeout: 60.0
+
+  preplace_movej:
+    body_positions: [ -0.7454, -1.5070, -0.6870, 0.0105 ]
+    left_arm_positions: [ 0.1309, -1.0535, -0.0298, -0.8241, 0.1575, 0.1557, 0.2004 ]
+    right_arm_positions: [ -0.1539, -0.9742, 0.0422, -0.7721, -0.1206, 0.0291, -0.2302 ]
+    head_positions: [ -0.0001, 0.0006 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  place_movej:
+    body_positions: [ -0.6772, -1.3915, -0.6026, 0.0123 ]
+    left_arm_positions: [ 0.0905, -1.1109, 0.0686, -0.4809, 0.2768, -0.0442, 0.2773 ]
+    right_arm_positions: [ -0.1016, -1.0803, -0.0187, -0.4846, -0.1872, -0.1246, -0.2619 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+
+#==================== 任务执行队列====================
+task_queue:
+#  - skill: joint.movej_to_config
+#    id: pre_movej
+  - skill: joint.movej_to_config
+    id: pick_movej
+  - skill: joint.movej_to_config
+    id: lift_movej
+#  - skill: nav.navigate_to_pose
+#    id: nav_1
+#  - skill: joint.movej_to_config
+#    id: preplace_movej
+#  - skill: nav.navigate_to_pose
+#    id: nav_2
+  - skill: nav.navigate_to_pose
+    id: nav_3
+#==================== 场景预设配置 ====================
+scene_presets:
+  default: {}  # 默认场景无额外加载参数
