@@ -42,7 +42,7 @@ grasp-generation serve --robot fiveages_w2 --workspace .
 - SDK 接口：[docs …/wuji-sdk/…/retargeting](https://docs.wuji.tech/docs/en/wuji-sdk/latest/retargeting/)
 - **本仓集成说明：** [`WUJI_RETARGETING.md`](WUJI_RETARGETING.md)（I/O、双路径、与 HUG 同风格的干净依赖）
 
-本地已就绪（2026-09）：`submodules/wuji-retargeting` clone + 父仓 `.venv` 中 `wuji-sdk`；`RetargetSession` 冒烟通过。
+本地已就绪：公司 submodule [`WUJI_RETARGETING_SUBMODULE.md`](WUJI_RETARGETING_SUBMODULE.md)；父仓 `.venv` 中 `wuji-sdk`。
 
 **产品化路径（推荐写入我们栈）：** `pip install wuji-sdk` → `RetargetSession`
 
