@@ -1,91 +1,73 @@
-# 里程碑：W2 头相机 × HUG 联调（2026-09）
+# 里程碑：W2 头相机 × HUG 联调（更新 2026-09）
 
 ## 结论
 
-**Phase 1 + 2A + 2A.1 平移对齐：已通。**  
-头相机 → HUG → Viser → `right_tcp` 映射 → `right_eef` 命令；用户确认 **O7 掌跟与 dry 目标基本重合**。
+**Phase 1 + 2A（O7）：已通。** 头相机 → HUG → Viser → `right_tcp`→`right_eef` 跟腕（含姿态轴校正）。
 
-**当前默认不跟姿态：** `position_only: true`（掌心朝向不变是配置行为）。详见 [`SIM_GRASP_EE_ALIGN.md`](SIM_GRASP_EE_ALIGN.md)。
+**当前主线：Wuji Hand2。** 仿真 `wuji_hand2_new.usda`；运控 `type: wuji_hand2`；先复现腕跟，再接 **wuji-sdk RetargetSession** 做 MANO→20 关节。详见 [`SIM_GRASP_WUJI_HAND2.md`](SIM_GRASP_WUJI_HAND2.md)。
 
-### 实测观感（用户确认）
+### 实测（O7，用户确认）
 
-- 近桌点击：HUG 人手贴合好、推理快；Viser 点云 + 绿手可用
-- **tcp / 掌跟与 dry 目标基本重合**（tip live-TF 映射后）
-- 掌心朝向暂不随 HUG 翻转（`position_only`）
+- 近桌 HUG 贴合好；Viser 点云 + 绿手可用  
+- tcp/掌跟与 dry 基本重合；`mano_to_tip_rpy` 后可跟翻转  
 
 ### 已知局限
 
 | 现象 | 说明 |
 |------|------|
-| 姿态未跟随 | **配置**：`position_only`；关后可跟 HUG 腕旋（注意自碰） |
-| MANO「掌」几何可变 vs 机器人 tcp→eef 固定 | 臂阶段只对齐 **腕↔tcp**；掌心用刚体偏置 |
-| 人手大小 / 右手 / O7 做不到的手型 | 2B retarget；不改 HUG 权重 |
+| 手指未跟 | **2B**：Wuji retarget（非改 HUG） |
+| MANO 可变 vs 机器人刚体 tip | 腕对齐 tcp；eef 用 live TF |
+| Plan 用当前 TF 外参 | 拍照后头勿大动；可后冻 capture 外参 |
 
 ### 已具备 / 未具备
 
 | 已具备 | 未具备 |
 |--------|--------|
-| RGB-D + HUG + Viser | `position_only: false` 姿态跟腕验收 |
-| `hug_tip=tcp` → `control=eef` live TF | MANO→O7 指关节（2B） |
-| `diagnose-frames` + 新 env 适配说明 | 可行性过滤、`dex.auto_grasp`、采数 |
-
-测试入口：[`SIM_GRASP_HUG_TEST_GUIDE.md`](SIM_GRASP_HUG_TEST_GUIDE.md)、[`SIM_GRASP_EE_ALIGN.md`](SIM_GRASP_EE_ALIGN.md)。
+| O7 腕跟 + 诊断 CLI | **Wuji 腕跟验收**（配置已切） |
+| tip / 轴映射经验 | MANO→Hand2 `RetargetSession` |
+| 文档与双 Python 环境 | Viser 指关节步进、采数闭环 |
 
 ---
 
-## 后续计划（HUG 不动权重，下游适配）
-
-原则：**HUG = 相机系人类抓取先验；composer = 机器人化。** 臂对齐先于手指。
+## 路线图
 
 ```text
 RGB-D + click
-    → HUG (MANO, camera)                 ← 已通，冻结黑盒
-    → T_cam_wrist → T_base_wrist         ← 已通（TF head_camera）
-    → **腕定义 → OCS2 tip 映射**         ← 当前 2A.1
-    → 臂 IK / send_target_stamped        ← 已通，待对齐后验收 cm 级
-    → MANO → O7 retarget（指）           ← 2B
-    → 可行性过滤 → dex.auto_grasp → 采数
+  → HUG (MANO)                         ← 冻结黑盒
+  → T_cam_wrist → tip map (tcp→eef)    ← 2A 已通（O7）；2A-W 复现于 Wuji
+  → landmarks_21 → wuji RetargetSession ← 2B（当前规划）
+  → send_target_stamped + hand q[20]
+  → 可行性 → dex.auto_grasp → 采数
 ```
 
-### Phase 2A.1 — HUG 腕 ↔ 臂 tip（平移已通）
+### Phase 2A-W — Wuji 腕跟（进行中）
 
-文档：[`SIM_GRASP_EE_ALIGN.md`](SIM_GRASP_EE_ALIGN.md)（含新 env 改哪些 yaml）。
+1. Isaac：`wuji_hand2_new.usda`  
+2. `robot.yaml`：`type: wuji_hand2`（已改）  
+3. `diagnose-frames` / serve：确认 `eef−tcp≈7cm`，掌跟贴 dry  
 
-1. ~~diagnose-frames / tip 映射~~ → **`right_tcp`→`right_eef` live TF 已落地**
-2. 可选：`position_only: false` 跟 HUG 腕姿态
-3. 再进 2B 指关节
+### Phase 2B — MANO → Wuji Hand2
 
-### Phase 2A — 坐标系与臂
+见 [`SIM_GRASP_WUJI_HAND2.md`](SIM_GRASP_WUJI_HAND2.md)：
 
-| 项 | 状态 |
-|----|------|
-| Capture → click → HUG → Plan/move | 已通 |
-| Viser 点云 + dry MANO | 已通 |
-| tip 映射（tcp→eef） | **平移已通** |
-| 姿态跟随 | 默认关（`position_only`） |
-### Phase 2B — MANO→O7 retarget（手指，对齐后）
+1. `retarget/` + `wuji_sdk.RetargetSession`  
+2. CLI / Viser「指关节」步进  
+3. 闸门与 `session.reset()`  
 
-1. MANO 指尖 → O7 关节映射 + 限幅  
-2. 尺度归一；右手优先  
-3. **不**微调 HUG
+（`linkerhand_o7` 手指另作 `hand_profile`，不阻塞 Hand2。）
 
 ### Phase 2C / 2D / 3
 
-可行性闸门 → `dex.auto_grasp` → 自动采数（同前，不变）。
+可行性 → `dex.auto_grasp` → 自动采数。
 
 ---
 
-## 明确不做（本阶段）
+## 明确不做
 
-- 微调 / 重训 HUG 去拟合 O7  
-- Newton 第一优先  
-- 未同意前改 FaSim / fa_w2_ws / USD  
-- 推送 `submodules/hug` 远程  
+- 微调 HUG；未同意改 FaSim / fa_w2_ws  
+- 本阶段不 push 各开发分支（除非另行通知）  
 
----
+## 建议下一动作
 
-## 建议下一迭代
-
-1. 保持 `position_only` 多测近桌稳定性；需要翻转时再开 `position_only: false`
-2. 新 env：按 [`SIM_GRASP_EE_ALIGN.md`](SIM_GRASP_EE_ALIGN.md) 改 `robot.yaml` + `grasp_generation.yaml`
-3. 姿态可接受后再开 **2B** 指关节 retarget
+1. 开 `wuji_hand2_new` + `ros2-stack`（确认 `wuji_hand2`）→ 跟腕验收  
+2. 通过后装 `wuji-sdk`，实现 `retarget-hand` MVP  

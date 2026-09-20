@@ -7,3 +7,6 @@
 [submodule "submodules/hug"]
 	path = submodules/hug
 	url = git@github.com:fiveages-sim/HUG.git
+[submodule "submodules/wuji-retargeting"]
+	path = submodules/wuji-retargeting
+	url = git@github.com:fiveages-sim/wuji-retargeting.git

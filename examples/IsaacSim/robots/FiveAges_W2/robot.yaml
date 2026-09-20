@@ -15,8 +15,8 @@ ros2_stack:
     # 抓取联调需要 RViz 看 marker / FSM；无头再改回 true
     headless: false
     args:
-      # 与仿真 dexhand_o7_new / 运控 EEF 一致（勿用 rg75）
-      type: linkerhand_o7
+      # 仿真 env/wuji_hand2_new.usda；切回 O7 时改为 linkerhand_o7 + dexhand_o7_new
+      type: wuji_hand2
   navigation:
     required: auto
     package: robot_common_launch

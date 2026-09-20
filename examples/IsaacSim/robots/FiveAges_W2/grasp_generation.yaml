@@ -1,7 +1,9 @@
 # FiveAges W2 — grasp-generation (HUG → wrist follow). Does not replace ros2-stack.
 # Used by: grasp-generation serve --robot fiveages_w2
 #
-# Prerequisite: ros2-stack launch --robot fiveages_w2  (motion topics up)
+# Prerequisite:
+#   Isaac: FaSim .../W2/env/wuji_hand2_new.usda (Play)
+#   ros2-stack launch --robot fiveages_w2   # motion type:=wuji_hand2
 
 robot_key: fiveages_w2
 arm: right
@@ -21,14 +23,22 @@ depth_topic: /head_camera/depth
 info_topic: /head_camera/camera_info
 
 viser_port: 8080
-capture_dir: data/w2_head_capture
+capture_dir: data/w2_wuji_head_capture
 sampling_steps: 1
 position_only: false
-# HUG 腕 → 装配 tip（仿真手挂在 tcp；env 可改 tcp 朝向，偏移用 live TF）
-hug_tip_frame: right_tcp
-control_tip_frame: right_eef
-# MANO 腕轴 → tcp 轴校正（ROS rpy deg）。恒等常错：MANO 指尖≈−X，O7 掌心偏置≈tcp 系 +Z
-# 先试 [0,-90,0]；不对再用 diagnose-orientation + 90° 步进试
+# Hand mounts on tcp (same as O7). Current Wuji assembly: palm/finger +Z aligned with
+# tcp like O7; eef offset differs (hand_base→eef ≈ +0.07 Z) — use live TF, do not hardcode.
+# Tip frames follow selected arm (Viser dropdown left|right)
+hug_tip_frame: "{arm}_tcp"
+control_tip_frame: "{arm}_eef"
+# MANO −X ≈ fingers; robot tip +Z ≈ fingers (Wuji hand_base / O7-compatible)
 mano_to_tip_rpy_deg: [0, -90, 0]
+# Phase 2B: fingers via wuji-sdk; HUG MANO is right — same q can drive left controller
+hand_profile: wuji_hand2
+keypoint_rpy_deg: [0.0, 0.0, 0.0]
+hug_mano_is_right: true
+# Amplify retarget curl (keep shape; deepen inward). UI slider = this gain.
+squeeze_amount: 0.5
+thumb_abd_boost: 1.25
 arrival_timeout: 8.0
 execute_default: false
