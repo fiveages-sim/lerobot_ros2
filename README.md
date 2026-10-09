@@ -32,10 +32,12 @@ cd lerobot_ros2
 # 2) 安装 uv（若尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 3) 全量初始化（子模块 + 环境 + 任务编排 + lerobot）
-./init.sh all
-# 仅任务编排（不含 lerobot）：
-# ./init.sh all-motion
+# 3) 任务编排 + 抓取 CLI（子模块 + 环境 + interface/composer/viser/wuji-sdk）
+./init.sh all-motion
+# 另需 HUG 推理（独立 Python 3.10 venv）：
+# ./init.sh hug-env
+# 全量含 lerobot 录制/推理（不含 HUG）：
+# ./init.sh all
 source .venv/bin/activate   # 默认 backend=uv
 ```
 
@@ -46,7 +48,9 @@ source .venv/bin/activate   # 默认 backend=uv
 - **一键执行**：6 仅任务编排 / 7 任务编排 + lerobot
 - **配置**：8 安装 uv 或 Miniconda / 9 配置镜像 / 10 ROS2 工作空间 / 11 切换 backend
 
-仅跑 `motion-generation` 时，执行 **4** 或 **`./init.sh all-motion`** 即可；录制 / 推理需 **5** 或 **`./init.sh install-lerobot`**。
+仅跑 `motion-generation` / `grasp-generation` / `ros2-stack` 时，执行 **4** 或 **`./init.sh all-motion`** 即可（已含 viser 与 wuji-sdk）。  
+HUG 权重与 3.10 环境：交互菜单 **h** 或 **`./init.sh hug-env`**。  
+录制 / 策略推理： **5** 或 **`./init.sh install-lerobot`**。
 
 切换 backend：
 
@@ -117,14 +121,10 @@ Ubuntu 上裸跑 `pip install ...` 往往会打到 **系统** `/usr/bin/pip`，�
    ```
 3. **用 `uv pip`，不要用系统 `pip`**；本地包加 **`--no-deps`**（`rclpy` 来自 ROS 系统包）：
    ```bash
-   bash scripts/setup_grasp_dev_env.sh
-   # 或手动：
-   uv pip install -e submodules/ros2_robot_interface --no-deps
-   uv pip install -e submodules/robot_action_composer --no-deps
-   uv pip install "viser>=0.2"
-   which ros2-stack grasp-generation
+   ./init.sh all-motion
+   which ros2-stack grasp-generation motion-generation
    ```
-4. 若 `.venv` 残缺：删掉后重跑 `bash scripts/setup_grasp_dev_env.sh`，或 `uv venv --python python3.12 --system-site-packages .venv`。**不要**对系统 Python 加 `--break-system-packages`。
+4. 若 `.venv` 残缺：删掉后重跑 `./init.sh env && ./init.sh install`。**不要**对系统 Python 加 `--break-system-packages`。
 
 运控 + 抓取冒烟：[`submodules/robot_action_composer/docs/GRASP_GENERATION.md`](submodules/robot_action_composer/docs/GRASP_GENERATION.md)。
 

@@ -55,3 +55,6 @@ external/
 **/dataset/
 **/raw_dataset/
 **/lerobot_dataset/
+
+# Local-only trees (not git submodules — do not commit)
+/submodules/lerobot/

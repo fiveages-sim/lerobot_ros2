@@ -15,18 +15,21 @@ ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
   echo "用法: $0 [submodules|update-submodules|env [python版本]|install [--conda|--uv]|"
-  echo "      install-plugins|install-lerobot|set-backend conda|uv|install-uv|install-miniconda|"
-  echo "      pypi-mirror|uv-mirror|conda-runtime|ros2-workspace [--all]|all-motion|all [python版本]]"
+  echo "      install-plugins|install-lerobot|hug-env|set-backend conda|uv|install-uv|install-miniconda|"
+  echo "      pypi-mirror|uv-mirror|conda-runtime|ros2-workspace [--all]|"
+  echo "      all-motion|all-grasp|all [python版本]]"
   echo
   echo "执行链路:"
-  echo "  submodules         初始化子模块（git submodule update --init）"
+  echo "  submodules         初始化子模块（git submodule update --init --recursive）"
   echo "  update-submodules  将所有子模块更新到 origin/main"
   echo "  env                按 .fa-env.toml 的 backend 创建环境"
-  echo "  install            安装任务编排（ros2_robot_interface + robot_action_composer）"
+  echo "  install            安装任务编排 + 抓取 extras（interface + composer + viser + wuji-sdk）"
   echo "  install-plugins    安装 PyTorch + PyPI lerobot + 插件包"
   echo "  install-lerobot    同 install-plugins"
-  echo "  all-motion         顺序执行 submodules + env + install（仅任务编排）"
-  echo "  all                顺序执行 submodules + env + install + install-plugins（全量）"
+  echo "  hug-env            配置 HUG 独立 venv（Python 3.10，submodules/hug）"
+  echo "  all-motion         子模块 + 环境 + 任务编排/抓取 CLI（不含 HUG 权重、不含 lerobot）"
+  echo "  all-grasp          all-motion + hug-env"
+  echo "  all                all-motion + install-plugins（全量；HUG 仍需 hug-env）"
   echo
   echo "配置:"
   echo "  set-backend        修改 .fa-env.toml 中 backend (conda/uv)"
@@ -277,8 +280,30 @@ install_projects() {
     lr_env_activate "$ROOT_DIR"
     lr_env_install_editable "$interface_dir"
     lr_env_install_editable "$rac_dir"
+    # Grasp UI + Wuji Hand2 retarget (optional extra on composer; keep in the same env)
+    echo ">>> 安装 grasp extras: viser + wuji-sdk"
+    lr_env_pip_install "viser>=0.2"
+    lr_env_pip_install "wuji-sdk>=0.10.0"
   )
-  echo ">>> 安装完成。"
+  echo ">>> 安装完成（含 grasp-generation / ros2-stack）。"
+}
+
+setup_hug_env() {
+  local hug_dir="$ROOT_DIR/submodules/hug"
+  local setup_script="$hug_dir/scripts/setup_uv.sh"
+
+  if [[ ! -d "$hug_dir" ]]; then
+    echo "未找到 $hug_dir 。请先 ./init.sh submodules"
+    exit 1
+  fi
+  if [[ ! -f "$setup_script" ]]; then
+    echo "未找到 $setup_script（HUG 子模块未检出完整）。请先 ./init.sh submodules"
+    exit 1
+  fi
+  echo ">>> 配置 HUG 独立环境（Python 3.10，不混入父仓 .venv）"
+  bash "$setup_script"
+  echo ">>> HUG 环境完成。激活: source $hug_dir/.venv/bin/activate"
+  echo ">>> 父仓 grasp-generation / ros2-stack 仍用: source $ROOT_DIR/.venv/bin/activate"
 }
 
 install_plugins() {
@@ -342,7 +367,7 @@ install_plugins() {
 
 install_motion_stack() {
   lr_env_load_config "$ROOT_DIR"
-  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装任务编排栈（interface + robot_action_composer）"
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装任务编排 + 抓取 CLI（interface + composer + viser + wuji-sdk）"
   install_projects
 }
 
@@ -494,6 +519,12 @@ run_all_motion() {
   install_motion_stack
 }
 
+run_all_grasp() {
+  local python_version="${1:-}"
+  run_all_motion "$python_version"
+  setup_hug_env
+}
+
 run_all_full() {
   local python_version="${1:-}"
   run_all_motion "$python_version"
@@ -510,12 +541,14 @@ interactive_menu() {
   echo
   echo "  [环境与安装]"
   echo "    3) 按当前 backend 创建环境"
-  echo "    4) 安装任务编排（interface + robot_action_composer）"
+  echo "    4) 安装任务编排 + 抓取 CLI（interface + composer + viser + wuji-sdk）"
   echo "    5) 安装 lerobot 相关（PyTorch + lerobot + 插件）"
+  echo "    h) 配置 HUG 独立 venv（Python 3.10）"
   echo
   echo "  [一键执行]"
-  echo "    6) 全部执行（任务编排：子模块 + 环境 + 安装）"
+  echo "    6) 全部执行（任务编排 + 抓取 CLI：子模块 + 环境 + 安装）"
   echo "    7) 全部执行（任务编排 + lerobot）"
+  echo "    g) 全部执行（任务编排 + 抓取 CLI + HUG）"
   echo
   echo "  [配置]"
   if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
@@ -556,6 +589,13 @@ interactive_menu() {
       ;;
     5)
       install_lerobot_stack
+      ;;
+    h|H)
+      setup_hug_env
+      ;;
+    g|G)
+      read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
+      run_all_grasp "${input_python_version:-$DEFAULT_PYTHON_VERSION}"
       ;;
     6)
       read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
@@ -644,8 +684,14 @@ main() {
     uv-mirror)
       configure_uv_mirror
       ;;
+    hug-env)
+      setup_hug_env
+      ;;
     all-motion)
       run_all_motion "${2:-}"
+      ;;
+    all-grasp)
+      run_all_grasp "${2:-}"
       ;;
     all)
       run_all_full "${2:-}"

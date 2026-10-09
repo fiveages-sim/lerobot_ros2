@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Prepare Wuji retargeting deps (like HUG local setup).
+# Optional OSS / nested-MuJoCo helper. Product path is already:
+#   ./init.sh install   # installs wuji-sdk into the parent .venv
+# Use this only when you need the open-source retargeting tree or nested sim.
 # - Ensure company submodule / clone under submodules/wuji-retargeting (NO nested recurse)
-# - pip install wuji-sdk into parent .venv (product path)
+# - pip install wuji-sdk into parent .venv
 # - Optional: --editable-oss / --recursive-nested
 set -euo pipefail
 
