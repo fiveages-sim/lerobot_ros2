@@ -1,10 +1,18 @@
-# FiveAges W2 — grasp-generation (HUG → wrist follow). Does not replace ros2-stack.
-# Used by: grasp-generation serve --robot fiveages_w2
+# FiveAges W2 + Wuji Hand2 — grasp-generation profile (reference template).
 #
-# Prerequisite:
-#   Isaac: FaSim .../W2/env/wuji_hand2_new.usda (Play)
-#   ros2-stack launch --robot fiveages_w2   # motion type:=wuji_hand2
+# Launch (same style as motion-generation):
+#   cd examples/IsaacSim
+#   ros2-stack launch --robot fiveages_w2          # terminal A
+#   grasp-generation                              # terminal B (interactive)
+#   # or: grasp-generation serve --robot fiveages_w2 --workspace .
+#
+# New robot / hand:
+#   1) Copy this file to robots/<YourRobot>/grasp_generation.yaml
+#   2) Set robot_key, camera topics/frames, tip frames, hand_profile
+#   3) Add execution profile under grasp_generation/execution/profiles/ if needed
+# Does NOT replace motion-generation task queues.
 
+# --- robot / camera -------------------------------------------------
 robot_key: fiveages_w2
 arm: right
 motion_frame_id: base_link
@@ -26,19 +34,46 @@ viser_port: 8080
 capture_dir: data/w2_wuji_head_capture
 sampling_steps: 1
 position_only: false
-# Hand mounts on tcp (same as O7). Current Wuji assembly: palm/finger +Z aligned with
-# tcp like O7; eef offset differs (hand_base→eef ≈ +0.07 Z) — use live TF, do not hardcode.
-# Tip frames follow selected arm (Viser dropdown left|right)
+
+# --- wrist tip mapping (HUG MANO → OCS2) ----------------------------
+# Hand mounts on tcp (same as O7). Use live TF; do not hardcode tip offset.
 hug_tip_frame: "{arm}_tcp"
 control_tip_frame: "{arm}_eef"
-# MANO −X ≈ fingers; robot tip +Z ≈ fingers (Wuji hand_base / O7-compatible)
+# MANO −X ≈ fingers; robot tip +Z ≈ fingers (Wuji / O7-compatible)
 mano_to_tip_rpy_deg: [0, -90, 0]
-# Phase 2B: fingers via wuji-sdk; HUG MANO is right — same q can drive left controller
+
+# --- dex hand (swap hand_profile for another registered profile) ----
 hand_profile: wuji_hand2
 keypoint_rpy_deg: [0.0, 0.0, 0.0]
 hug_mano_is_right: true
-# Amplify retarget curl (keep shape; deepen inward). UI slider = this gain.
 squeeze_amount: 0.5
 thumb_abd_boost: 1.25
+
+# --- close executors B0–B5 (Viser dropdown; B4 recommended) ---------
+close_executor: B4
+close_steps: 40
+close_dt_s: 0.04
+contact_hold_frames: 2
+min_contact_fingers: 2
+freeze_mode: keep_tip
+ramp_steps: 25
+ramp_amount: 0.18
+tip_ramp_boost: 0.35
+tip_pinch_steps: 12
+tip_pinch_amount: 0.25
+wrist_press_m: 0.008
+wrist_press_axis: tip_neg_z
+auto_retarget_on_close: true
+shape_steps: 30
+shape_settle_s: 0.5
+shape_use_contact_gate: false
+# World +Z lift before close (m). 0 = off. This file overrides package default.
+pre_close_lift_m: 0.0
+
+# --- contact (Isaac Wuji Sensor=contact_force) ----------------------
+contact_topic_prefix: ""
+always_log_contact: true
+object_frame: ""
+object_push_warn_m: 0.08
 arrival_timeout: 8.0
 execute_default: false
