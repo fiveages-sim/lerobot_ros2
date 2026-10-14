@@ -10,6 +10,20 @@ LeRobot 与 ROS2 的集成工程，支持通过 ROS2 话题与机器人通信。
 2. `lerobot_robot_ros2`：LeRobot 的 ROS2 机器人插件
 3. `lerobot_camera_ros2`：LeRobot 的 ROS2 相机插件
 4. `submodules/lerobot`：固定提交版本的 LeRobot 子模块
+5. `submodules/internnav_w2`：W2 DualVLN 部署脚本与文档（[`docs/INTERNAV_W2_SUBMODULE.md`](docs/INTERNAV_W2_SUBMODULE.md)）
+6. `submodules/internnav_arx_lift2s`：Lift2S DualVLN 部署脚本与文档（[`docs/INTERNAV_ARX_LIFT2S_SUBMODULE.md`](docs/INTERNAV_ARX_LIFT2S_SUBMODULE.md)）
+7. `submodules/LightNav-0_W2`：W2 LightNav-0 部署脚本与文档（[`docs/LIGHTNAV_W2_SUBMODULE.md`](docs/LIGHTNAV_W2_SUBMODULE.md)）
+
+导航这三项只挂公司胶水仓，不嵌上游 InternNav / LightNav-0。已克隆本仓的同事执行：
+
+```bash
+git submodule update --init \
+  submodules/internnav_w2 \
+  submodules/internnav_arx_lift2s \
+  submodules/LightNav-0_W2
+```
+
+然后打开对应子模块里的 Quick Start。
 
 ## 前置要求
 
