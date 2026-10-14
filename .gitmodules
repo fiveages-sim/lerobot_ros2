@@ -7,3 +7,12 @@
 [submodule "submodules/robot_action_composer"]
 	path = submodules/robot_action_composer
 	url = git@github.com:fiveages-sim/robot_action_composer.git
+[submodule "submodules/internnav_w2"]
+	path = submodules/internnav_w2
+	url = git@github.com:fiveages-sim/internnav_w2.git
+[submodule "submodules/internnav_arx_lift2s"]
+	path = submodules/internnav_arx_lift2s
+	url = git@github.com:fiveages-sim/internnav_arx_lift2s.git
+[submodule "submodules/LightNav-0_W2"]
+	path = submodules/LightNav-0_W2
+	url = git@github.com:fiveages-sim/LightNav-0_W2.git
