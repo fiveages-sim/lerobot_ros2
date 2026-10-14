@@ -37,7 +37,7 @@ RGB-D + click
   → T_cam_wrist → tip map (tcp→eef)    ← 2A 已通（O7）；2A-W 复现于 Wuji
   → landmarks_21 → wuji RetargetSession ← 2B（当前规划）
   → send_target_stamped + hand q[20]
-  → 可行性 → dex.auto_grasp → 采数
+  → 可行性 → dex_hand.auto_grasp → 采数
 ```
 
 ### Phase 2A-W — Wuji 腕跟（进行中）
@@ -58,7 +58,7 @@ RGB-D + click
 
 ### Phase 2C / 2D / 3
 
-可行性 → `dex.auto_grasp` → 自动采数。
+可行性 → `dex_hand.auto_grasp` → 自动采数。
 
 ---
 

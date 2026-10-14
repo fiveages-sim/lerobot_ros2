@@ -1,0 +1,12 @@
+# 仅覆盖 task_configs/dex_hand/，不合并进 basic_demo / projets。
+#
+# EastRural 无专用地图。勿用默认 warehouse_with_forklifts：静态障碍与空旷桌场景不一致时，
+# Nav2 会绕「假货架」走出很远。本目录提供全空闲 open map（map↔world 仍恒等）。
+# map_only = 静态图 + Isaac GT /odom；headless:false → Nav2 RViz。
+
+navigation:
+  profile: map_only
+  headless: false
+  args:
+    # 相对 examples/IsaacSim 工作目录；也可用本文件旁 maps/ 的绝对路径
+    map: robots/FiveAges_W2/task_configs/dex_hand/.meta/maps/east_rural_open/map.yaml

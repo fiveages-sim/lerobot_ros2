@@ -174,7 +174,7 @@ retarget:
 
 ### 2C+ — 技能 / 采数
 
-`dex.auto_grasp`：click → HUG → 腕到位 → retarget 合拢 → 抬起；成功标签入库。
+`dex_hand.auto_grasp`（motion skill）：特权 UV / click → HUG → 腕到位 → retarget 合拢；与 Viser / `grasp-generation auto` 共用 `run_auto_grasp`。
 
 ---
 

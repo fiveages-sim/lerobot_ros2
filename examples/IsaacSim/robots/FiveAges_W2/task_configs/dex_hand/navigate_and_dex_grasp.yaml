@@ -1,0 +1,88 @@
+# FiveAges W2 — 导航靠近物体 → 灵巧手特权 HUG 抓取（dex_hand.auto_grasp）
+#
+# 队列（顺序 2 步）：
+#   1) nav.navigate_to_object  — 世界系 XY + approach_offset → Nav2（高度 Z 不参与底盘目标）
+#   2) dex_hand.auto_grasp     — 特权 UV / HUG（用到桌子高度）
+#
+# 为何没有 parallel MoveJ navigate_gesture？
+#   旧 demo（navigate_and_pick / navigate_and_carry、Bosch port7 等）在「导航同时」
+#   用 MoveJ 收到导航姿态，避免手臂扫到货架。会与底盘抢 FSM，灵巧手冒烟先不做。
+#
+# 接近约定：
+#   approach_offset_* 仍是世界系：停在苹果西侧约 0.75m、面朝 +X。
+#   frame_id: base_footprint — 用 Isaac 位姿算机体系位移，再以 map（=odom 相对）下发。
+#   机器人在世界 x=-2 时不要再用纯世界坐标当 map 目标（会判成右后方）。
+#
+# 冒烟：
+#   Isaac：开 wuji_hand2_new.usda（USD 出生点已是 x≈-2 面朝桌子 + 合适臂姿）→ Play
+#   ros2-stack launch --robot fiveages_w2 --group dex_hand
+#   motion-generation … --scene apple；Reset env 可选 yes
+#     （reset 会回 USD 出生点；runner 会等 PhysX + map←base TF 再导航）
+#   不需要 Viser「Go home」——那是 grasp-generation serve 手动联调步骤；
+#   本队列 nav→dex：手保持 home_1 全开 → 跟腕 → 再 shape/retarget。
+#   手开合映射用本机 robot.profiles/wuji_hand2.yaml（勿改 wuji 包）；改后须重启 motion。
+#   日志：base_world=(-2,…) → odom/map-relative goal (≈1.88, ≈-0.16)（向前）
+
+task_key: navigate_and_dex_grasp
+label: Navigate then dex HUG grasp
+use_stamped: true
+default_scene: apple
+
+runtime_defaults:
+  max_stage_duration: 2.0
+  pose_tol_pos: 0.025
+  pose_tol_ori: 0.08
+  base_link_entity_path: /World/FiveAges_W2/base_link
+
+task_queue:
+  - skill: nav.navigate_to_object
+    id: nav_to_pick
+  - skill: dex_hand.auto_grasp
+
+skill_defaults:
+  nav_to_pick:
+    object_prim_path: /World/default_environment/EastRural_Table/sm_apple_a01_01
+    # 世界系接近点：苹果 −X 约 0.75m，yaw=0 面朝桌子
+    approach_offset_x: -0.9
+    approach_offset_y: 0.0
+    yaw: 0.0
+    # Isaac GT：机体系位移 → 作为 map/odom 相对目标下发（见 navigation skill）
+    frame_id: base_footprint
+    timeout: 90.0
+
+  dex_hand.auto_grasp:
+    robot_key: fiveages_w2
+    object_key: apple
+
+scene_presets:
+  apple:
+    skill_params:
+      nav_to_pick:
+        object_prim_path: /World/default_environment/EastRural_Table/sm_apple_a01_01
+      dex_hand.auto_grasp:
+        object_key: apple
+
+  banana:
+    skill_params:
+      nav_to_pick:
+        object_prim_path: /World/default_environment/EastRural_Table/banana
+        approach_offset_x: -0.70
+        approach_offset_y: 0.05
+      dex_hand.auto_grasp:
+        object_key: banana
+
+  bottle:
+    skill_params:
+      nav_to_pick:
+        object_prim_path: /World/default_environment/EastRural_Table/sm_food_beverage_beerBottle_a01_01
+        approach_offset_x: -0.80
+      dex_hand.auto_grasp:
+        object_key: bottle
+
+  lime:
+    skill_params:
+      nav_to_pick:
+        object_prim_path: /World/default_environment/EastRural_Table/sm_food_produce_lime_a02_01
+        approach_offset_x: -0.70
+      dex_hand.auto_grasp:
+        object_key: lime

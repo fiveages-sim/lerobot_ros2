@@ -1,6 +1,11 @@
 key: fiveages_w2
 label: FiveAges W2
-base_link_entity_path: /World/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+# Articulation root on FaSim W2 (wuji_hand2_new / FiveAges_W2.usda).
+# NOT Linkhou_S2/base_footprint/base_link — that prim does not exist.
+# Scene-specific overrides (e.g. /World/robot/...) stay in task runtime_defaults.
+base_link_entity_path: /World/FiveAges_W2/base_link
+# Isaac STOP→PLAY invalidates PhysX views briefly; give GT odom / entity_state time.
+post_reset_wait: 3.0
 gripper_action_wait: 2.0
 
 ros2_stack:
@@ -17,12 +22,17 @@ ros2_stack:
     args:
       # 仿真 env/wuji_hand2_new.usda；切回 O7 时改为 linkerhand_o7 + dexhand_o7_new
       type: wuji_hand2
+      # 本地覆盖：open→home_1 / close→home_3（勿改 wuji_description 包内 YAML）
+      # 见 fa_w2_ws/config/robot.profiles/wuji_hand2.yaml
+      robot_profile: /home/fiveages/fa_w2_ws/config/robot.profiles/wuji_hand2.yaml
+      use_profile_eef: "false"
   navigation:
     required: auto
     package: robot_common_launch
     launch_file: navigation_isaac_gt.launch.py
     profile: default
     # true -> use_rviz:=false；false -> 启 Nav2 RViz
+    # Dex/nav 联调开 RViz：用 task 叶子 .meta（如 task_configs/dex_hand/），勿改这里影响其它项目
     headless: true
     ready_when:
       node_name_contains: [controller_server]

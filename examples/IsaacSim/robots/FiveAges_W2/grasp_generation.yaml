@@ -24,7 +24,8 @@ camera_frames:
   - head_link2
 
 camera_prim: /World/FiveAges_W2/Head_V1/head_link2/head_camera/head_camera
-base_prim: /World/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+# Same articulation root as robot.yaml base_link_entity_path (FaSim W2).
+base_prim: /World/FiveAges_W2/base_link
 
 rgb_topic: /head_camera/rgb
 depth_topic: /head_camera/depth
@@ -46,21 +47,27 @@ mano_to_tip_rpy_deg: [0, -90, 0]
 hand_profile: wuji_hand2
 keypoint_rpy_deg: [0.0, 0.0, 0.0]
 hug_mano_is_right: true
+# B4 goal amplification (not B2 open-loop squeeze). Used as q_goal for gate/ramp.
 squeeze_amount: 0.5
 thumb_abd_boost: 1.25
+# Only scales B2 after shape. B3–B5 ignore this (see runner.py).
+post_shape_squeeze_scale: 1.0
 
-# --- close executors B0–B5 (Viser dropdown; B4 recommended) ---------
+# --- close executors B0–B5 (Viser dropdown; B4 = gate + ramp + tip_pinch) ---
 close_executor: B4
 close_steps: 40
 close_dt_s: 0.04
 contact_hold_frames: 2
 min_contact_fingers: 2
 freeze_mode: keep_tip
+# Classic B4 CoorGrasp-lite (restored). Soft-stop aborts further curl if force high.
 ramp_steps: 25
 ramp_amount: 0.18
 tip_ramp_boost: 0.35
 tip_pinch_steps: 12
 tip_pinch_amount: 0.25
+# Abort approach/ramp/pinch when peak contact force ≥ this (N). Prevents open pulse.
+soft_stop_force_n: 15.0
 wrist_press_m: 0.008
 wrist_press_axis: tip_neg_z
 auto_retarget_on_close: true
@@ -69,76 +76,77 @@ shape_settle_s: 0.5
 shape_use_contact_gate: false
 # World +Z lift before close (m). 0 = off. This file overrides package default.
 pre_close_lift_m: 0
+# Stage settles: keep hands fully open (home_1) until shape/retarget.
+# Aligns with 运控 RViz: OCS2 → Open Hand → wrist → only then close.
+fsm_hand_settle_s: 0.3
+hand_open_settle_s: 0.6
+post_wrist_settle_s: 0.5
+pre_shape_settle_s: 0.3
+# After close: re-send closed q before lift (no extra squeeze toward goal).
+post_close_firm_s: 2.0
 
 # --- contact (Isaac Wuji Sensor=contact_force) ----------------------
 contact_topic_prefix: ""
 always_log_contact: true
+# Desk/ground only. Props are under default_environment/EastRural_Table/sm_* —
+# listing those tokens would discard apple/bottle and leave B3/B4 unfrozen.
+ignore_contact_partners:
+  - ground
+  - GroundPlane
+  - defaultGroundPlane
+  - TableTop
+  - floor
 object_frame: ""
 object_push_warn_m: 0.08
 arrival_timeout: 8.0
 execute_default: false
 
 # --- privileged auto-grasp (wuji_hand2_new.usda table props; hardcoded) -----
-# Later: restore dynamic discovery from scene / .meta/objects. Do not edit USDA.
-# pose_prim = rigid body (read pose / UV). placement_prim = payload root (write xform).
-# home_* = authored local xform (placement units; SimReady scale=100 — NOT meters).
-# click_offset = [x,y,z] meters in pose_prim LOCAL frame (HUG purple marker).
-#   Tune with dry_run_auto: raise Z if purple sits on the table junction;
-#   nudge X/Y if it sits on the rim instead of the grasp face. Restart serve after edit.
+# Objects stay on the authored table — no exile / scene clear.
+# pose_prim = rigid body (read pose / UV fallback). placement_prim = payload root.
+# home_* = optional authored table-local xform notes (SimReady scale=100; not written at runtime).
+# click_prim = optional Stage Xform (e.g. Grasp_Point_1_1) for stable HUG purple.
+# click_offset = [x,y,z] meters in click_prim (or pose_prim) LOCAL frame.
 default_object_key: apple
 grasp_objects:
   apple:
     pose_prim: /World/default_environment/EastRural_Table/sm_apple_a01_01/Geometry/model_normalized_0_vis_obj
     placement_prim: /World/default_environment/EastRural_Table/sm_apple_a01_01
-    home_translate: [-2.68086663011519, -21.085257324728257, 94.49615662815259]
+    home_translate: [-2.680866630116711, -23.096873533936876, 79.18205717527044]
     home_orient_wxyz: [1.0, 0.0, 0.0, 0.0]
     click_offset: [0.0, 0.0, 0.035]
   banana:
     pose_prim: /World/default_environment/EastRural_Table/banana/banana/banana
     placement_prim: /World/default_environment/EastRural_Table/banana
-    home_translate: [14.259275860209584, 2.552130180273554, 90.0]
+    home_translate: [14.259275860208135, 2.5521301802735468, 77.85504755346572]
     home_orient_wxyz: [0.9238795, 0.0, 0.0, 0.38268352]
     click_offset: [0.0, 0.0, 0.025]
   bottle:
     pose_prim: /World/default_environment/EastRural_Table/sm_food_beverage_beerBottle_a01_01/Geometry/sm_food_beverage_beerBottle_a01_obj_00
     placement_prim: /World/default_environment/EastRural_Table/sm_food_beverage_beerBottle_a01_01
-    home_translate: [-4.664164226313403, 22.33081319072058, 80.18630475677222]
+    home_translate: [-26.49001, 14.2035, 76.51261]
     home_orient_wxyz: [1.0, 0.0, 0.0, 0.0]
-    click_offset: [0.0, 0.0, 0.10]
+    click_prim: /World/default_environment/EastRural_Table/sm_food_beverage_beerBottle_a01_01/Grasp_Point_1_1
+    click_offset: [0.0, 0.0, 0.0]
   lime:
     pose_prim: /World/default_environment/EastRural_Table/sm_food_produce_lime_a02_01/Geometry/lime_01_obj_00
     placement_prim: /World/default_environment/EastRural_Table/sm_food_produce_lime_a02_01
-    home_translate: [-17.996991901701342, -4.093611474105462, 82.0]
+    home_translate: [-17.996991901701342, -4.093611474105462, 75.85155163048181]
     home_orient_wxyz: [1.0, 0.0, 0.0, 0.0]
     click_offset: [0.0, 0.0, 0.03]
   hammer:
     pose_prim: /World/default_environment/EastRural_Table/sm_handTool_hammer_crossPeen_b01_01
     placement_prim: /World/default_environment/EastRural_Table/sm_handTool_hammer_crossPeen_b01_01
-    home_translate: [7.555667981277196, -12.70905201772507, 83.0802559117363]
+    home_translate: [7.555667981274354, -12.70905201772507, 76.30829108428735]
     home_orient_wxyz: [1.0, 0.0, 0.0, 0.0]
     click_offset: [0.0, 0.0, 0.04]
-
-# Scene prep: STOP→PLAY → write XY+yaw (keep live Z) → STOP→PLAY (heal PhysX).
-# Final STOP→PLAY is required or getDof*Targets invalidates / arm freezes.
-# keep_live_z=true = do not slam yaml home Z (avoids mid-air drop+roll).
-# near_yaw_deg = ± yaw about placement local Z.
-scene_prep:
-  settle_s: 1.5
-  restore_after: false
-  isolate_mode: exile
-  near_spawn: true
-  keep_live_z: true
-  near_yaw_deg: 30.0
-  near_xy_min: [-12.0, -32.0]
-  near_xy_max: [8.0, -10.0]
-  exile_xy_base: [120.0, 120.0]
-  exile_spacing: 30.0
 
 # Go home = FSM_HOME then dual-EE +Z lift (grasp home ≠ raw controller home).
 home_settle_s: 10.0
 grasp_home_lift_m: 0.1
 
-# Auto: after close, wait for fingers to settle, then lift EE +Z to verify grasp.
+# Auto: firm-up → settle (hold closed q) → lift EE +Z.
+# Idle without hold caused yield-open; soft_stop@8N without ramp caused loose lift.
 post_grasp_lift: true
 post_grasp_lift_m: 0.30
-post_grasp_settle_s: 7.0
+post_grasp_settle_s: 3.0
