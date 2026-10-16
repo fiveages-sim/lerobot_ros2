@@ -91,7 +91,10 @@ pre_shape_settle_s: 0.3
 # After close: re-send closed q before lift (no extra squeeze toward goal).
 post_close_firm_s: 2.0
 
-# --- contact (Isaac Wuji Sensor=contact_force) ----------------------
+# --- contact (hand asset publishes this; B3–B5 only) ---------------
+# Reference hand: FaSim Wuji Hand2 Sensor=contact_force → /wuji_rh/*.
+# Open-loop B0–B2 and motion-generation do not need these topics.
+# Scene-specific ignore tokens stay in this yaml. See docs/ENV_AND_HAND_CONTRACT.md.
 contact_topic_prefix: ""
 always_log_contact: true
 # Desk/ground only. Props are under default_environment/EastRural_Table/sm_* —

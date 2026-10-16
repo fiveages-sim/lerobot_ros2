@@ -1,5 +1,7 @@
 # HUG 子模块策略（公司仓用法）
 
+> 克隆公司仓 **不能** 直接推理。权重和 MANO 被 gitignore。从零步骤见父仓 [`docs/SETUP.md`](SETUP.md) 与本子模块 [`docs/SETUP_LOCAL.md`](../submodules/hug/docs/SETUP_LOCAL.md)。
+
 上游公开仓：[KevinyWu/hug](https://github.com/KevinyWu/hug) — **不要直接 push 我们的补丁**。
 
 公司仓（空仓 push 公司补丁，非 GitHub Fork 按钮）：[fiveages-sim/HUG](https://github.com/fiveages-sim/HUG)  

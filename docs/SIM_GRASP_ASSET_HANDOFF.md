@@ -1,6 +1,6 @@
-# 资产 / 运控侧对接（W2 + Wuji Hand2 当前 / O7 参考）
+# 资产 / 运控侧对接（参考：W2 + Wuji Hand2，O7 作对照）
 
-> 未经同意，自动化流程不改 FaSim-Isaac / fa_w2_ws / USD 原始文件。
+> 阅读说明：下表是参考场景的 prim、话题和运控 `type`，换机器人时改 `robot.yaml` / `grasp_generation.yaml`，不要把这些路径写进代码。未经同意，自动化流程不改 FaSim-Isaac / fa_w2_ws / USD 原始文件。文中「待冒烟」是当时进度。
 
 ## A. 头相机（已对齐 · 2026-09）
 

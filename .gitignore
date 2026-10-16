@@ -58,3 +58,12 @@ external/
 
 # Local-only trees (not git submodules — do not commit)
 /submodules/lerobot/
+
+# HUG runtime assets. The submodule gitignore already excludes these.
+# Repeat them here so a broken gitlink cannot accidentally add licensed MANO
+# or multi-hundred-MB weights into the parent repo.
+/submodules/hug/.venv/
+/submodules/hug/checkpoints/
+/submodules/hug/assets/mano_models/
+/submodules/hug/data/
+/submodules/hug/**/*.safetensors

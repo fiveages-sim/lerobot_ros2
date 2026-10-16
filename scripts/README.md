@@ -1,14 +1,14 @@
 # `scripts/` — 父仓辅助脚本
 
-日常部署走仓库根目录 **`./init.sh`**，不要另开一条环境。
+日常部署走仓库根目录 **`./init.sh`**，不要另开一条环境。从零步骤见 [`docs/SETUP.md`](../docs/SETUP.md)。
 
 ## 日常（保留，可给新人）
 
 | 脚本 | 作用 | 怎么用 |
 |------|------|--------|
 | `lr-env.sh` | `init.sh` 的环境后端（uv/conda、ROS hook、pip） | **不要直接跑**，由 `init.sh` source |
-| `setup_grasp_dev_env.sh` | 兼容入口 | 等价于 `./init.sh all-motion` |
-| `setup_wuji_retargeting.sh` | 可选：OSS retarget 仓 + 嵌套 MuJoCo | 产品路径已是 `pip install wuji-sdk`（`init.sh install` 会装）。仅调试开源算法时用 |
+| `setup_grasp_dev_env.sh` | 兼容入口 | 等价于 `./init.sh all-grasp`。只要编排时用 `all-motion` |
+| `setup_wuji_retargeting.sh` | 可选：开源 retarget 仓 + 嵌套 MuJoCo | 产品路径是 `./init.sh install-grasp`（`wuji-sdk`）。仅调试开源算法时加 `--recursive-nested` |
 
 ## 维护者一次性（公司 remote / submodule 登记）
 
@@ -24,11 +24,12 @@ clone 部署 **不需要** 跑这些：
 ## 推荐部署
 
 ```bash
-git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
+git clone git@github.com:fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
-./init.sh all-motion          # 运控 + grasp-generation CLI
-./init.sh ros2-workspace      # 写入 ROS2 工作空间并挂 activate
-# 需要 HUG 推理时：
-./init.sh hug-env             # 或 ./init.sh all-grasp
+./init.sh all-motion          # 运控 + 任务编排，不含灵巧手
+./init.sh ros2-workspace
+# 需要抓取时：
+./init.sh all-grasp           # 或分步 install-grasp && hug-env
+./init.sh doctor
 source .venv/bin/activate
 ```

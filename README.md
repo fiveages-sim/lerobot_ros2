@@ -1,23 +1,29 @@
 # LeRobot ROS2
 
-LeRobot 与 ROS2 的集成工程，支持通过 ROS2 话题与机器人通信。
+在 Isaac Sim 里按配置编排机器人任务，并通过 ROS 2 话题执行。任务编排（运控启动 + 技能序列）可以单独使用。灵巧手抓取是可选插件：人手姿态生成、手型 retarget、收拢执行器，既能开调试界面，也能作为一个技能接到任务队列里。
+
+从零配置见 **[docs/SETUP.md](docs/SETUP.md)**。文档按用途分组见 **[docs/README.md](docs/README.md)**。
 
 ## 项目结构
 
-本项目主要包含：
+| 路径 | 作用 | 是否必须 |
+|------|------|----------|
+| `submodules/ros2_robot_interface` | ROS 2 机器人接口 | 任务编排需要 |
+| `submodules/robot_action_composer` | 任务编排、`ros2-stack`、`motion-generation`；抓取库也在这里 | 任务编排需要 |
+| `submodules/hug` | 可选。RGB-D → MANO 人手。独立 Python 3.10 环境 | 不要灵巧手推理就不装 |
+| `submodules/wuji-retargeting` | 可选。开源 retarget 参考仓。运行时用 PyPI `wuji-sdk` | 参考手型需要 sdk，不需要嵌套仿真 |
+| `lerobot_robot_ros2` / `lerobot_camera_ros2` | LeRobot 录制与推理插件 | 只做编排或抓取可以不装 |
 
-1. `submodules/ros2_robot_interface`：独立 ROS2 机器人接口包
-2. `submodules/robot_action_composer`：机器人动作编排
-3. `lerobot_robot_ros2`：LeRobot 的 ROS2 机器人插件
-4. `lerobot_camera_ros2`：LeRobot 的 ROS2 相机插件
+LeRobot 核心库从 PyPI 安装（默认 `lerobot==0.5.1`，写在 `.fa-env.toml`）。`submodules/lerobot` 不是子模块，不要提交。
 
-LeRobot 核心库通过 PyPI 安装（默认 `lerobot==0.5.1`，版本在 `.fa-env.toml` 中配置；首次由 [`.fa-env.toml.example`](.fa-env.toml.example) 生成）。
+参考实现（相机、手型、物体 prim 都走配置）：`examples/IsaacSim/robots/FiveAges_W2/`（Wuji Hand2 + W2）。仿真场景在资产仓，当前用的是 FaSim 的 `wuji_hand2_new.usda`。换环境、换手、以及 B4 为什么要手资产上的接触力，见 [docs/ENV_AND_HAND_CONTRACT.md](docs/ENV_AND_HAND_CONTRACT.md)。
 
 ## 前置要求
 
-- ROS2（测试版本：Jazzy）
-- Python >= 3.12
+- ROS 2（测试版本：Jazzy）
+- Python >= 3.12（父仓环境）
 - [uv](https://docs.astral.sh/uv/)（推荐）或 Conda
+- 灵巧手推理另要 Python 3.10（只在 `submodules/hug/.venv`）
 
 ## 安装
 
@@ -25,71 +31,54 @@ LeRobot 核心库通过 PyPI 安装（默认 `lerobot==0.5.1`，版本在 `.fa-e
 <summary>方式一：脚本安装（推荐）</summary>
 
 ```bash
-# 1) 克隆项目
-git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
+git clone git@github.com:fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
 
-# 2) 安装 uv（若尚未安装）
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 3) 任务编排 + 抓取 CLI（子模块 + 环境 + interface/composer/viser/wuji-sdk）
+# 任务编排（不含灵巧手）
 ./init.sh all-motion
-# 另需 HUG 推理（独立 Python 3.10 venv）：
-# ./init.sh hug-env
-# 全量含 lerobot 录制/推理（不含 HUG）：
-# ./init.sh all
-source .venv/bin/activate   # 默认 backend=uv
+./init.sh ros2-workspace
+source .venv/bin/activate
+
+# 可选：抓取 extras + HUG 环境（MANO 仍需自行注册下载）
+# ./init.sh all-grasp
+# ./init.sh doctor
 ```
 
-交互菜单（`./init.sh`）：
+交互菜单：`./init.sh`。
 
-- **子模块**：1 初始化 / 2 更新到最新 main
-- **环境与安装**：3 创建环境 / 4 安装任务编排 / 5 安装 lerobot
-- **一键执行**：6 仅任务编排 / 7 任务编排 + lerobot
-- **配置**：8 安装 uv 或 Miniconda / 9 配置镜像 / 10 ROS2 工作空间 / 11 切换 backend
+- **子模块**：1 全部检出 / 2 更新到 main。只要编排用 `./init.sh submodules-core`
+- **安装**：4 任务编排 / `i` 抓取 extras / 5 lerobot / `h` HUG 环境 / `d` 检查缺什么
+- **一键**：6 只编排 / 7 编排 + lerobot / `g` 编排 + 抓取
 
-仅跑 `motion-generation` / `grasp-generation` / `ros2-stack` 时，执行 **4** 或 **`./init.sh all-motion`** 即可（已含 viser 与 wuji-sdk）。  
-HUG 权重与 3.10 环境：交互菜单 **h** 或 **`./init.sh hug-env`**。  
-录制 / 策略推理： **5** 或 **`./init.sh install-lerobot`**。
-
-切换 backend：
-
-```bash
-./init.sh set-backend uv      # 或 conda
-./init.sh env 3.12
-```
+分步和 MANO、权重、不要递归拉取 retarget 嵌套仓库，见 [docs/SETUP.md](docs/SETUP.md)。
 
 </details>
 
 <details>
-<summary>方式二：手动安装（uv）</summary>
+<summary>方式二：手动安装（uv，仅任务编排）</summary>
 
 ```bash
-git clone --recursive git@github.com:fiveages-sim/lerobot_ros2.git
+git clone git@github.com:fiveages-sim/lerobot_ros2.git
 cd lerobot_ros2
-git submodule update --init --recursive
+git submodule update --init -- submodules/ros2_robot_interface submodules/robot_action_composer
 
-# 创建 uv 环境（--system-site-packages 以使用系统 ROS2 包）
 uv venv --python python3.12 --system-site-packages .venv
 source .venv/bin/activate
 
-# 安装 PyTorch 与 lerobot
-uv pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
-  --index-url https://download.pytorch.org/whl/cu128
-uv pip install "lerobot==0.5.1"
-
-# 安装本地包（ROS 依赖由系统提供；必须 --no-deps，否则会去 PyPI 找 rclpy 失败）
+# 本地包必须 --no-deps，否则会去 PyPI 找 rclpy
 uv pip install -e submodules/ros2_robot_interface --no-deps
 uv pip install numpy pyyaml
 uv pip install -e submodules/robot_action_composer --no-deps
-# 抓取生成 UI（可选）
-uv pip install "viser>=0.2"
-# 若写了 extras：不要用裸 pip；且 grasp extra 仍会解析 rclpy —— 请改用上面 --no-deps + 单独装 viser
-uv pip install -e lerobot_robot_ros2 --no-deps
-uv pip install "lerobot==0.5.1"
-uv pip install -e lerobot_camera_ros2 --no-deps
-uv pip install "lerobot==0.5.1" numpy
 ```
+
+可选抓取界面与参考手型 sdk（仍在这个 `.venv` 里，不要装进 `submodules/hug/.venv`）：
+
+```bash
+uv pip install "viser>=0.2" "wuji-sdk>=0.10.0"
+./init.sh hug-env
+```
+
+录制 / 策略推理再装 PyTorch 与 `lerobot==0.5.1`，以及 `lerobot_robot_ros2`、`lerobot_camera_ros2`（同样 `--no-deps`）。脚本入口是 `./init.sh install-lerobot`。
 
 </details>
 
@@ -103,39 +92,38 @@ uv pip install "lerobot==0.5.1" numpy
 | `[conda].name` | conda 环境名（默认 `lerobot-ros2`） |
 | `[uv].venv` | uv 虚拟环境路径（默认 `.venv`） |
 | `[lerobot].version` | PyPI lerobot 版本（默认 `0.5.1`） |
-| `[ros2].workspace` | ROS2 工作空间，激活环境时自动 source |
+| `[ros2].workspace` | ROS 2 工作空间，激活环境时自动 source |
 
-个人覆盖：`.fa-env.local.toml`（已 gitignore）。本地 `.fa-env.toml` 亦已 gitignore。
+个人覆盖：`.fa-env.local.toml`（已 gitignore）。
 
-### 常见坑：`externally-managed-environment` / 装不上 composer
+### 常见坑
 
-Ubuntu 上裸跑 `pip install ...` 往往会打到 **系统** `/usr/bin/pip`，报 PEP 668。本仓约定：
+Ubuntu 上裸跑 `pip install` 会打到系统 pip，报 `externally-managed-environment`。
 
-1. **只在本仓库开发与配环境**（见 [`docs/ENV_THIS_CHECKOUT.md`](docs/ENV_THIS_CHECKOUT.md)）。
-2. **先确认进对了本仓 `.venv`**（不要用 `submodules/hug/.venv` 装 ros2-stack / grasp-generation；那是 HUG 专用 Python 3.10）  
-   ```bash
-   cd /home/fiveages/lerobot_ros2
-   source .venv/bin/activate
-   which python; python -c "import sys; print(sys.prefix)"
-   # 必须是 .../lerobot_ros2/.venv ，不是 /usr ，也不是 hug/.venv
-   ```
-3. **用 `uv pip`，不要用系统 `pip`**；本地包加 **`--no-deps`**（`rclpy` 来自 ROS 系统包）：
-   ```bash
-   ./init.sh all-motion
-   which ros2-stack grasp-generation motion-generation
-   ```
-4. 若 `.venv` 残缺：删掉后重跑 `./init.sh env && ./init.sh install`。**不要**对系统 Python 加 `--break-system-packages`。
+1. 父仓 CLI 只用本仓库的 `.venv`（或配置的 conda 环境）。不要用 `submodules/hug/.venv` 装 `ros2-stack` / `grasp-generation`。
+2. 本地包用 `uv pip install -e ... --no-deps`。
+3. HUG 权重 `checkpoints/hug_full.safetensors` 和 `assets/mano_models/` 不进 git。MANO 要到官网注册后自己放。详见 [docs/SETUP.md](docs/SETUP.md)。
+4. `./init.sh all` 会安装 NumPy 2.x。纯编排或抓取不要顺手跑这条。
 
-运控 + 抓取冒烟：[`submodules/robot_action_composer/docs/GRASP_GENERATION.md`](submodules/robot_action_composer/docs/GRASP_GENERATION.md)。
-
-## 说明
-
-- `lerobot_robot_ros2` 依赖本地 `ros2-robot-interface`，请先安装 `submodules/ros2_robot_interface`。
-- 相机插件默认使用 **manual 图像转换**（不依赖 `cv_bridge`），以兼容 `lerobot==0.5.1` 所需的 numpy 2.x。若环境支持 cv_bridge，会自动尝试使用；也可设置 `LEROBOT_ROS2_DISABLE_CV_BRIDGE=1` 强制禁用。
-- uv 路径需确保系统已安装 `ffmpeg`（如 `sudo apt install ffmpeg`）。
-- `install-plugins` 会额外安装 `scipy>=1.14`，避免 `--system-site-packages` 下系统 SciPy 与 numpy 2.x 不兼容。
+更完整的环境说明：[`docs/ENV_THIS_CHECKOUT.md`](docs/ENV_THIS_CHECKOUT.md)。
 
 ## 使用
+
+编排与运控：
+
+```bash
+cd examples/IsaacSim
+ros2-stack launch --robot <robot_key>
+motion-generation
+```
+
+可选抓取（参考机器人 `fiveages_w2`）：
+
+```bash
+grasp-generation serve --robot fiveages_w2 --workspace .
+```
+
+LeRobot 插件示例：
 
 ```python
 from lerobot_robot_ros2 import ROS2Robot, ROS2RobotConfig, ROS2RobotInterfaceConfig
@@ -155,8 +143,7 @@ robot.connect()
 robot.disconnect()
 ```
 
-更多示例见 `examples/`。
+更多示例见 `examples/`。Isaac 仿真步骤见 [`examples/IsaacSim/README.md`](examples/IsaacSim/README.md)。
 
 
 https://github.com/user-attachments/assets/a824835a-7614-4833-9d39-4c0005474dbe
-

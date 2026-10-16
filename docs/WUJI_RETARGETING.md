@@ -1,6 +1,8 @@
 # Wuji Retargeting：说明与仓库集成
 
-> 与 HUG 分工：HUG 只出 MANO / 21 点；本层把关键点变成 Wuji Hand2 的 20 维关节角。  
+> 阅读说明：子模块已经登记在父仓 `.gitmodules`（`fiveages-sim/wuji-retargeting`）。运行时用父仓环境里的 `wuji-sdk`，适配代码在 `grasp_generation/retarget/`。下面的输入输出约定和「不要把 pin/mujoco vendoring 进 composer」仍然有效。参考手型是 Wuji Hand2；其它 `hand_profile` 不必装这个 sdk。
+>
+> 与 HUG 分工：HUG 只出 MANO / 21 点；本层把关键点变成该手型的关节角。Hand2 为 20 维。  
 > 正式引用入口（无独立学术论文）：[wuji-technology/wuji-retargeting](https://github.com/wuji-technology/wuji-retargeting)
 
 ## 1. 它是什么 & 在 HUG 链路里干什么
@@ -86,29 +88,29 @@ lerobot_ros2/
 
 **不要：** 把 pin/mujoco/整份 retarget 源码 vendoring 进 composer；不要改 HUG 权重；不要把 `.venv` / 大 mesh 提交进父仓。
 
-当前本机状态（2026-09）：
+当前约定：
 
-- 已 clone（含 `wuji-description`、`mujoco-sim` 子模块）→ `submodules/wuji-retargeting` @ `531f6ed`  
-- 尚未登记进父仓 `.gitmodules`（避免把整树当普通文件误提交）  
-- 父仓 `.venv` 已装通：`wuji-sdk==2026.8.31`，`RetargetSession` 冒烟 OK  
+- 子模块：`submodules/wuji-retargeting`，remote 见 [`WUJI_RETARGETING_SUBMODULE.md`](WUJI_RETARGETING_SUBMODULE.md)
+- 父仓环境安装 `wuji-sdk`（`./init.sh install-grasp`），不要 `git submodule update --recursive` 去拉嵌套 MuJoCo，除非在调开源算法
+- 业务适配在 composer 的 `grasp_generation/retarget/`，不把整份 retarget 源码拷进 composer
 
-登记 submodule（需要时，**请明确让我做**）：
+登记已经完成，不要再对上游 URL 执行一次 `git submodule add`。
+
+## 4. 本机准备
+
+产品路径（父仓环境）：
 
 ```bash
-# 若目录已存在，先移走再 add，或按团队习惯改 remote
-git submodule add https://github.com/wuji-technology/wuji-retargeting.git submodules/wuji-retargeting
-# recurse：该仓还有 wuji-description / mujoco-sim
-git submodule update --init --recursive submodules/wuji-retargeting
+./init.sh install-grasp
 ```
 
-一般**不需要**公司 fork，除非我们要提交补丁；日常只读上游即可。
-
-## 4. 本机准备（脚本）
+开源仓与嵌套 MuJoCo 只在调参时用：
 
 ```bash
 bash scripts/setup_wuji_retargeting.sh
-# 默认：确保 clone 存在 + 在父仓 .venv 装 wuji-sdk
+# 默认：确保 clone 存在 + 在父仓环境装 wuji-sdk
 # 加 --editable-oss：额外 pip install -e submodules/wuji-retargeting（重依赖，仅调参需要）
+# 加 --recursive-nested：拉取 mujoco-sim / wuji-description
 ```
 
 ## 5. 开发顺序建议

@@ -1,7 +1,8 @@
-# Phase 2B 计划：HUG MANO → Wuji Hand2 指关节 Retarget
+# Phase 2B 笔记：HUG MANO → 参考手型 Wuji Hand2
 
-> 状态：规划中（2026-09）。**2A 腕跟已在 O7 验收**；当前先在 **Wuji Hand2** 上复现腕跟，再接官方 retarget。  
-> 原则：HUG 仍为黑盒；手指差异走 `hand_profile` + retarget 适配层，不改 HUG 权重。
+> 阅读说明：关节序、tip 约 7 cm、`mano_to_tip_rpy_deg: [0, -90, 0]`、右手 MANO 会话这些坑留在这里。文首「规划中」是 2026-09 的计划状态；参考实现上的 retarget 与 close 已经接到 `grasp-generation`。换手时新增 `hand_profile`，不要改 HUG 权重。
+
+> 原则：HUG 仍为黑盒；手指差异走 `hand_profile` + retarget 适配层，不改 HUG 权重。O7 腕跟是更早的对照，不是当前唯一手型。
 
 ## 0. 仿真 / 运控切换（先做，复现腕跟）
 

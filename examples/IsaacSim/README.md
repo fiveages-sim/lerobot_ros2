@@ -13,9 +13,19 @@
 
 ### 1.2 一键初始化（推荐）
 
+任务编排（不含灵巧手、不含 LeRobot）：
+
+```bash
+./init.sh all-motion
+```
+
+可选灵巧手抓取：`./init.sh all-grasp`。录制 / 策略推理才需要：
+
 ```bash
 ./init.sh install-plugins
 ```
+
+从零说明见仓库根 [`docs/SETUP.md`](../../docs/SETUP.md)。缺模块时 `./init.sh doctor`。
 
 ### 1.3 推理运行时库配置（可选）
 

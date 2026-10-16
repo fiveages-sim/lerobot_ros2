@@ -14,22 +14,28 @@ INSTALL_BACKEND_OVERRIDE=""
 ROBOT_ACTION_COMPOSER_SUBMODULE_PATH="submodules/robot_action_composer"
 
 print_usage() {
-  echo "用法: $0 [submodules|update-submodules|env [python版本]|install [--conda|--uv]|"
-  echo "      install-plugins|install-lerobot|hug-env|set-backend conda|uv|install-uv|install-miniconda|"
+  echo "用法: $0 [submodules|submodules-core|submodules-dex|update-submodules|"
+  echo "      env [python版本]|install [--conda|--uv]|install-grasp|"
+  echo "      install-plugins|install-lerobot|hug-env|doctor|"
+  echo "      set-backend conda|uv|install-uv|install-miniconda|"
   echo "      pypi-mirror|uv-mirror|conda-runtime|ros2-workspace [--all]|"
   echo "      all-motion|all-grasp|all [python版本]]"
   echo
-  echo "执行链路:"
-  echo "  submodules         初始化子模块（git submodule update --init --recursive）"
+  echo "执行链路（灵巧手可选，不装也能用任务编排）:"
+  echo "  submodules-core    只初始化 ros2_robot_interface 与 robot_action_composer"
+  echo "  submodules-dex     初始化 hug 与 wuji-retargeting（不递归嵌套 MuJoCo）"
+  echo "  submodules         core + dex 的 git 检出（不含权重、不含 MANO、不含 pip）"
   echo "  update-submodules  将所有子模块更新到 origin/main"
   echo "  env                按 .fa-env.toml 的 backend 创建环境"
-  echo "  install            安装任务编排 + 抓取 extras（interface + composer + viser + wuji-sdk）"
+  echo "  install            安装任务编排（interface + composer）。不含 viser / wuji-sdk / HUG"
+  echo "  install-grasp      可选：父仓环境安装 viser + wuji-sdk"
   echo "  install-plugins    安装 PyTorch + PyPI lerobot + 插件包"
   echo "  install-lerobot    同 install-plugins"
-  echo "  hug-env            配置 HUG 独立 venv（Python 3.10，submodules/hug）"
-  echo "  all-motion         子模块 + 环境 + 任务编排/抓取 CLI（不含 HUG 权重、不含 lerobot）"
-  echo "  all-grasp          all-motion + hug-env"
-  echo "  all                all-motion + install-plugins（全量；HUG 仍需 hug-env）"
+  echo "  hug-env            可选：HUG 独立 venv（Python 3.10）。权重可下，MANO 需自行注册"
+  echo "  doctor             检查各模块是否就绪，并给出补齐命令（不安装）"
+  echo "  all-motion         编排：core 子模块 + 环境 + install（不含灵巧手）"
+  echo "  all-grasp          all-motion + dex 子模块 + install-grasp + hug-env"
+  echo "  all                all-motion + install-plugins（录制/推理；仍不含 HUG）"
   echo
   echo "配置:"
   echo "  set-backend        修改 .fa-env.toml 中 backend (conda/uv)"
@@ -44,9 +50,28 @@ print_usage() {
   echo "不带参数时进入交互菜单。未指定版本时默认使用 Python $DEFAULT_PYTHON_VERSION。"
 }
 
+init_submodules_core() {
+  echo ">>> 初始化任务编排子模块（ros2_robot_interface、robot_action_composer）..."
+  git -C "$ROOT_DIR" submodule update --init -- \
+    submodules/ros2_robot_interface \
+    submodules/robot_action_composer
+  echo ">>> 任务编排子模块完成。"
+}
+
+init_submodules_dex() {
+  echo ">>> 初始化灵巧手子模块（hug、wuji-retargeting；不递归嵌套仓库）..."
+  git -C "$ROOT_DIR" submodule update --init -- \
+    submodules/hug \
+    submodules/wuji-retargeting
+  echo ">>> 未拉取 wuji-retargeting 里的 mujoco-sim / wuji-description。"
+  echo "    产品路径是父仓里的 wuji-sdk（./init.sh install-grasp），不是嵌套仿真。"
+  echo "    只在调开源算法时: bash scripts/setup_wuji_retargeting.sh --recursive-nested"
+  echo ">>> git 检出不含 HUG 权重和 MANO。权重: ./init.sh hug-env ；MANO 需注册下载。"
+}
+
 init_submodules() {
-  echo ">>> 初始化子模块..."
-  git -C "$ROOT_DIR" submodule update --init --recursive
+  init_submodules_core
+  init_submodules_dex
   echo ">>> 子模块初始化完成。"
 }
 
@@ -257,35 +282,54 @@ EOF
   echo "    反激活脚本: $deactivate_script"
 }
 
-install_projects() {
-  local interface_dir="$ROOT_DIR/submodules/ros2_robot_interface"
-  local rac_dir="$ROOT_DIR/$ROBOT_ACTION_COMPOSER_SUBMODULE_PATH"
-
+_activate_install_env() {
   lr_env_load_config "$ROOT_DIR"
   if [[ -n "$INSTALL_BACKEND_OVERRIDE" ]]; then
     LR_ENV_BACKEND="$INSTALL_BACKEND_OVERRIDE"
   fi
+}
+
+install_motion_projects() {
+  local interface_dir="$ROOT_DIR/submodules/ros2_robot_interface"
+  local rac_dir="$ROOT_DIR/$ROBOT_ACTION_COMPOSER_SUBMODULE_PATH"
+
+  _activate_install_env
 
   for project_dir in "$interface_dir" "$rac_dir"; do
     if [[ ! -d "$project_dir" ]]; then
       echo "未找到目录: $project_dir"
-      echo "请先执行子模块初始化。"
+      echo "请先执行: ./init.sh submodules-core"
       exit 1
     fi
   done
 
   echo ">>> 使用 backend=$LR_ENV_BACKEND，安装 ros2_robot_interface 与 robot_action_composer"
+  echo "    这一步不含 viser / wuji-sdk / HUG。灵巧手另走 install-grasp 与 hug-env。"
   (
     set +u
     lr_env_activate "$ROOT_DIR"
     lr_env_install_editable "$interface_dir"
     lr_env_install_editable "$rac_dir"
-    # Grasp UI + Wuji Hand2 retarget (optional extra on composer; keep in the same env)
-    echo ">>> 安装 grasp extras: viser + wuji-sdk"
+  )
+  echo ">>> 任务编排安装完成（motion-generation / ros2-stack / grasp-generation 入口）。"
+  echo "    grasp-generation 命令已在，但 HUG 推理与手型 retarget 未装时会提示缺什么。"
+}
+
+install_grasp_extras() {
+  _activate_install_env
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装可选抓取 extras: viser + wuji-sdk"
+  echo "    装进父仓环境。不要装进 submodules/hug/.venv。"
+  (
+    set +u
+    lr_env_activate "$ROOT_DIR"
     lr_env_pip_install "viser>=0.2"
     lr_env_pip_install "wuji-sdk>=0.10.0"
   )
-  echo ">>> 安装完成（含 grasp-generation / ros2-stack）。"
+  echo ">>> 抓取 extras 完成。HUG 权重与 MANO 仍要 ./init.sh hug-env（MANO 不能自动下）。"
+}
+
+install_projects() {
+  install_motion_projects
 }
 
 setup_hug_env() {
@@ -303,7 +347,17 @@ setup_hug_env() {
   echo ">>> 配置 HUG 独立环境（Python 3.10，不混入父仓 .venv）"
   bash "$setup_script"
   echo ">>> HUG 环境完成。激活: source $hug_dir/.venv/bin/activate"
-  echo ">>> 父仓 grasp-generation / ros2-stack 仍用: source $ROOT_DIR/.venv/bin/activate"
+  echo ">>> 父仓 grasp-generation / ros2-stack / motion-generation 仍用父仓环境，不要混用。"
+  if [[ ! -f "$hug_dir/checkpoints/hug_full.safetensors" ]]; then
+    echo ">>> 未找到 checkpoints/hug_full.safetensors。"
+    echo "    source $hug_dir/.venv/bin/activate && bash scripts/download_assets.sh"
+  fi
+  if [[ ! -f "$hug_dir/assets/mano_models/models/MANO_RIGHT.pkl" ]]; then
+    echo ">>> 未找到 MANO_RIGHT.pkl。该模型有许可，git 与脚本都不会下载。"
+    echo "    1) 注册 https://mano.is.tue.mpg.de/"
+    echo "    2) 解压后保证存在: $hug_dir/assets/mano_models/models/MANO_RIGHT.pkl"
+    echo "    布局见 submodules/hug/docs/SETUP_LOCAL.md"
+  fi
 }
 
 install_plugins() {
@@ -367,8 +421,8 @@ install_plugins() {
 
 install_motion_stack() {
   lr_env_load_config "$ROOT_DIR"
-  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装任务编排 + 抓取 CLI（interface + composer + viser + wuji-sdk）"
-  install_projects
+  echo ">>> 使用 backend=$LR_ENV_BACKEND，安装任务编排（interface + composer）"
+  install_motion_projects
 }
 
 install_lerobot_stack() {
@@ -514,21 +568,125 @@ EOF
 
 run_all_motion() {
   local python_version="${1:-}"
-  init_submodules
+  init_submodules_core
   create_env_for_configured_backend "$python_version"
   install_motion_stack
+  echo ">>> all-motion 完成。未安装灵巧手。需要时: ./init.sh all-grasp"
 }
 
 run_all_grasp() {
   local python_version="${1:-}"
-  run_all_motion "$python_version"
+  init_submodules
+  create_env_for_configured_backend "$python_version"
+  install_motion_stack
+  install_grasp_extras
   setup_hug_env
+  doctor_modules || true
 }
 
 run_all_full() {
   local python_version="${1:-}"
   run_all_motion "$python_version"
   install_lerobot_stack
+}
+
+doctor_modules() {
+  local missing=0
+  local py=""
+  local hug_dir="$ROOT_DIR/submodules/hug"
+  local iface_dir="$ROOT_DIR/submodules/ros2_robot_interface"
+  local rac_dir="$ROOT_DIR/$ROBOT_ACTION_COMPOSER_SUBMODULE_PATH"
+  local wuji_dir="$ROOT_DIR/submodules/wuji-retargeting"
+
+  _doc_ok() { echo "  [ok] $*"; }
+  _doc_miss() { echo "  [缺失] $*"; missing=1; }
+
+  lr_env_load_config "$ROOT_DIR"
+  echo ">>> 模块检查（backend=$LR_ENV_BACKEND）。缺灵巧手时，任务编排仍可使用。"
+
+  if git -C "$iface_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    _doc_ok "子模块 ros2_robot_interface"
+  else
+    _doc_miss "子模块 ros2_robot_interface → ./init.sh submodules-core"
+  fi
+  if git -C "$rac_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    _doc_ok "子模块 robot_action_composer"
+  else
+    _doc_miss "子模块 robot_action_composer → ./init.sh submodules-core"
+  fi
+  if git -C "$hug_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    _doc_ok "子模块 hug（git；权重和 MANO 另计）"
+  else
+    _doc_miss "子模块 hug → ./init.sh submodules-dex （不做灵巧手可忽略）"
+  fi
+  if git -C "$wuji_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    _doc_ok "子模块 wuji-retargeting（参考仓；运行时用 wuji-sdk）"
+  else
+    _doc_miss "子模块 wuji-retargeting → ./init.sh submodules-dex （不做灵巧手可忽略）"
+  fi
+
+  if [[ "$LR_ENV_BACKEND" == "uv" ]]; then
+    py="$(lr_env_uv_venv_path)/bin/python"
+  elif command -v conda >/dev/null 2>&1; then
+    py="$(conda run -n "$LR_ENV_CONDA_NAME" which python 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$py" && -x "$py" ]]; then
+    _doc_ok "父仓解释器 $py"
+  else
+    _doc_miss "父仓环境 → ./init.sh env"
+    py=""
+  fi
+
+  if [[ -n "$py" ]]; then
+    if "$py" -c "import importlib.metadata as m; m.version('robot-action-composer'); m.version('ros2-robot-interface')" >/dev/null 2>&1; then
+      _doc_ok "已安装 interface + composer（motion-generation / ros2-stack）"
+      if ! "$py" -c "import ros2_robot_interface, robot_action_composer" >/dev/null 2>&1; then
+        _doc_miss "包已安装，但当前解释器导入失败。常见原因是没 source 到含自定义消息的 ROS 工作空间（例如 arms_ros2_control_msgs）。处理: ./init.sh ros2-workspace，或先 source 该工作空间再开终端"
+      fi
+    else
+      _doc_miss "interface 或 composer 未装进当前环境 → ./init.sh install"
+    fi
+    if "$py" -c "import viser" >/dev/null 2>&1; then
+      _doc_ok "viser（抓取界面）"
+    else
+      _doc_miss "viser → ./init.sh install-grasp （只做任务编排可忽略）"
+    fi
+    if "$py" -c "import wuji_sdk" >/dev/null 2>&1; then
+      _doc_ok "wuji-sdk（参考手型 retarget；其它 hand_profile 不一定需要）"
+    else
+      _doc_miss "wuji-sdk → ./init.sh install-grasp （当前参考手型需要；其它手型可忽略）"
+    fi
+    if "$py" -c "import rclpy" >/dev/null 2>&1; then
+      _doc_ok "rclpy"
+    else
+      _doc_miss "rclpy。source ROS 2，或 ./init.sh ros2-workspace"
+    fi
+  fi
+
+  if [[ -x "$hug_dir/.venv/bin/python" ]]; then
+    _doc_ok "HUG 独立 venv $hug_dir/.venv"
+  else
+    _doc_miss "HUG venv → ./init.sh hug-env （不做 HUG 推理可忽略）"
+  fi
+  if [[ -f "$hug_dir/checkpoints/hug_full.safetensors" ]]; then
+    _doc_ok "HUG 权重 checkpoints/hug_full.safetensors"
+  else
+    _doc_miss "HUG 权重未进 git。hug-env 之后: bash submodules/hug/scripts/download_assets.sh"
+  fi
+  if [[ -f "$hug_dir/assets/mano_models/models/MANO_RIGHT.pkl" ]]; then
+    _doc_ok "MANO_RIGHT.pkl"
+  else
+    _doc_miss "MANO_RIGHT.pkl 需注册下载 https://mano.is.tue.mpg.de/ → assets/mano_models/models/"
+  fi
+
+  echo
+  if [[ "$missing" -eq 0 ]]; then
+    echo ">>> 已检查的项都在。"
+  else
+    echo ">>> 有缺失项。只做任务编排时，忽略 hug / viser / wuji-sdk / MANO 那几行即可。"
+  fi
+  return 0
 }
 
 interactive_menu() {
@@ -541,14 +699,16 @@ interactive_menu() {
   echo
   echo "  [环境与安装]"
   echo "    3) 按当前 backend 创建环境"
-  echo "    4) 安装任务编排 + 抓取 CLI（interface + composer + viser + wuji-sdk）"
+  echo "    4) 安装任务编排（interface + composer；不含灵巧手）"
+  echo "    i) 安装抓取 extras（viser + wuji-sdk，可选）"
   echo "    5) 安装 lerobot 相关（PyTorch + lerobot + 插件）"
-  echo "    h) 配置 HUG 独立 venv（Python 3.10）"
+  echo "    h) 配置 HUG 独立 venv（Python 3.10，可选）"
+  echo "    d) 检查各模块是否就绪"
   echo
   echo "  [一键执行]"
-  echo "    6) 全部执行（任务编排 + 抓取 CLI：子模块 + 环境 + 安装）"
-  echo "    7) 全部执行（任务编排 + lerobot）"
-  echo "    g) 全部执行（任务编排 + 抓取 CLI + HUG）"
+  echo "    6) 任务编排（子模块 core + 环境 + 安装；不含灵巧手）"
+  echo "    7) 任务编排 + lerobot"
+  echo "    g) 任务编排 + 抓取 extras + HUG"
   echo
   echo "  [配置]"
   if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
@@ -568,9 +728,9 @@ interactive_menu() {
   echo "    q) 退出"
   echo
   if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
-    read -r -p "输入选项 [1-12/q]: " choice
+    read -r -p "输入选项 [1-12/i/h/d/g/q]: " choice
   else
-    read -r -p "输入选项 [1-11/q]: " choice
+    read -r -p "输入选项 [1-11/i/h/d/g/q]: " choice
   fi
 
   case "$choice" in
@@ -587,11 +747,17 @@ interactive_menu() {
     4)
       install_motion_stack
       ;;
+    i|I)
+      install_grasp_extras
+      ;;
     5)
       install_lerobot_stack
       ;;
     h|H)
       setup_hug_env
+      ;;
+    d|D)
+      doctor_modules
       ;;
     g|G)
       read -r -p "输入 Python 版本（默认 $DEFAULT_PYTHON_VERSION）: " input_python_version
@@ -645,6 +811,12 @@ main() {
     submodules)
       init_submodules
       ;;
+    submodules-core)
+      init_submodules_core
+      ;;
+    submodules-dex)
+      init_submodules_dex
+      ;;
     update-submodules)
       update_submodules_to_main
       ;;
@@ -661,6 +833,10 @@ main() {
     install)
       parse_install_backend_args "${@:2}"
       install_motion_stack
+      ;;
+    install-grasp)
+      parse_install_backend_args "${@:2}"
+      install_grasp_extras
       ;;
     install-plugins|install-lerobot)
       parse_install_backend_args "${@:2}"
@@ -686,6 +862,9 @@ main() {
       ;;
     hug-env)
       setup_hug_env
+      ;;
+    doctor)
+      doctor_modules
       ;;
     all-motion)
       run_all_motion "${2:-}"

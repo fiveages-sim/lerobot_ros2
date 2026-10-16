@@ -1,4 +1,6 @@
-# 里程碑：W2 头相机 × HUG 联调（更新 2026-09）
+# 里程碑笔记：头相机 × HUG（2026-09 记录）
+
+> 阅读说明：这是当时的阶段划分，不是当前安装说明。腕 → retarget → close 的顺序仍然适用；HUG 保持黑盒。参考实现 FiveAges W2 + Wuji Hand2 的可跑入口见 [`SETUP.md`](SETUP.md) 与 `examples/IsaacSim/robots/FiveAges_W2/`。文中「未具备 / 待验收」是 2026-09 的进度。
 
 ## 结论
 

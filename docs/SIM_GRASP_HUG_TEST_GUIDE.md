@@ -1,4 +1,6 @@
-# 第一期测试攻略：W2 头相机 → HUG / MANO
+# 头相机 → HUG / MANO 测试笔记
+
+> 阅读说明：早期「只验证 HUG 出相机系腕」的命令说明。跟腕、retarget、close 以 [`GRASP_GENERATION.md`](../submodules/robot_action_composer/docs/GRASP_GENERATION.md) 为准。参考机器人是 FiveAges W2。文中「机器人不会动 / 还不能下发到 O7」是这一期的成功标准，不是现在的能力边界。
 
 面向：仿真已能发 `/head_camera/{rgb,depth,camera_info}`，想搞清楚 **怎么测、命令什么意思、应该看到什么**。
 
@@ -11,7 +13,7 @@
 详见 [`submodules/robot_action_composer/docs/GRASP_GENERATION.md`](../submodules/robot_action_composer/docs/GRASP_GENERATION.md)。
 
 ```bash
-cd /home/fiveages/lerobot_ros2
+# 仓库根目录
 source .venv/bin/activate
 cd examples/IsaacSim
 ros2-stack launch --robot fiveages_w2          # 终端 A
@@ -72,7 +74,7 @@ ros2 topic echo /head_camera/camera_info --once   # 应有 k[] 内参
 环境（**必须用 HUG 自己的 uv**，不要混父仓 conda/composer 主环境）：
 
 ```bash
-cd /home/fiveages/lerobot_ros2/submodules/hug
+cd submodules/hug
 source .venv/bin/activate
 
 # 应看到 Python 3.10.x
@@ -83,10 +85,10 @@ ls checkpoints/hug_full.safetensors
 ls assets/mano_models/models/MANO_RIGHT.pkl
 ```
 
-Composer 脚本需要能被 import（一次性）：
+Composer 脚本需要能被 import（在**仓库根目录**执行一次）：
 
 ```bash
-export PYTHONPATH=/home/fiveages/lerobot_ros2/submodules/robot_action_composer:${PYTHONPATH}
+export PYTHONPATH="$(pwd)/submodules/robot_action_composer:${PYTHONPATH}"
 ```
 
 可把上一行写进该终端会话；关终端就没了。
@@ -101,7 +103,7 @@ export PYTHONPATH=/home/fiveages/lerobot_ros2/submodules/robot_action_composer:$
 > 先 **Ctrl+C**。这是 DINOv2 在直连官网失败。本仓已改成优先读本地缓存；请用：
 >
 > ```bash
-> cd /home/fiveages/lerobot_ros2/submodules/hug
+> cd submodules/hug
 > source .venv/bin/activate
 > bash scripts/run_app.sh
 > ```
@@ -111,7 +113,7 @@ export PYTHONPATH=/home/fiveages/lerobot_ros2/submodules/robot_action_composer:$
 ### A1. 一键冒烟（只验证环境）
 
 ```bash
-cd /home/fiveages/lerobot_ros2/submodules/hug
+cd submodules/hug
 source .venv/bin/activate
 bash scripts/smoke_check.sh
 ```
@@ -121,7 +123,7 @@ bash scripts/smoke_check.sh
 ### A2. 交互网页（最直观）
 
 ```bash
-cd /home/fiveages/lerobot_ros2/submodules/hug
+cd submodules/hug
 source .venv/bin/activate
 bash scripts/run_app.sh
 # 或手动：
@@ -186,9 +188,10 @@ python -m hug.inference \
 **推荐（一键两段）：**
 
 ```bash
-cd /home/fiveages/lerobot_ros2/submodules/hug
+# 仓库根目录
+export PYTHONPATH="$(pwd)/submodules/robot_action_composer:${PYTHONPATH}"
+cd submodules/hug
 source .venv/bin/activate
-export PYTHONPATH=/home/fiveages/lerobot_ros2/submodules/robot_action_composer:${PYTHONPATH}
 # 终端需已 source /opt/ros/jazzy/setup.bash；Isaac Play
 bash scripts/smoke_w2_head_hug.sh --u-norm 0.5 --v-norm 0.55
 ```
