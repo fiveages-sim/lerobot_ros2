@@ -27,6 +27,12 @@ camera_prim: /World/FiveAges_W2/Head_V1/head_link2/head_camera/head_camera
 # Same articulation root as robot.yaml base_link_entity_path (FaSim W2).
 base_prim: /World/FiveAges_W2/base_link
 
+# Head camera (W2 sensors.usda / ros2.usda after remote merge). Do not hardcode K:
+# capture reads width, height, and intrinsics from camera_info.
+#   RenderProduct 1280×800, focalLength 18.147562
+#   aperture 38.92176 × 24.48137 → FOV ≈ 94°×68°
+#   clipping 0.05–30 m
+# HUG still center-crops to a square and resizes to 224; K is scaled with that crop.
 rgb_topic: /head_camera/rgb
 depth_topic: /head_camera/depth
 info_topic: /head_camera/camera_info

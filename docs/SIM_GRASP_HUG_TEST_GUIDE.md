@@ -220,7 +220,7 @@ python -m robot_action_composer.grasp_generation.smoke_head_rgbd --from-ros \
 | `--save-dir` | 落盘目录 | 建议保留，出问题好查 |
 | `--u-norm` | 点击横坐标，0=左，1=右 | **对准物体中心**；先 0.5 再微调 |
 | `--v-norm` | 点击纵坐标，0=上，1=下 | 桌面物体常在 0.45～0.65 |
-| `--u-px` / `--v-px` | 用像素点（与 norm 二选一） | 640×480 时物体中心常约 `(320, 280)` |
+| `--u-px` / `--v-px` | 用像素点（与 norm 二选一） | 1280×800 时物体中心常约 `(640, 470)`；优先用 `--u-norm` |
 | `--sampling-steps` | 流匹配采样步数 | 冒烟用 1；观感差再试 10 |
 | `--timeout` | 等多久话题 | 没图就超时报错 |
 
@@ -245,7 +245,7 @@ ls data/w2_head_capture/
 
 ```text
 Waiting for /head_camera RGB-D ...
-frame rgb=(480, 640, 3) depth=[0.3, 2.5]m  fx=... fy=...
+frame rgb=(800, 1280, 3) depth=[0.3, 2.5]m  fx=... fy=...
 click_uv_224 (...) depth_m 0.8xx
 T_camera_wrist translation (m): [x, y, z]
 landmarks_3d wrist: [x, y, z]
@@ -257,7 +257,7 @@ OK: HUG propose succeeded
 
 | 输出 | 含义 |
 |------|------|
-| `frame rgb=(H,W,3)` | 收到的分辨率（预期约 480×640） |
+| `frame rgb=(H,W,3)` | 收到的分辨率（预期 800×1280，即 1280×800） |
 | `depth=[min,max]m` | 有效深度范围；若 min 很大或几乎没有效值，深度有问题 |
 | `depth_m` at click | **点击处**深度；若 ≈0，点到了无效深度，抓姿不可信 |
 | `T_camera_wrist translation` | 手腕在相机系下的位置（米）；z 通常是「往前」距离量级 |

@@ -10,7 +10,9 @@
 | usda（**当前 Wuji**） | `humanoid/FiveAges/Gen2/W2/env/wuji_hand2_new.usda` |
 | camera_prim | `/World/FiveAges_W2/Head_V1/head_link2/head_camera/head_camera` |
 | rgb / depth / info | `/head_camera/{rgb,depth,camera_info}` |
-| resolution | 640×480，fx≈fy |
+| resolution | 1280×800（`ros2.usda` RenderProduct）；焦距 18.147562 |
+| FOV / clip | 光圈 38.92176×24.48137 → 约 94°×68°；裁剪 0.05–30 m |
+| 内参 | 不写进 yaml；`/head_camera/camera_info` 随图发布，HUG 中心裁成 224 时再缩放 K |
 | physics | PhysX |
 
 ## B. fa_w2_ws / 运控
