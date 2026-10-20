@@ -310,6 +310,10 @@ install_motion_projects() {
     lr_env_activate "$ROOT_DIR"
     lr_env_install_editable "$interface_dir"
     lr_env_install_editable "$rac_dir"
+    # ROS Jazzy cv_bridge is built for NumPy 1.x. An unpinned numpy>=1.20
+    # resolves to 2.x and crashes head-camera capture.
+    echo ">>> 固定 numpy<2（与系统 cv_bridge 一致）。不要在这个环境里跑 install-lerobot。"
+    lr_env_pip_install "numpy>=1.26,<2"
   )
   echo ">>> 任务编排安装完成（motion-generation / ros2-stack / grasp-generation 入口）。"
   echo "    grasp-generation 命令已在，但 HUG 推理与手型 retarget 未装时会提示缺什么。"
@@ -324,6 +328,8 @@ install_grasp_extras() {
     lr_env_activate "$ROOT_DIR"
     lr_env_pip_install "viser>=0.2"
     lr_env_pip_install "wuji-sdk>=0.10.0"
+    echo ">>> 再次固定 numpy<2（依赖可能把它升到 2.x，头相机采图会挂）。"
+    lr_env_pip_install "numpy>=1.26,<2"
   )
   echo ">>> 抓取 extras 完成。HUG 权重与 MANO 仍要 ./init.sh hug-env（MANO 不能自动下）。"
 }
@@ -403,6 +409,8 @@ install_plugins() {
     lr_env_pip_install "$lerobot_pkg"
 
     echo ">>> 固定 numpy 版本（lerobot 0.5.x 要求 >=2.0,<2.3）"
+    echo ">>> 这会升到 NumPy 2。系统 cv_bridge 不能在这个环境里采头相机。"
+    echo "    编排和灵巧手抓取请只用 all-motion / all-grasp，不要和本步骤共用同一个 .venv。"
     lr_env_pip_install "numpy>=2.0,<2.3"
 
     echo ">>> 安装 scipy（覆盖 system-site-packages 中与 numpy 2.x 不兼容的版本）"
@@ -662,6 +670,12 @@ doctor_modules() {
     else
       _doc_miss "rclpy。source ROS 2，或 ./init.sh ros2-workspace"
     fi
+    np_ver="$("$py" -c "import numpy; print(numpy.__version__)" 2>/dev/null || true)"
+    if [[ "$np_ver" == 2.* ]]; then
+      _doc_miss "numpy $np_ver 与系统 cv_bridge（NumPy 1.x）冲突，头相机采图会崩。编排/抓取环境执行: uv pip install 'numpy>=1.26,<2'（不要用 install-lerobot 的那个环境）"
+    elif [[ -n "$np_ver" ]]; then
+      _doc_ok "numpy $np_ver（<2，可与 cv_bridge 一起采图）"
+    fi
   fi
 
   if [[ -x "$hug_dir/.venv/bin/python" ]]; then
@@ -692,6 +706,10 @@ doctor_modules() {
 interactive_menu() {
   lr_env_load_config "$ROOT_DIR"
   echo "请选择要执行的操作 (backend=$LR_ENV_BACKEND)"
+  echo "三条路不要混在同一个环境里："
+  echo "  只编排: 3 → 4，或菜单 6 / ./init.sh all-motion"
+  echo "  编排+灵巧手: 再加 i 和 h，或菜单 g / ./init.sh all-grasp（numpy 保持 <2）"
+  echo "  录制/推理: 菜单 5 或 7。会把 numpy 升到 2，头相机抓取不要再用这个环境。"
   echo
   echo "  [子模块]"
   echo "    1) 初始化子模块"
