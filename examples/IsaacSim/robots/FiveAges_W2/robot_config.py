@@ -51,7 +51,8 @@ class RobotConfig:
                 pose_orientation_threshold=self.pose_orientation_threshold,
                 #body_joint_controller_topic="/body_joint_controller/target_joint_position",
             ))
-    base_link_entity_path: str = "/World/FiveAges_W2/LinkHou_S2/base_footprint/base_link"
+    base_link_entity_path: str = "/World/FiveAges_W2/Linkhou_S2/base_footprint/base_link"
+
     fsm_switch_delay: float = 0.1
     post_reset_wait: float = 1.0
     arrival_timeout: float = 8.0
