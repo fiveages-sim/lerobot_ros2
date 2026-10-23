@@ -67,7 +67,6 @@ skill_defaults:
     right_arm_positions: [-0.0465, 1.612, -0.1924, -2.21, 1.5109, -0.216, 0.9134]
     arrival_timeout: 15.0
     joint_tolerance: 0.05
-    resume_ocs2: true   # 最后一个关节步骤，之后直接 pick（笛卡尔），必须切回 OCS2
     body_movej_duration: 4.0
 
 
@@ -96,7 +95,6 @@ skill_defaults:
     right_arm_positions: [-0.0465, 1.612, -0.1924, -2.21, 1.5109, -0.216, 0.9134]
     arrival_timeout: 30.0
     joint_tolerance: 0.05
-    resume_ocs2: true 
 
   turn_waist_keep_height:
     body_positions: [0.0, 0.0, 0.0, 1.0]

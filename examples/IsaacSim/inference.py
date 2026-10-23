@@ -84,12 +84,16 @@ def main() -> None:
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
 
-    from robot_action_composer.discovery.registry_loader import load_motion_entries  # pyright: ignore[reportMissingImports]
+    from robot_action_composer.discovery.registry_loader import (  # pyright: ignore[reportMissingImports]
+        load_lerobot_profile,
+        load_motion_entries,
+        resolve_robot_profile_dir,
+    )
     from robot_action_composer.task_config_io import (  # pyright: ignore[reportMissingImports]
         validate_runtime_defaults_keys,
     )
 
-    from robot_action_composer.dataset_recording.launcher import (  # pyright: ignore[reportMissingImports]
+    from robot_action_composer.cli.interactive import (  # pyright: ignore[reportMissingImports]
         select_task_with_optional_group,
     )
     from online_infer.ui import select_option
@@ -143,16 +147,27 @@ def main() -> None:
 
     core_script = isaac_dir / "online_infer" / "core.py"
     core_module = _load_module("isaac_inference_core", core_script)
-    robot_cfg = robot_entry["robot_cfg"]
+    motion_cfg = robot_entry["motion_cfg"]
+    lerobot_cfg = load_lerobot_profile(
+        resolve_robot_profile_dir(isaac_dir, robot_entry),
+        workspace_dir=isaac_dir,
+    )
+    if lerobot_cfg is None:
+        raise RuntimeError(
+            f"Robot {robot_key!r} has no lerobot_config.py; inference requires lerobot stack "
+            "(./init.sh install-lerobot)."
+        )
     bl_override = runtime_defaults.get("base_link_entity_path")
     if isinstance(bl_override, str) and bl_override.strip():
-        if not is_dataclass(robot_cfg):
+        if not is_dataclass(motion_cfg):
             raise TypeError(
-                "runtime_defaults.base_link_entity_path requires robot_cfg to be a @dataclass "
-                f"(got {type(robot_cfg).__name__})"
+                "runtime_defaults.base_link_entity_path requires motion_cfg to be a @dataclass "
+                f"(got {type(motion_cfg).__name__})"
             )
-        robot_cfg = replace(robot_cfg, base_link_entity_path=bl_override.strip())
-    core_module.ROBOT_CFG = robot_cfg
+        motion_cfg = replace(motion_cfg, base_link_entity_path=bl_override.strip())
+    core_module.MOTION_CFG = motion_cfg
+    core_module.LEROBOT_CFG = lerobot_cfg
+    core_module.ROBOT_CFG = motion_cfg
     core_module.PICK_PLACE_FLOW_OVERRIDES = {"object_prim_path": object_prim_path}
 
     print(

@@ -1,0 +1,7 @@
+key: realman_rm75
+label: Realman RM75
+base_link_entity_path: /World/RM75_aidal/base_link
+ros2_interface:
+  preset: single_arm
+  gripper_joint_name: gripper_joint
+  gripper_command_topic: gripper_joint/position_command

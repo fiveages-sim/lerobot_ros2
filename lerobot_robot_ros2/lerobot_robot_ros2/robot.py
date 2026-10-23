@@ -15,7 +15,8 @@ import numpy as np
 from geometry_msgs.msg import Pose
 # Import will be done dynamically to use the patched version
 from lerobot.robots import Robot
-from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+
+from .errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from .config import ROS2RobotConfig
 # Import from the standalone ros2_robot_interface package

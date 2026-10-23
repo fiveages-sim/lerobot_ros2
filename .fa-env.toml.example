@@ -1,0 +1,18 @@
+# lerobot_ros2 运行时环境配置（示例，可提交到 git）
+# 首次运行 init.sh / lr-env 时会复制为 .fa-env.toml（本地文件，不纳入 git）
+# 个人覆盖可建 .fa-env.local.toml（已 gitignore）
+# 临时覆盖: export LR_ENV_BACKEND=uv
+
+backend = "uv"
+
+[conda]
+name = "lerobot-ros2"
+
+[uv]
+venv = ".venv"
+
+[lerobot]
+version = "0.5.1"
+
+[ros2]
+# workspace = "~/ros2_ws"

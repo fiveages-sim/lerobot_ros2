@@ -1,0 +1,108 @@
+# FiveAges W2 — 蹲姿连续行走+右臂往复左右摆动
+task_key: wax_spray
+label: 喷蜡
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  max_stage_duration: 4.0
+  pose_tol_pos: 0.05
+  pose_tol_ori: 0.08
+  base_link_entity_path: /World/robot/FiveAges_W2/LinkHou_S2/base_footprint/base_link
+
+skill_defaults:
+  single_arm.pick:
+    object_prim_path: /World/scene/car/qichemoxing/Mesh_0
+    object_position_offset: [0, 0, 0]
+
+  nav_03:
+    x: 0.3
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+  nav_06:
+    x: 0.6
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+  nav_09:
+    x: 0.9
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+  nav_12:
+    x: 1.2
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+  nav_15:
+    x: 1.5
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+  nav_18:
+    x: 1.8
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+  nav_21:
+    x: 2.1
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  # 右臂向左水平摆动
+  swing_left:
+    arm: right
+    motion_frame_id: arm_base
+    position: [ 0.6182, 0.0624, -0.0170 ]
+    orientation: [ 0.5857, 0.0888, 0.8056, 0.0086 ]
+
+  # 右臂向右水平摆动
+  swing_right:
+    arm: right
+    motion_frame_id: arm_base
+    position: [ 0.6732, -0.3926, -0.0025 ]
+    orientation: [ 0.6569, 0.0594, 0.7505, 0.0415 ]
+
+task_queue:
+  # 0~0.3m + 右臂右摆
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_03
+      - skill: single_arm.move_to_pose
+        id: swing_right
+  # 0.3~0.6m + 右臂左摆
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_06
+      - skill: single_arm.move_to_pose
+        id: swing_left
+  # 0.6~0.9m + 右臂右摆
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_09
+      - skill: single_arm.move_to_pose
+        id: swing_right
+  # 0.9~1.2m + 右臂左摆
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_12
+      - skill: single_arm.move_to_pose
+        id: swing_left
+  # 1.2~1.5m + 右臂右摆
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_15avigate_to_pose
+        id: nav_18
+      - skill: single_arm.move_to_pose
+        id: swing_left
+  # 1.8~2.1m + 右臂右摆
+  - parallel:
+      - skill: nav.navigate_to_pose
+        id: nav_21
+      - skill: single_arm.move_to_pose
+        id: swing_right
+
+scene_presets:
+  default: {}

@@ -1,0 +1,4 @@
+object_key: lime
+object_prim_path: /World/scene/lime/Geometry/lime_01_obj_00
+grasps:
+  center: center

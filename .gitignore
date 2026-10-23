@@ -22,11 +22,20 @@ build/
 /lerobot_robot_ros2/lerobot_robot_ros2.egg-info/
 /ros2_robot_interface/ros2_robot_interface.egg-info/
 
+.motion_last.json
+.grasp_last.json
+.ros2_stack_last.json
+
+# ROS 2 stack runtime state (pid/log/json under workspace cwd)
+.ros2_stack/
+
 # Virtual environments
 venv/
 env/
 ENV/
 .venv
+.fa-env.toml
+.fa-env.local.toml
 
 # Testing
 .pytest_cache/
@@ -46,3 +55,15 @@ external/
 **/dataset/
 **/raw_dataset/
 **/lerobot_dataset/
+
+# Local-only trees (not git submodules — do not commit)
+/submodules/lerobot/
+
+# HUG runtime assets. The submodule gitignore already excludes these.
+# Repeat them here so a broken gitlink cannot accidentally add licensed MANO
+# or multi-hundred-MB weights into the parent repo.
+/submodules/hug/.venv/
+/submodules/hug/checkpoints/
+/submodules/hug/assets/mano_models/
+/submodules/hug/data/
+/submodules/hug/**/*.safetensors

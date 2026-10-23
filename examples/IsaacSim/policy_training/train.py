@@ -28,12 +28,12 @@ import logging
 from pathlib import Path
 
 
-from lerobot.constants import CHECKPOINTS_DIR, LAST_CHECKPOINT_LINK
+from lerobot.utils.constants import CHECKPOINTS_DIR, LAST_CHECKPOINT_LINK
 from lerobot.configs.default import DatasetConfig, WandBConfig
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
-from lerobot.scripts.train import train as lerobot_train
+from lerobot.scripts.lerobot_train import train as lerobot_train
 from lerobot.datasets.video_utils import get_safe_default_codec
 from lerobot.utils.train_utils import get_step_checkpoint_dir
 from lerobot.utils.utils import init_logging

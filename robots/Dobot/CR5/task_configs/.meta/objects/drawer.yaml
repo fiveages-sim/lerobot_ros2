@@ -1,0 +1,12 @@
+# drawer_apples 场景：柜体 + 抽屉（拉手 frame 相对抽屉刚体）
+# level_1 → …/StorageFurniture135_Drawer00x/handle_pose
+drawer:
+  object_prim_path: /World/scene/StorageFurniture135/StorageFurniture135_Drawer001
+  grasps:
+    level_1: handle_pose
+drawer_2:
+  object_prim_path: /World/scene/StorageFurniture135/StorageFurniture135_Drawer002
+  grasps:
+    level_1: handle_pose
+cabinet:
+  object_prim_path: /World/scene/StorageFurniture135

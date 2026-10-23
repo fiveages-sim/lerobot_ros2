@@ -1,0 +1,5 @@
+key: galbot_zero
+label: Galbot Zero
+base_link_entity_path: /World/Galbot_Zero/base_link
+fsm_switch_delay: 0.13
+arrival_timeout: 2.0

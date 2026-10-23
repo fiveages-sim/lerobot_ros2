@@ -47,7 +47,6 @@ skill_defaults:
       arrival_timeout: 30.0
       joint_tolerance: 0.05
       # movej 完成后切回 OCS2，便于后续笛卡尔 move_to_object
-      resume_ocs2: true
 
   # single_arm.move_to_object 默认参数
   single_arm.move_to_object:

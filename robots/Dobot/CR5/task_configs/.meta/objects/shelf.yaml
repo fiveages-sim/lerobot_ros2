@@ -1,0 +1,6 @@
+object_key: shelf
+object_prim_path: /World/scene/shelf
+grasps:
+  level_1: target/level_01
+  level_2: target/level_02
+  level_3: target/level_03

@@ -57,7 +57,6 @@ skill_defaults:
 
   goto_initial_pose:
     key: init_arm_joints
-    resume_ocs2: true
 
   send_left_pose_in_frame:
     arm: right

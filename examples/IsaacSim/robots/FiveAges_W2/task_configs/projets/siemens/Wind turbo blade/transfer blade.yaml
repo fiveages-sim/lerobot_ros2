@@ -1,0 +1,135 @@
+task_key: transfer_blade
+label: 将风电叶片从料箱转移到工作台
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/robot/FiveAges_W2/Linkhou_S2/base_footprint
+  max_stage_duration: 5.0
+  pose_tol_pos: 0.006
+  pose_tol_ori: 0.03
+
+# 场景物体 prim / grasps 在同目录 .meta/objects/（wind_turbo_blade、bg_cube）
+active_object: wind_turbo_blade
+
+skill_defaults:
+  nav_to_box:
+    object_prim_path: /World/scene/boxes/white_box_05
+    approach_offset_x: 0.0
+    approach_offset_y: -0.65
+    yaw: 1.5708
+    timeout: 60.0
+
+  init_movej:
+    body_positions: [-0.6, -1.2, -0.6, 0.0]
+    left_arm_positions: [ -0.55, 1.0266, 0.8125, -1.8487, -0.9908, -0.5437, -0.4515 ]
+    right_arm_positions: [ 0.55, 1.0266, -0.8125, -1.8487, 0.9908, -0.5437, 0.4515 ]
+    head_positions: [ 0.0, 0.18 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+
+  pre_pick_movej:
+    body_positions: [-0.4, -1.2, -0.8, 0.0000]
+    head_positions: [0.0, 0.18]
+    left_arm_positions: [-0.5, -0.4, 0.4, -1.8202, -1.5708, 0.0, 0.0]
+    right_arm_positions: [0.5, -0.4, -0.4, -1.8202, 1.5708, 0.0, 0.0]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+
+  # 双臂同时各抓叶片两侧（offset 由 USD grasp frame 自动解析）
+  # yaw_roll：yaw/pitch/roll 默认 auto 吸附到最近 k·π/2（倾倒常在 pitch）
+  dual_arm.parallel_pick:
+    ee_orientation_frame: object
+    object_orientation_mode: yaw_roll
+    left_pick:
+      grasp_id: small_1
+      prepare_offset: [0.0, 0.0, -0.1]
+      pick_clearance: 0.0
+      ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+      ee_retreat_offset: [0.0, 0.0, -0.2]
+    right_pick:
+      grasp_id: big_1
+      prepare_offset: [0.0, 0.0, -0.1]
+      pick_clearance: 0.0
+      ee_base_orientation: [1.0, 0.0, 0.0, 0.0]
+      ee_retreat_offset: [0.0, 0.0, -0.2]
+
+  # 抓取完成后开启全身控制双臂耦合
+  enable_arms_coupled:
+    command: ARMS_COUPLED
+
+  # 耦合后仅发左臂末端（右臂由耦合跟随）：相对平移 + RPY 转向
+  coupled_left_move_relative:
+    arm: left
+    motion_frame_id: base_footprint
+    position_delta: [0.2, 0.0, 0.3]
+    orientation_delta_rpy: [0.0, -1.57, 0.0]
+    arm_movel_duration: 4.0
+    gripper: 0.0
+
+  # 腰部相对当前姿态：第 4 关节（偏航）+π；与导航并行
+  waist_yaw_180:
+    body_positions: [-1.2, -1.8, -0.6, null]   # 前三绝对，第 4 先取当前
+    body_joint_deltas: {3: -3.1416}
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 3.0
+
+  # 导航到场景 bg_cube 附近（接近偏移可按实测微调）
+  nav_to_bg_cube:
+    object_key: bg_cube
+    approach_offset_x: 0.0
+    approach_offset_y: 1.0
+    yaw: 1.5708
+    timeout: 60.0
+
+  # 腰转/导航后：身体追踪 + 双臂耦合（等 current_state 确认后再发下一条）
+  reenable_arms_coupled:
+    commands: [ ARMS_COUPLED, BODY_TRACKING ]
+    wait_timeout: 5.0
+
+  # 双手中点对齐 bg_cube+offset（物体系）→ 松爪 → 外张 → 后撤 x
+  place_on_cube:
+    reference_object_key: bg_cube
+    object_position_offset: [-0.05, 0.3, 0.19]
+    motion_frame_id: base_footprint
+    arm_movel_duration: 2.0
+    retreat_xyz: [0.15, 0.0, -0.05]
+
+  # 耦合下仅发左臂：后撤后再抬 z（右臂跟随）
+  retreat_z:
+    arm: left
+    motion_frame_id: base_footprint
+    position_delta: [0.0, 0.0, 0.15]
+    arm_movel_duration: 2.0
+
+task_queue:
+  - parallel:
+      - skill: nav.navigate_to_object
+        id: nav_to_box
+      - skill: joint.movej_to_config
+        id: init_movej
+  - skill: joint.movej_to_config
+    id: pre_pick_movej
+  - skill: dual_arm.parallel_pick
+  - skill: robot.send_mode_command
+    id: enable_arms_coupled
+  - skill: single_arm.move_relative
+    id: coupled_left_move_relative
+  - parallel:
+      - skill: joint.movej_to_config
+        id: waist_yaw_180
+      - skill: nav.navigate_to_object
+        id: nav_to_bg_cube
+  - skill: robot.send_mode_command
+    id: reenable_arms_coupled
+  - skill: dual_arm.place
+    id: place_on_cube
+  - skill: single_arm.move_relative
+    id: retreat_z
+
+scene_presets:
+  default:
+    skill_params: {}

@@ -1,0 +1,51 @@
+key: fiveages_w2
+label: FiveAges W2
+# Articulation root on FaSim W2 (wuji_hand2_new / FiveAges_W2.usda).
+# NOT Linkhou_S2/base_footprint/base_link — that prim does not exist.
+# Scene-specific overrides (e.g. /World/robot/...) stay in task runtime_defaults.
+base_link_entity_path: /World/FiveAges_W2/base_link
+# Isaac STOP→PLAY invalidates PhysX views briefly; give GT odom / entity_state time.
+post_reset_wait: 3.0
+gripper_action_wait: 2.0
+
+ros2_stack:
+  defaults:
+    args:
+      robot: fiveages_w2
+      hardware: isaac
+  motion:
+    required: true
+    preset: ocs2-fullbody
+    # true -> launch_mode:=control_only（无 RViz）；false -> full（有 RViz）
+    # 抓取联调需要 RViz 看 marker / FSM；无头再改回 true
+    headless: false
+    args:
+      # 仿真 env/wuji_hand2_new.usda；切回 O7 时改为 linkerhand_o7 + dexhand_o7_new
+      type: wuji_hand2
+      # 本机运控工作空间里的手型覆盖，不是本仓库里的文件。
+      # ros2-stack 会原样把它收成 launch 参数 robot_profile:=<此路径>，不会展开 ~。
+      # 换用户或换机器时改成那台电脑上的绝对路径，例如
+      #   /home/<用户>/fa_w2_ws/config/robot.profiles/wuji_hand2.yaml
+      # 文件要在已 source 的运控工作空间里。作用是 open→home_1、close→home_3，
+      # 不要去改 wuji_description 包内的同名 YAML。
+      # 下面这一行是当前开发机（用户 fiveages）的路径，别人克隆后必须改。
+      robot_profile: /home/fiveages/fa_w2_ws/config/robot.profiles/wuji_hand2.yaml
+      use_profile_eef: "false"
+  navigation:
+    required: auto
+    package: robot_common_launch
+    launch_file: navigation_isaac_gt.launch.py
+    # 不是本机路径。ros2-stack 收成 nav2_profile:=default，由运控包
+    # robot_common_launch 解析成两份包内文件（相对 share，启动时变成绝对路径，不含用户名）：
+    #   config/nav2/nav2_params_isaac_gt.yaml
+    #   config/maps/warehouse_with_forklifts/map.yaml
+    # 东村桌场景不要用这张仓库图。task_configs/dex_hand/.meta/ros2_stack.yaml
+    # 会改成 map_only + east_rural_open，但只有
+    #   ros2-stack launch --robot fiveages_w2 --group dex_hand
+    # 才会合并进去。只按本文件启动时，Nav2 按仓库图规划，技能会停在已打印的 map goal 上干等。
+    profile: default
+    # true -> use_rviz:=false；false -> 启 Nav2 RViz
+    # Dex/nav 联调开 RViz：用 task 叶子 .meta（如 task_configs/dex_hand/），勿改这里影响其它项目
+    headless: true
+    ready_when:
+      node_name_contains: [controller_server]

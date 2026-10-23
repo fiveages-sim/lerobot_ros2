@@ -1,0 +1,7 @@
+key: ubtech_cruzr_s2
+label: Ubtech Cruzr S2
+base_link_entity_path: /World/Ubtech_CruzrS2/Ubtech_CruzrS2_Chassis/base_link
+arrival_timeout: 5.0
+ros2_interface:
+  pose_position_threshold: 0.05
+  pose_orientation_threshold: 0.1

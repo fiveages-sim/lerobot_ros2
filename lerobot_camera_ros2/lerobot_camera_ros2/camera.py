@@ -14,8 +14,7 @@ from typing import Any
 import cv2
 import numpy as np
 import rclpy
-from cv_bridge import CvBridge
-from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+from .errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -24,6 +23,19 @@ from lerobot.cameras.camera import Camera
 from .config import ROS2CameraConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _try_create_cv_bridge():
+    """Return CvBridge instance if import succeeds; otherwise None (numpy 2.x safe path)."""
+    if os.getenv("LEROBOT_ROS2_DISABLE_CV_BRIDGE", "0") == "1":
+        return None
+    try:
+        from cv_bridge import CvBridge
+
+        return CvBridge()
+    except Exception as exc:
+        logger.warning("cv_bridge unavailable (%s); using manual image converter.", exc)
+        return None
 
 
 class ROS2Camera(Camera):
@@ -82,7 +94,7 @@ class ROS2Camera(Camera):
         self.depth_subscription = None
         
         # Image processing
-        self.bridge = CvBridge()
+        self.bridge = _try_create_cv_bridge()
         self.latest_image: np.ndarray | None = None
         self.latest_depth: np.ndarray | None = None
         self.image_lock = threading.Lock()
@@ -90,7 +102,7 @@ class ROS2Camera(Camera):
         self.image_received_event = threading.Event()
         self.depth_received_event = threading.Event()
         self._dimensions_initialized = False
-        self._cv_bridge_enabled = os.getenv("LEROBOT_ROS2_DISABLE_CV_BRIDGE", "0") != "1"
+        self._cv_bridge_enabled = self.bridge is not None
         self._last_cv_bridge_error_log_ts = 0.0
         self._cv_bridge_error_log_interval_s = 2.0
         
@@ -250,7 +262,7 @@ class ROS2Camera(Camera):
             
             # Convert ROS image message to OpenCV format
             cv_image = None
-            if self._cv_bridge_enabled:
+            if self._cv_bridge_enabled and self.bridge is not None:
                 try:
                     cv_image = self.bridge.imgmsg_to_cv2(msg, self.encoding)
                 except Exception as e:
@@ -346,10 +358,29 @@ class ROS2Camera(Camera):
     def _depth_callback(self, msg: Image) -> None:
         if not self.depth_topic_name:
             return
-        if not self.depth_topic_name:
-            return
         try:
-            cv_depth = self.bridge.imgmsg_to_cv2(msg, self.depth_encoding)
+            cv_depth = None
+            if self._cv_bridge_enabled and self.bridge is not None:
+                try:
+                    cv_depth = self.bridge.imgmsg_to_cv2(msg, self.depth_encoding)
+                except Exception as exc:
+                    logger.warning("cv_bridge depth conversion failed (%s); using manual converter.", exc)
+
+            if cv_depth is None:
+                src = (msg.encoding or "").lower()
+                h, w = int(msg.height), int(msg.width)
+                raw = np.frombuffer(msg.data, dtype=np.uint8)
+                if src in ("32fc1", "passthrough"):
+                    expected = h * w * 4
+                    if raw.size < expected:
+                        logger.error("Manual depth conversion failed: payload too small")
+                        return
+                    cv_depth = np.frombuffer(msg.data, dtype=np.float32, count=h * w).reshape(h, w)
+                else:
+                    cv_depth = self._manual_convert_image_msg(msg, self.depth_encoding)
+                    if cv_depth is None:
+                        return
+
             depth_float = np.array(cv_depth, dtype=np.float32, copy=False)
             depth_clean = np.nan_to_num(depth_float, nan=0.0, posinf=0.0, neginf=0.0)
 

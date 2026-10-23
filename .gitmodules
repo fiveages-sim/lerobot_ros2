@@ -1,12 +1,15 @@
 [submodule "ros2_robot_interface"]
 	path = submodules/ros2_robot_interface
 	url = git@github.com:fiveages-sim/ros2_robot_interface.git
-[submodule "submodules/lerobot"]
-	path = submodules/lerobot
-	url = git@github.com:huggingface/lerobot.git
 [submodule "submodules/robot_action_composer"]
 	path = submodules/robot_action_composer
 	url = git@github.com:fiveages-sim/robot_action_composer.git
+[submodule "submodules/hug"]
+	path = submodules/hug
+	url = git@github.com:fiveages-sim/HUG.git
+[submodule "submodules/wuji-retargeting"]
+	path = submodules/wuji-retargeting
+	url = git@github.com:fiveages-sim/wuji-retargeting.git
 [submodule "submodules/internnav_w2"]
 	path = submodules/internnav_w2
 	url = git@github.com:fiveages-sim/internnav_w2.git

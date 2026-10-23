@@ -1,0 +1,5 @@
+key: marvin_m6ccs
+label: Marvin M6CCS
+base_link_entity_path: /World/M6_CCS_Dual/Dual_Stand1/base_link
+ros2_interface:
+  pose_orientation_threshold: 0.1
