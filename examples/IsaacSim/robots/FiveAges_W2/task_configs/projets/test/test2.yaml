@@ -1,0 +1,109 @@
+task_key: test2
+label: 扫柜子
+use_stamped: true
+default_scene: default
+
+#==================== 全局运行限制参数 ====================
+runtime_defaults:
+  max_stage_duration: 4.0                  # 单段并行任务最大允许执行时长(秒)
+  pose_tol_pos: 0.05                       # 末端/底盘到达判定：位置误差阈值(m)
+  pose_tol_ori: 0.08                       # 末端/底盘到达判定：姿态四元数误差阈值
+  base_link_entity_path: /World/FiveAges_W2/Linkhou_S2/base_footprint/base_link  # 机器人基坐标系USD路径
+
+#==================== 技能预设参数库 ====================
+skill_defaults:
+  single_arm.pick:
+    object_prim_path: /World/up/Cube # 待抓取工件USD路径
+    object_position_offset: [0, 0, 0]          # 抓取点相对工件原点三维偏移
+
+  
+
+  top_right_movej:
+    body_positions: [ -0.5943, -1.2235, -0.5827, 0.2776 ]
+    left_arm_positions: [ -0.9043, -1.8019, 0.6017, -0.4862, -0.5162, 0.849, -0.6726 ]
+    right_arm_positions: [ 0.0319, 0.0694, -0.2607, -0.3337, 0.5048, -0.0361, -0.0655 ]
+    head_positions: [ 0.0, -0.0004 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  right_only_body_movej:
+    body_positions: [ -1.205, -2.3991, -1.1445, 0.2776 ]
+    left_arm_positions: [ -0.9044, -1.8019, 0.6018, -0.4862, -0.5163, 0.8489, -0.6726 ]
+    right_arm_positions: [ 0.032, 0.0694, -0.2608, -0.3337, 0.5049, -0.0361, -0.0655 ]
+    head_positions: [ 0.0, -0.0002 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  bottom_right_movej:
+    body_positions: [ -1.2051, -2.3991, -1.2018, 0.2369 ]
+    left_arm_positions: [ -0.1759, -1.7568, 0.9307, -1.0565, -1.6687, 0.7654, 1.0426 ]
+    right_arm_positions: [ 0.0269, 0.17, -0.1103, -0.5159, 0.3125, 0.1003, -0.0681 ]
+    head_positions: [ 0.0, -0.0003 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  bottom_left_movej:
+    body_positions: [ -1.204, -2.4001, -0.9879, 0.2255 ]
+    left_arm_positions: [ -0.3281, 0.2578, 0.4399, -0.9387, 0.1306, -0.6628, 0.3812 ]
+    right_arm_positions: [ 0.3748, 0.4694, -0.1453, -0.662, 0.2, 0.0084, -0.0099 ]
+    head_positions: [ 0.0, -0.0001 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  bottom_left_rise_movej:
+    body_positions: [ -0.0736, -0.2295, 0.056, 0.2344 ]
+    left_arm_positions: [ -0.2705, 0.2674, 0.4044, -0.9432, 0.1178, -0.6631, 0.3952 ]
+    right_arm_positions: [ 0.374, 0.4584, -0.1592, -0.6639, 0.2129, 0.0114, -0.0158 ]
+    head_positions: [ 0.0, -0.0005 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  top_left_movej:
+    body_positions: [ -0.0726, -0.2318, 0.0495, 0.1422 ]
+    left_arm_positions: [ -1.3712, -0.3888, 0.3698, -0.5489, 0.026, -0.564, -0.7921 ]
+    right_arm_positions: [ 0.3175, 0.6011, -0.0546, -0.7087, 0.1756, 0.009, 0.0068 ]
+    head_positions: [ 0.0, -0.0008 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  top_right2_movej:
+    body_positions: [ -0.0732, -0.2308, -0.1572, 0.3207 ]
+    left_arm_positions: [ -0.9285, -1.6958, 1.0408, -0.8482, -1.2282, 0.8234, -0.1392 ]
+    right_arm_positions: [ 0.1698, 0.2623, -0.1445, -0.9594, 0.2199, 0.4007, -0.1108 ]
+    head_positions: [ -0.0001, -0.0009 ]
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+#==================== 任务执行队列====================
+task_queue:
+  - skill: joint.movej_to_config
+    id: top_right_movej
+  - skill: joint.movej_to_config
+    id: right_only_body_movej
+  - skill: joint.movej_to_config
+    id: bottom_right_movej
+  - skill: joint.movej_to_config
+    id: bottom_left_movej
+  - skill: joint.movej_to_config
+    id: bottom_left_rise_movej
+  - skill: joint.movej_to_config
+    id: top_left_movej
+  - skill: joint.movej_to_config
+    id: top_right2_movej
+
+#==================== 场景预设配置 ====================
+scene_presets:
+  default: {}  # 默认场景无额外加载参数
