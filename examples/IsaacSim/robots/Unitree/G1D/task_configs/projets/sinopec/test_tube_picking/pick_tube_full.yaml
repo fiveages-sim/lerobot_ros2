@@ -1,0 +1,72 @@
+# Unitree G1D + Dex1 — 右手侧抓试管（完整）
+#
+# 前置：先跑 pick_tube.yaml 确认能准确到达抓取点。
+# 数值来源、坐标系说明、grasp_id 失效原因、参数必须内联的原因
+# ——全部见 pick_tube.yaml 头部注释。
+#
+# 实机标定（2026-11-01，reset 后干净状态）：
+#   tube 原点   (1.764026, 0.234068, 0.743001)  竖直无倾斜
+#   真实抓取点  (1.763818, 0.234119, 0.873691)  = 原点 + 竖直 130.69mm
+#   object_position_offset = [-0.000045, -0.000099, 0.019290]
+#   ee_base_orientation    = [0.001793, 0.004683, -0.002723, 0.999984]
+#   标定验证误差 0.00 mm；fmid - WBC_EE = 0.62mm（运控末端 = 夹指中心）
+
+task_key: pick_tube_full
+label: 右手侧抓试管（完整）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  # USD base_link 世界 z=0（在地面），与 TF 的 base_footprint 位置一致。
+  base_link_entity_path: /World/G1D/base_link
+  max_stage_duration: 8.0
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.08
+  gripper_open: 1.0
+  gripper_closed: 0.0
+
+# env reset 需要 object_prim_path（runner.py:484）
+skill_defaults:
+  single_arm.pick:
+    object_prim_path: /World/room/scene/test_tube
+
+task_queue:
+  # 1) 张开夹爪，移动到抓取点
+  - skill: single_arm.move_to_object
+    params:
+      arm: right
+      object_prim_path: /World/room/scene/test_tube
+      object_position_offset: [-0.000045, -0.000099, 0.019290]
+      ee_base_orientation: [0.001793, 0.004683, -0.002723, 0.999984]
+      ee_pick_axis: "+z"
+      ee_orientation_frame: motion
+      prepare_offset: [0.0, 0.0, 0.0]
+      pick_clearance: 0.0
+      arm_movel_duration: 4.0
+      # 张开夹爪再靠近（默认 gripper_for_return_home = closed）
+      gripper: 1.0
+      # 运控 base 帧是 base_footprint；不指定会被多抬 111mm（详见 pick_tube.yaml）
+  # 2) 闭合夹爪（同一目标点，只是闭爪）
+  - skill: single_arm.pick
+    params:
+      arm: right
+      object_prim_path: /World/room/scene/test_tube
+      object_position_offset: [-0.000045, -0.000099, 0.019290]
+      ee_base_orientation: [0.001793, 0.004683, -0.002723, 0.999984]
+      ee_pick_axis: "+z"
+      ee_orientation_frame: motion
+      prepare_offset: [0.0, 0.0, 0.0]
+      pick_clearance: 0.0
+      retreat_open_gripper: false
+      gripper_closed: 0.0
+      arm_movel_duration: 3.0
+  # 3) 抬起试管（基座 +Z 8cm）
+  - skill: single_arm.move_relative
+    params:
+      arm: right
+      position_delta: [0.0, 0.0, 0.08]
+      arm_movel_duration: 2.0
+      gripper: 0.0
+
+scene_presets:
+  default: {}

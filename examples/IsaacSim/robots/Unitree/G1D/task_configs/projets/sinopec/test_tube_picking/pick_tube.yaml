@@ -1,0 +1,110 @@
+# Unitree G1D + Dex1 — 右手侧移试管抓取点（验证用）
+#
+# 场景：FaSim-Isaac environment/fa-project-usd/Sinopec/2026-10 Test Tube Picking/env/G1D/room.usda
+#
+# ============================================================
+# 数值来源（2026-11-01 实机标定，reset 后干净状态）
+# ============================================================
+# 手动用 viser 摆好"夹指中心能抓住试管"的位置，然后读取：
+#
+#   WBC /right_current_pose (world) = (1.877462, 0.230601, 0.884049)
+#   base_link 系 xyzw              = (0.001793, 0.004683, -0.002723, 0.999984)
+#   → 近似单位四元数，工具 X/Y 水平、Z 竖直
+#
+#   tube 原点 (world)  = (1.764026, 0.234068, 0.743001)
+#   tube xyzw          = (0.00042, -0.0007, -0.7071, 0.7071)   绕 Z -90°，无倾斜
+#   tube Z 轴 (world)  = (-0.0016, 0.0004, 1.000)              完全竖直
+#   真实抓取点         = tube 原点 + R_tube·[0,0,0.13069]
+#                      = (1.763818, 0.234119, 0.873691)
+#
+#   解出 object_position_offset = [-0.000451, -0.000054, 0.130944]
+#   验证误差 0.00 mm
+#
+# ============================================================
+# 重要：right_current_pose 就是夹指中心
+# ============================================================
+# 实测 fmid - WBC_EE = 0.62 mm。运控发布的末端位姿 = 两指中点，
+# **不是**腕部法兰。USB 里 /right_tcp 的 translate 是 authoring 值，
+# 仿真运行时不更新，读它会得到陈旧数据（会误导标定）。
+#
+# ============================================================
+# 重要：编排读的是【实时】位姿，不是 USD 原始值
+# ============================================================
+# 调用链（每次执行时都实时查询，无缓存）：
+#   skill_pick → _resolve_object_target_pose_from_pick_like_params
+#     → get_object_pose_from_service
+#       → get_entity_pose_world_service → /get_entity_state
+#
+# 因此试管"浮空后下落"的设计没问题：编排会自动跟随落定后的位置。
+# 但要注意 tube_grasp 子 prim 是【非刚体】，试管移动后它不跟随，
+# 读 tube_grasp 会得到陈旧值 —— 所以本配置用
+# object_prim_path + object_position_offset 自行计算抓取点。
+#
+# ============================================================
+# 为什么不用 grasp_id
+# ============================================================
+# grasp_id 依赖 /get_prim_attribute 解析 USD 抓取 frame，但 Isaac Sim 6.x
+# 无该服务端实现（FaSim 只编了消息类型，无 create_service）。
+# 调用静默返回 None → 偏移退化 (0,0,0) → 抓到物体原点。
+#
+# ============================================================
+# !! 参数必须内联在 task_queue.params !!
+# ============================================================
+# task_runtime/config/merged.py:221 的 build_merged_queue_config 只把
+# skill_defaults 里的 single_arm.pick / single_arm.place 叠进初始
+# QueueSingleArmSlice，**不含 single_arm.move_to_object**。
+# 写在 skill_defaults["single_arm.move_to_object"] 下会被静默忽略
+# (arm 回落 left、orientation 回落 top-down、offset 归零)。
+
+task_key: pick_tube
+label: 右手侧移试管抓取点（验证用）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  # 这里用 USD prim 读位姿：/World/G1D/base_link 的 USD 世界 z=0（在地面），
+  # 与 TF 的 base_footprint 位置一致。注意 TF 里的 base_link 是 +0.1114 的虚拟帧。
+  base_link_entity_path: /World/G1D/base_link
+  max_stage_duration: 8.0
+  pose_tol_pos: 0.01
+  pose_tol_ori: 0.08
+  gripper_open: 1.0
+  gripper_closed: 0.0
+
+# env reset 需要 object_prim_path（runner.py:484 读 skill_defaults.single_arm.pick）
+skill_defaults:
+  single_arm.pick:
+    object_prim_path: /World/room/scene/test_tube
+
+task_queue:
+  # 记录当前手动摆好的位姿（之后可用 single_arm.goto_cache_pose 复现）
+  - skill: robot.cache_ee_pose
+    params:
+      key: tube_pregrasp
+      which: right
+      gripper: 1.0
+  # 移动到抓取点
+  - skill: single_arm.move_to_object
+    params:
+      arm: right
+      object_prim_path: /World/room/scene/test_tube
+      # tube 原点 → 夹指中心应到达的抓取点（实机标定，验证误差 0.00mm）
+      # Z=0.01929 已补偿运控额外的 +0.1114 基座偏移：
+      #   实际管身顶端在 tube 局部系是 +0.13069，但运控把收到的目标再抬 0.1114，
+      #   故此处 0.13069 - 0.1114 = 0.01929，落点才与管身顶端齐平。
+      object_position_offset: [-0.000045, -0.000099, 0.019290]
+      # 实测手动姿态（base_link 系，近似单位四元数）
+      ee_base_orientation: [0.001793, 0.004683, -0.002723, 0.999984]
+      ee_pick_axis: "+z"
+      # 必须用 motion：tube 自身 orient 是 -90°，object 模式会把姿态带偏
+      ee_orientation_frame: motion
+      prepare_offset: [0.0, 0.0, 0.0]
+      pick_clearance: 0.0
+      arm_movel_duration: 4.0
+      # 必须先张开再靠近，否则闭爪前进会把试管推开。
+      # 不写此参数时 move_to_object 用 ctx.gripper_for_return_home，
+      # 其初始值为 gripper_closed(0.0) —— 即默认是闭合的。
+      gripper: 1.0
+
+scene_presets:
+  default: {}

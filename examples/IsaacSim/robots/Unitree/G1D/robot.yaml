@@ -1,0 +1,28 @@
+key: unitree_g1d
+label: Unitree G1D
+# room.usda 里的 articulation 在 /World/G1D，里程计枢纽是 base_link。
+base_link_entity_path: /World/G1D/base_link
+post_reset_wait: 3.0
+gripper_action_wait: 1.5
+
+ros2_interface:
+  preset: auto
+
+# 场景 ROS=fiveages 时，Play 已经在进程内拉起 full_body 运控和夹爪。
+# required: false 让 ros2-stack / --ensure-ros2-stack 不要再启动第二套控制器。
+ros2_stack:
+  defaults:
+    args:
+      robot: unitree_g1d
+      hardware: isaac
+  motion:
+    required: false
+    preset: ocs2-fullbody
+    headless: true
+    args:
+      type: dex1
+      use_profile_eef: "false"
+  navigation:
+    required: false
+    profile: default
+    headless: true
