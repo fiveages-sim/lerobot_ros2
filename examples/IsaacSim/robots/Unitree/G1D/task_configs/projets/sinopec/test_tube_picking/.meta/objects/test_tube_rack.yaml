@@ -1,0 +1,6 @@
+# 左侧试管架。孔位是相对架体的路径。
+test_tube_rack:
+  object_prim_path: /World/room/scene/test_tube_rack
+  grasps:
+    hole_3: hole_3
+    hole_4: hole_4

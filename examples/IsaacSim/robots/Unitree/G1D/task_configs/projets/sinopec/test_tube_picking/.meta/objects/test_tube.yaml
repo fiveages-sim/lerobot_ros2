@@ -1,6 +1,6 @@
-# 右手抓起试管。物体位姿读刚体 /World/room/scene/test_tube。
-# tube_grasp 只提供试管局部偏移，不作为 /get_entity_state 的目标。
+# 物体位姿读刚体 /World/room/scene/test_tube；子 frame 只作局部偏移。
 test_tube:
   object_prim_path: /World/room/scene/test_tube
   grasps:
     tube: tube_grasp
+    bottom: tube_bottom

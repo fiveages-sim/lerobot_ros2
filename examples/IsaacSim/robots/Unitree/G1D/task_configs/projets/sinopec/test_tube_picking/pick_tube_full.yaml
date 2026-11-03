@@ -1,15 +1,17 @@
 # Unitree G1D + Dex1 — 右手侧抓试管（完整）
 #
-# 前置：先跑 pick_tube.yaml 确认能准确到达抓取点。
-# 数值来源、坐标系说明、grasp_id 失效原因、参数必须内联的原因
-# ——全部见 pick_tube.yaml 头部注释。
+# 坐标系约定（与 robot.yaml 配合）：
+#   - 任务位姿按 ee_target_frame（{arm}_eef = 夹指）书写，下发前用实时 TF
+#     换成运控跟踪的 {arm}_tcp；不要在这里写死 eef↔tcp 偏移。
+#   - runtime_defaults.frame_id=world：抓取/放置在 world 下解算并 stamp；
+#     胸前交接等「相对身体」的路点用 base_footprint。
+#   - grasp_id 走 /get_prim_attribute 读 USD 静态局部 xform，再叠加刚体
+#     实时位姿（/get_entity_state）。该服务需 OmniGraph 的
+#     isaacsim.ros2.bridge.ROS2ServicePrim 节点，isaacsim.ros2.sim_control
+#     不提供。
 #
-# 实机标定（2026-11-01，reset 后干净状态）：
-#   tube 原点   (1.764026, 0.234068, 0.743001)  竖直无倾斜
-#   真实抓取点  (1.763818, 0.234119, 0.873691)  = 原点 + 竖直 130.69mm
-#   object_position_offset = [-0.000045, -0.000099, 0.019290]
-#   ee_base_orientation    = [0.001793, 0.004683, -0.002723, 0.999984]
-#   标定验证误差 0.00 mm；fmid - WBC_EE = 0.62mm（运控末端 = 夹指中心）
+# 下方的 ee_base_orientation / 位置来自 2026-11-01 旧基座系标定，改为
+# world + eef 语义后仅作起始值，需在仿真里重新验证。
 
 task_key: pick_tube_full
 label: 右手侧抓试管（完整）
@@ -17,56 +19,144 @@ use_stamped: true
 default_scene: default
 
 runtime_defaults:
-  # USD base_link 世界 z=0（在地面），与 TF 的 base_footprint 位置一致。
+  # 物体抓取/放置在 world 下解算并 stamp（全身控制会挪底盘；base_footprint 绝对点会漂）。
+  # 胸前交接等「相对身体」路点仍用 base_footprint（见下方 move_to_pose）。
+  # USD /World/G1D/base_link ≡ TF base_footprint；TF base_link 高 +0.1114（机体系路点才相关）。
   base_link_entity_path: /World/G1D/base_link
+  frame_id: world
   max_stage_duration: 8.0
-  pose_tol_pos: 0.01
+  pose_tol_pos: 0.02
   pose_tol_ori: 0.08
   gripper_open: 1.0
   gripper_closed: 0.0
 
-# env reset 需要 object_prim_path（runner.py:484）
-skill_defaults:
-  single_arm.pick:
-    object_prim_path: /World/room/scene/test_tube
-
 task_queue:
-  # 1) 张开夹爪，移动到抓取点
-  - skill: single_arm.move_to_object
+  # 0) 抓取前关闭全身控制左臂。须先双臂独立，否则耦合状态下 LEFT_ARM_DISABLE 会被忽略。
+  - skill: robot.send_mode_command
     params:
-      arm: right
-      object_prim_path: /World/room/scene/test_tube
-      object_position_offset: [-0.000045, -0.000099, 0.019290]
-      ee_base_orientation: [0.001793, 0.004683, -0.002723, 0.999984]
-      ee_pick_axis: "+z"
-      ee_orientation_frame: motion
-      prepare_offset: [0.0, 0.0, 0.0]
-      pick_clearance: 0.0
-      arm_movel_duration: 4.0
-      # 张开夹爪再靠近（默认 gripper_for_return_home = closed）
-      gripper: 1.0
-      # 运控 base 帧是 base_footprint；不指定会被多抬 111mm（详见 pick_tube.yaml）
-  # 2) 闭合夹爪（同一目标点，只是闭爪）
+      commands: [LEFT_ARM_DISABLE]
+  # 1) 斜向下 30° 抓取：先到准备点再闭合。水平靠近会碰到木架。
+  #    world 系下相对原 base 标定绕竖直轴转了 180°：夹指 +Z 指向世界 −X 再下倾 30°。
+  #    prepare_offset 在工具系：沿 −Z 退 5cm，避免低位直插撞到试管架。
+  #    grasp_id → USD tube_grasp 静态局部 + 刚体实时位姿；目标 stamp 为 world。
   - skill: single_arm.pick
     params:
       arm: right
-      object_prim_path: /World/room/scene/test_tube
-      object_position_offset: [-0.000045, -0.000099, 0.019290]
-      ee_base_orientation: [0.001793, 0.004683, -0.002723, 0.999984]
+      object_key: test_tube
+      grasp_id: tube
+      motion_frame_id: world
+      ee_base_orientation: [0.0, -0.866025, 0.0, 0.5]
       ee_pick_axis: "+z"
       ee_orientation_frame: motion
-      prepare_offset: [0.0, 0.0, 0.0]
+      prepare_offset: [0.0, 0.0, -0.05]
       pick_clearance: 0.0
       retreat_open_gripper: false
       gripper_closed: 0.0
-      arm_movel_duration: 3.0
-  # 3) 抬起试管（基座 +Z 8cm）
+      # movel_duration 是控制器节点全局参数，设一次后持续生效；
+      # 0.1 = 交给 OCS2 自动延长规划时间。后续块不再重复设置。
+      arm_movel_duration: 0.1
+  # 2) 沿世界竖直抬起（勿用 base_footprint：躯干/底盘一动 +Z 会往前偏）。
   - skill: single_arm.move_relative
     params:
       arm: right
-      position_delta: [0.0, 0.0, 0.08]
-      arm_movel_duration: 2.0
+      motion_frame_id: world
+      position_delta: [0.0, 0.0, 0.20]
       gripper: 0.0
+  # 3) 交接前：打开左臂，并锁定底盘（胸前交接用 base_footprint，底盘一动点就漂）。
+  - skill: robot.send_mode_command
+    params:
+      commands: [LEFT_ARM_ENABLE, BASE_LOCK]
+      require_confirmed: true
+      wait_timeout: 5.0
+  # 4) 左臂 enable + 底盘锁定确认后再等 0.1s，右手把试管送到胸前。
+  #    夹指朝向是抓取方向再绕世界 Z 转 +60°，仍下倾 30°。
+  #    胸前位姿相对身体，用 base_footprint；底盘已 LOCK，不会在交接中被 WBC 挪走。
+  - skill: single_arm.move_to_pose
+    start_delay_s: 0.1
+    params:
+      arm: right
+      motion_frame_id: base_footprint
+      position: [0.38, 0.0, 1.05]
+      orientation: [-0.75, -0.433013, -0.433013, 0.25]
+      gripper: 0.0
+  # 5) 左手按实时试管位姿抓偏上（勿写死胸前绝对点）。
+  #    tube_grasp 局部 z≈0.131；再 −0.03 → 只比右手低约 3cm（原先 −0.07 太低，放置行程过大）。
+  #    姿态仍下倾 15°，工具系 −Z 退 12cm 再闭合。省略 ee_lift_offset。stamp=base_footprint。
+  - skill: single_arm.pick
+    params:
+      arm: left
+      object_key: test_tube
+      grasp_id: tube
+      object_position_offset: [0.0, 0.0, -0.03]
+      motion_frame_id: base_footprint
+      ee_base_orientation: [0.687064, -0.396676, 0.527203, 0.30438]
+      ee_pick_axis: "+z"
+      ee_orientation_frame: motion
+      prepare_offset: [0.0, 0.0, -0.12]
+      pick_clearance: 0.0
+      retreat_open_gripper: false
+      gripper_closed: 0.0
+  # 6) 左手闭爪后再等 1.5s 夹稳，右手才松开，再沿夹爪 −Z 退出 12cm。
+  - skill: single_arm.move_to_pose
+    params:
+      arm: right
+      motion_frame_id: base_footprint
+      position: [0.38, 0.0, 1.05]
+      orientation: [-0.75, -0.433013, -0.433013, 0.25]
+      gripper: 1.0
+  - skill: single_arm.move_to_pose
+    params:
+      arm: right
+      motion_frame_id: base_footprint
+      position: [0.328, -0.09, 1.11]
+      orientation: [-0.75, -0.433013, -0.433013, 0.25]
+      gripper: 1.0
+  # 7) 放置前：右手收到与左手同一前后、同一高度（胸前 x=0.38，再低 3cm），仍在身体右侧。同时把 60° 转回去。
+  #    左手停在原处，同样把 60° 转回去（夹指朝前、仍下倾 15°）。
+  - parallel:
+      - skill: single_arm.move_to_pose
+        params:
+          arm: right
+          motion_frame_id: base_footprint
+          position: [0.38, -0.17, 1.02]
+          orientation: [0.866025, 0.0, 0.5, 0.0]
+          gripper: 1.0
+      - skill: single_arm.move_relative
+        params:
+          arm: left
+          motion_frame_id: base_footprint
+          position_delta: [0.0, 0.0, 0.0]
+          orientation_delta_rpy: [0.0, 0.0, 1.047198]
+          gripper: 0.0
+  # 8) 交接完成：解锁底盘、关掉右臂，再左手放置（放置在 world，允许 WBC 挪底盘够远处孔位）。
+  - skill: robot.send_mode_command
+    params:
+      commands: [BASE_UNLOCK, RIGHT_ARM_DISABLE]
+      require_confirmed: true
+      wait_timeout: 5.0
+  # 9) 左手把试管放进左侧架子 hole_3（要换孔改成 hole_4）。
+  #     insert_axis 由目标物体（试管架）的局部轴计算，"-z" 表示沿架体 −Z 向下插入；
+  #     align_orientation（默认开）会先把试管轴摆到与插入轴对齐（保留绕轴 yaw），
+  #     再重算 EE 位置使管底落在孔口。
+  #     顺序：接近 → AlignHole → 重测管底并补偿 → FineAlign → 下探 insert_depth → 松爪 → 沿轴退出。
+  #     手中物体：刚体实时位姿 + USD tube_bottom 局部偏移；不走 replay。
+  - skill: single_arm.insert
+    params:
+      arm: left
+      object_key: test_tube_rack
+      grasp_id: hole_3
+      insert_axis: "-z"
+      # 比原 0.06 抬高 1cm，避免夹爪下探时撞到架子。
+      insert_depth: 0.05
+      approach_distance: 0.08
+      held_object_key: test_tube
+      held_grasp_id: bottom
+      live_align_compensate: true
+      max_align_corr: 0.03
+      motion_frame_id: world
+      # 松爪后沿插入轴（架体 -Z）反向退出 8cm
+      retreat_distance: 0.08
+      gripper_open: 1.0
 
 scene_presets:
   default: {}
