@@ -31,7 +31,14 @@ runtime_defaults:
   gripper_closed: 0.0
 
 task_queue:
-  # 0) 抓取前关闭全身控制左臂。须先双臂独立，否则耦合状态下 LEFT_ARM_DISABLE 会被忽略。
+  # 0) 锁底盘：全程不需要 WBC 挪底盘，采集到的末端轨迹才可复现。
+  #    BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0，不改变 MPC 维度。
+  - skill: robot.send_mode_command
+    params:
+      commands: [BASE_LOCK]
+      require_confirmed: true
+      wait_timeout: 5.0
+  # 1) 抓取前关闭全身控制左臂。须先双臂独立，否则耦合状态下 LEFT_ARM_DISABLE 会被忽略。
   - skill: robot.send_mode_command
     params:
       commands: [LEFT_ARM_DISABLE]
@@ -128,10 +135,13 @@ task_queue:
           position_delta: [0.0, 0.0, 0.0]
           orientation_delta_rpy: [0.0, 0.0, 1.047198]
           gripper: 0.0
-  # 8) 交接完成：解锁底盘、关掉右臂，再左手放置（放置在 world，允许 WBC 挪底盘够远处孔位）。
+  # 8) 交接完成：关掉右臂，再左手放置。
+  #    【锁底盘】原为 [BASE_UNLOCK, RIGHT_ARM_DISABLE]，原注释写"放置在 world，
+  #    允许 WBC 挪底盘够远处孔位"。交付要求底盘全程不动，故改为不解锁。
+  #    若要恢复原行为，把 commands 改回 [BASE_UNLOCK, RIGHT_ARM_DISABLE]。
   - skill: robot.send_mode_command
     params:
-      commands: [BASE_UNLOCK, RIGHT_ARM_DISABLE]
+      commands: [RIGHT_ARM_DISABLE]
       require_confirmed: true
       wait_timeout: 5.0
   # 9) 左手把试管放进左侧架子 hole_3（要换孔改成 hole_4）。
@@ -148,15 +158,40 @@ task_queue:
       insert_axis: "-z"
       # 比原 0.06 抬高 1cm，避免夹爪下探时撞到架子。
       insert_depth: 0.05
-      approach_distance: 0.08
+      # 悬停高度（管子在空中纠偏的位置，沿插入轴反方向退这么多）。
+      # 0.10 → 0.05：10cm 时管子离孔口太远、视觉上"悬在半空"，5cm 足够留出纠偏
+      # 空间又贴近孔口。
+      approach_distance: 0.05
       held_object_key: test_tube
       held_grasp_id: bottom
       live_align_compensate: true
+      # 把精确对齐提前到「仍悬空」时完成：
+      #   默认(False) 是 Approach→AlignHole 先下到孔口（管底已压架面），
+      #   再测偏差→FineAlign→下探，纠偏发生在接触之后，靠撞孔边反复调，慢且不稳。
+      #   置 true 后只悬停到孔口上方，在空中测偏差、一次性修正 XY，再垂直下探。
+      hover_compensate: true
       max_align_corr: 0.03
       motion_frame_id: world
+      # 插入段到位容差。实测「试管在孔正中时距孔沿约 2mm」，即单侧余量 2mm；
+      # 取 1.5mm 留 0.5mm 安全余量 —— 既能穿过，又不必像 0.3mm 那样等 MPC 磨到位。
+      # 整个 insert 只有 AlignAbove 一步做这个判定（见 single_arm.py 的 hover 分支），
+      # 下探/松爪/退出都跳过到达判定，所以这里收紧不会拖慢整体节奏。
+      pose_tol_pos: 0.0015
+      pose_tol_ori: 0.02
       # 松爪后沿插入轴（架体 -Z）反向退出 8cm
       retreat_distance: 0.08
       gripper_open: 1.0
+  # 10) 插入完成后左臂抬起收尾：insert 的 retreat 只沿插入轴（竖直）退 8cm，
+  #     完成后夹爪仍贴在架面上方很近的位置。这里再垂直抬 15cm 让手臂离开工件，
+  #     便于观察/录屏，也为后续动作留出空间。
+  #     motion_frame_id 用 world（底盘全程锁定，world 与 base 等价且不受躯干抖动影响）；
+  #     gripper: 1.0 保持张开，避免带着残余夹持力刮到试管。
+  - skill: single_arm.move_relative
+    params:
+      arm: left
+      motion_frame_id: world
+      position_delta: [0.0, 0.0, 0.15]
+      gripper: 1.0
 
 scene_presets:
   default: {}
