@@ -107,6 +107,21 @@ motion-generation --robot dobot_cr5 --task-key pick_place --scene default
 
 工作区默认为**当前工作目录**；也可用 `--workspace /path/to/dir` 指定含 `robots/` 的根目录。上次选择缓存在工作区根目录的 `.motion_last.json`（已 gitignore）。
 
+### 在 FaSim USD 项目目录里启动
+
+`fa-project-usd/<系列>/<项目>/` 这类目录（含 `env/`）本身也能当工作区：任务 YAML 放 `<项目>/task_configs/**`，
+机器人配置由 `<项目>/robot.yaml` 的 `extends` / `robots_root` 引用本仓库的共享 profile。
+
+```bash
+export LEROBOT_ROOT=/path/to/lerobot_ros2
+cd "/path/to/fa-project-usd/Aimbo/2026-04 Bosch German&Poland POC"
+motion-generation --robot fiveages_w2 --task-key poc_port4_bimanual_carry
+```
+
+任务里用 `env_scene: env/Anigon/default_v2.usda` 绑定要打开的场景，选定任务后会打印并校验。
+`--robots-root` 可临时覆盖 `robots_root`；录制（`record_datasets.py --workspace <项目>`）、
+推理（`inference.py --workspace <项目>`）、`check-robot-status`、`ros2-stack` 同样支持。
+
 界面语言：`--lang zh` 或 `--lang en`；也可设置环境变量 `MOTION_GENERATION_LANG=zh`。交互模式下在配置菜单选 **3. 偏好设置**（有上次选择时为 **4**），可配置语言与 object-resolution JSON 录制（默认否），写入 `.motion_last.json` 并在下次自动沿用。
 
 **任务 YAML、`robot.yaml` 与 `robots/` 目录约定**以 composer 内文档为准（不再在 `examples/IsaacSim/docs` 重复维护正文）：

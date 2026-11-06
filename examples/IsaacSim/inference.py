@@ -30,6 +30,18 @@ def _parse_launcher_args() -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(description="Unified IsaacSim inference launcher")
     parser.add_argument("--robot", type=str, default=None, help="Robot key (e.g. dobot_cr5)")
     parser.add_argument("--task", type=str, default=None, help="Task key (e.g. pick_place)")
+    parser.add_argument(
+        "--workspace",
+        type=str,
+        default=None,
+        help="Workspace root: examples/IsaacSim (robots/) or a fa-project-usd project dir (env/)",
+    )
+    parser.add_argument(
+        "--robots-root",
+        type=str,
+        default=None,
+        help="Shared robot profile root (default: <workspace>/robots or the scene robot.yaml robots_root)",
+    )
     return parser.parse_known_args()
 
 
@@ -99,9 +111,17 @@ def main() -> None:
     from online_infer.ui import select_option
 
     launcher_args, core_args = _parse_launcher_args()
-    motion_registry = load_motion_entries(isaac_dir)
+    workspace_dir = (
+        Path(launcher_args.workspace).expanduser().resolve()
+        if launcher_args.workspace
+        else isaac_dir
+    )
+    motion_registry = load_motion_entries(workspace_dir, robots_root=launcher_args.robots_root)
     if not motion_registry:
-        raise RuntimeError("No motion/inference capable robot configs found under examples/IsaacSim/robots")
+        raise RuntimeError(
+            f"No motion/inference capable robot configs found from workspace {workspace_dir} "
+            "(needs robots/, or a USD project with env/ + robot.yaml + task_configs/)"
+        )
 
     robot_keys = list(motion_registry.keys())
     default_robot = launcher_args.robot or ("dobot_cr5" if "dobot_cr5" in motion_registry else robot_keys[0])
@@ -149,8 +169,8 @@ def main() -> None:
     core_module = _load_module("isaac_inference_core", core_script)
     motion_cfg = robot_entry["motion_cfg"]
     lerobot_cfg = load_lerobot_profile(
-        resolve_robot_profile_dir(isaac_dir, robot_entry),
-        workspace_dir=isaac_dir,
+        resolve_robot_profile_dir(workspace_dir, robot_entry),
+        workspace_dir=workspace_dir,
     )
     if lerobot_cfg is None:
         raise RuntimeError(
