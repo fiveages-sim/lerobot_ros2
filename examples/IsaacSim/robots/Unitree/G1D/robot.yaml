@@ -10,6 +10,11 @@ ee_command_frame: "{arm}_tcp"
 
 ros2_interface:
   preset: auto
+  # Used by lerobot_robot_ros2 get_observation (not by motion-generation).
+  # Keep grippers so FaSim pose-mode state can read left/right_gripper.
+  joint_names:
+    - left_gripper_joint
+    - right_gripper_joint
 
 # 场景 ROS=fiveages 时，Play 已经在进程内拉起 full_body 运控和夹爪。
 # required: false 让 ros2-stack / --ensure-ros2-stack 不要再启动第二套控制器。

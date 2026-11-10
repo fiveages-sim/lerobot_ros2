@@ -194,4 +194,31 @@ task_queue:
       gripper: 1.0
 
 scene_presets:
+  # Default place target = hole_3 (matches task_queue insert grasp_id).
   default: {}
+  # Optional place-hole scenes: auto-collect / CLI can pass --scene place_hole_N.
+  place_hole_1:
+    skill_params:
+      single_arm.insert:
+        grasp_id: hole_1
+  place_hole_2:
+    skill_params:
+      single_arm.insert:
+        grasp_id: hole_2
+  place_hole_3:
+    skill_params:
+      single_arm.insert:
+        grasp_id: hole_3
+  place_hole_4:
+    skill_params:
+      single_arm.insert:
+        grasp_id: hole_4
+  place_hole_5:
+    skill_params:
+      single_arm.insert:
+        grasp_id: hole_5
+  place_hole_6:
+    skill_params:
+      single_arm.insert:
+        grasp_id: hole_6
+

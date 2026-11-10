@@ -1,6 +1,21 @@
-# 左侧试管架。孔位是相对架体的路径。
+# Left rack (place target). Hole frames are relative child prims on the rack.
 test_tube_rack:
   object_prim_path: /World/room/scene/test_tube_rack
   grasps:
+    hole_1: hole_1
+    hole_2: hole_2
     hole_3: hole_3
     hole_4: hole_4
+    hole_5: hole_5
+    hole_6: hole_6
+
+# Right rack (typical pick / start). Same hole naming.
+test_tube_rack_01:
+  object_prim_path: /World/room/scene/test_tube_rack_01
+  grasps:
+    hole_1: hole_1
+    hole_2: hole_2
+    hole_3: hole_3
+    hole_4: hole_4
+    hole_5: hole_5
+    hole_6: hole_6
