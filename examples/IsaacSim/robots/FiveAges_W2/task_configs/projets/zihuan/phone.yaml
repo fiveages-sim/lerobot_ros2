@@ -1,0 +1,545 @@
+task_key: phone
+label: 手机分拣台
+use_stamped: true
+default_scene: default
+
+#==================== 全局运行限制参数 ====================
+runtime_defaults:
+  max_stage_duration: 4.0                  # 单段并行任务最大允许执行时长(秒)
+  pose_tol_pos: 0.05                       # 末端/底盘到达判定：位置误差阈值(m)
+  pose_tol_ori: 0.08                       # 末端/底盘到达判定：姿态四元数误差阈值
+  base_link_entity_path: /World/FiveAges_W2/Linkhou_S2/base_footprint/base_link  # 机器人基坐标系USD路径
+
+#==================== 技能预设参数库 ====================
+skill_defaults:
+  single_arm.pick:
+    arm: right
+    ee_base_orientation: [ 1.0, 0.0, 0.0, 0.0 ]       # 抓取夹爪基准姿态四元数
+    object_position_offset: [ 0.0, -0.03, 0.0 ]         # 夹爪相对物体上浮2cm抓取
+    prepare_offset: [ 0.0, 0.0, -0.05 ]                # 抓取前预靠近，向下20cm靠近物体
+    object_prim_path: /World/scene/phone_02/phone/Mesh_0
+    ee_retreat_offset: [ 0.0, 0.0, 0.0 ]
+
+  home_movej:
+    body_positions: [ -0.8995, -1.8008, -0.8347, 0.0 ]
+    left_arm_positions: [ 1.5552, -1.0194, -1.2447, -0.975, -0.6811, -0.6895, -0.0793 ]
+    right_arm_positions: [ -1.5552, -1.0194, 1.2448, -0.975, 0.6811, -0.6895, 0.0793 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  firstpre:
+    body_positions: [ -0.8993, -1.8009, -0.8272, 0.0001 ]
+    left_arm_positions: [ 1.5706, -1.0289, -1.2782, -0.992, -0.6621, -0.6825, -0.088 ]
+    right_arm_positions: [ -0.903, -0.9906, 0.6771, -1.0479, 1.1196, 0.3897, -0.3267 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  firstpick:
+    body_positions: [ -0.9006, -1.8003, -0.8275, 0.0 ]
+    left_arm_positions: [ 1.571, -1.0304, -1.2812, -0.992, -0.6603, -0.6817, -0.0895 ]
+    right_arm_positions: [ -0.6091, -1.2909, 0.3521, -0.3942, 1.2208, 0.2237, -0.0829 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  up:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ -0.2, -0.05, 0.2 ]  #第二个数负的往右
+
+  nav_to_left:
+    x: -0.735
+    y: 0.55
+    yaw: 1.57
+    timeout: 60.0
+
+  nav_to_right:
+    x: 0.0
+    y: 0.55
+    yaw: 1.57
+    timeout: 60.0
+
+  nav_to_right2:
+    x: -0.05
+    y: 0.55
+    yaw: 1.57
+    timeout: 60.0
+
+  nav_to_right3:
+    x: 0.08
+    y: 0.55
+    yaw: 1.57
+    timeout: 60.0
+
+  nav_0:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    timeout: 60.0
+
+  nav:
+    x: -0.74
+    y: 1.2
+    yaw: 3.14
+    timeout: 60.0
+
+  nav_start:
+    x: 0.13
+    y: -1.93
+    yaw: 0.0
+    timeout: 60.0
+
+  nav_next:
+    x: -2.15
+    y: -1.93
+    yaw: 1.57
+    timeout: 60.0
+
+  nav_then:
+    x: -1.84
+    y: 0.2
+    yaw: 0.0
+    timeout: 60.0
+
+  firstpalce:
+    body_positions: [ -0.8734, -1.8703, -0.823, 0.0 ]
+    left_arm_positions: [ 1.9692, -1.0511, -1.6464, -1.2748, -0.7143, -0.7335, -0.166 ]
+    right_arm_positions: [ -0.3453, -1.7628, 0.3128, -0.1934, 1.2583, 0.4204, -0.2664 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  in:
+    arm: left
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ -0.15, -0.1, 0.0 ]  #第二个数负的往右
+
+  afterup:
+    body_positions: [ -0.8724, -1.8718, -0.9991, 0.1815 ]
+    left_arm_positions: [ 2.0206, -1.1042, -1.7449, -1.13, -0.7086, -0.6829, -0.1487 ]
+    right_arm_positions: [ -0.5506, -0.0544, -0.052, -2.1202, 1.1051, -0.4344, -0.2323 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  down:
+    arm: right
+    motion_frame_id: arm_base
+    arm_movel_duration: 3.0
+    position_delta: [ 0.08, 0.0, -0.2 ]  #第二个数负的往右
+
+  predesk:
+    relative_position: [ -0.05, -0.05, 1.57 ]   # [dx, dy, dyaw]：沿前向/左向位移+旋转
+    frame_id: map    # 参考全局地图坐标系
+    timeout: 10.0
+
+  prenav:
+    body_positions: [ -0.9093, -1.8364, -1.0027, 0.433 ]
+    left_arm_positions: [ 2.0523, -1.0996, -1.7522, -1.1371, -0.7316, -0.7014, -0.1385 ]
+    right_arm_positions: [ -1.9492, -0.7865, 1.1861, -1.5448, 0.5895, -0.5288, 0.2379 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  precarry:
+    body_positions: [ -0.8724, -1.8718, -0.9109, 0.6439 ]
+    left_arm_positions: [ 1.8263, -1.0351, -2.2435, -0.6246, -0.8585, -0.6837, 0.728 ]
+    right_arm_positions: [ -0.6792, -0.4895, -0.2326, -2.0379, 0.8878, -0.316, 0.0934 ]
+    head_positions: [ 0.0, 0.0001 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  precarry2:
+    body_positions: [ -0.8975, -1.8036, -0.7348, 0.0924 ]
+    left_arm_positions: [ 1.3217, -1.5172, -2.1125, -1.079, 0.0115, -0.3193, 1.0711 ]
+    right_arm_positions: [ -1.5678, -1.0308, 1.2656, -1.1091, 0.6241, -0.6772, 0.09 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+
+  afterput:
+    body_positions: [ -0.8449, -1.8025, -0.6485, -0.3679 ]
+    left_arm_positions: [ 1.4261, -1.0885, -1.1136, -1.1733, -0.6041, -0.6967, -0.1922 ]
+    right_arm_positions: [ -0.5094, -0.6677, 0.6715, -1.0678, 1.4821, 0.6356, -0.5309 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  secondpre:
+    body_positions: [ -0.8986, -1.8019, -0.732, -0.2213 ]
+    left_arm_positions: [ 1.3838, -1.0978, -1.1272, -0.9843, -0.6168, -0.6678, -0.1503 ]
+    right_arm_positions: [ -0.2728, -0.9574, 0.1827, -0.696, 1.6675, 0.6222, -0.376 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  secondpick:
+    body_positions: [ -0.8984, -1.8021, -0.6097, -0.3312 ]
+    left_arm_positions: [ 1.3751, -1.0872, -1.0837, -1.1199, -0.6183, -0.689, -0.1595 ]
+    right_arm_positions: [ -0.2158, -0.7067, 0.055, -0.925, 1.7948, 0.4705, -0.4494 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  threepre:
+    body_positions: [ -0.8989, -1.8017, -0.8697, -0.0591 ]
+    left_arm_positions: [ 1.428, -1.0839, -1.1877, -0.832, -0.6585, -0.6701, -0.1404 ]
+    right_arm_positions: [ -0.7071, -1.0186, 0.361, -1.3707, 1.8178, 0.5243, -0.988 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  threepick:
+    body_positions: [ -0.8989, -1.8017, -0.8697, -0.059 ]
+    left_arm_positions: [ 1.4239, -1.0754, -1.1659, -0.8321, -0.6735, -0.6754, -0.1319 ]
+    right_arm_positions: [ -0.514, -1.3589, 0.1215, -0.6005, 1.7516, 0.5242, -0.5196 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre4:
+    body_positions: [ -0.8983, -1.8021, -0.5816, -0.3027 ]
+    left_arm_positions: [ 1.4567, -1.077, -1.1756, -1.2012, -0.5952, -0.6854, -0.1641 ]
+    right_arm_positions: [ -0.2959, -1.2848, 0.9758, -0.5114, 0.7983, 0.5294, -0.3841 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pick4:
+    body_positions: [ -0.8981, -1.8024, -0.4292, -0.5532 ]
+    left_arm_positions: [ 1.3095, -1.1684, -1.0455, -1.2105, -0.6284, -0.7139, -0.3003 ]
+    right_arm_positions: [ 0.5958, -0.7457, -0.7311, -1.0005, 2.5125, 0.585, -0.7687 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  afterpick4:
+    body_positions: [ -0.8974, -1.804, -0.9057, -0.0385 ]
+    left_arm_positions: [ 1.813, -0.983, -1.1824, -1.1517, -0.7137, -0.7638, -0.5061 ]
+    right_arm_positions: [ 0.1183, -0.0911, -0.2328, -2.0019, 2.4484, 0.8616, -0.4311 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0213
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pre5:
+    body_positions: [ -0.8983, -1.8021, -0.6109, -0.4036 ]
+    left_arm_positions: [ 1.3048, -1.1809, -1.0945, -1.0356, -0.5748, -0.6654, -0.2439 ]
+    right_arm_positions: [ 0.2959, -1.0549, -0.3739, -0.6848, 0.2803, 0.4997, 1.2369 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  pick5:
+    body_positions: [ -0.8982, -1.8022, -0.5228, -0.4807 ]
+    left_arm_positions: [ 1.2888, -1.1539, -1.02, -1.1236, -0.6204, -0.6985, -0.2409 ]
+    right_arm_positions: [ 0.487, -0.9656, -0.9282, -0.9608, 0.8124, 0.52, 0.9146 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  carry:
+    body_positions: [ -0.8965, -1.8048, -0.5962, 0.2495 ]
+    left_arm_positions: [ 1.064, -1.3182, -2.2293, -0.9968, -0.012, -0.2146, 1.0616 ]
+    right_arm_positions: [ -1.5174, -1.0508, 1.2159, -1.2271, 0.5971, -0.6873, 0.1346 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  start:
+    body_positions: [ 0.0008, -0.001, 0.0002, 0.0 ]
+    left_arm_positions: [ 1.7142, -1.1381, -1.3987, -1.0758, -0.8885, -0.5975, -1.2399 ]
+    right_arm_positions: [ -1.4423, -0.9872, 1.0171, -0.8633, 0.8902, -0.7218, 1.0964 ]
+    head_positions: [ 0.0, -0.0004 ]
+    left_gripper_pos: 0.0
+    right_gripper_pos: 0.0
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  right:
+    body_positions: [ 0.0004, -0.0005, -0.001, -0.0126 ]
+    left_arm_positions: [ 1.7732, -0.9695, -1.1268, -1.2448, -0.9912, -0.7215, -1.0109 ]
+    right_arm_positions: [ -2.0498, -1.4522, 1.9562, -1.4993, 0.1045, -0.5558, -0.5161 ]
+    head_positions: [ 0.0, -0.0004 ]
+    left_gripper_pos: 0.0
+    right_gripper_pos: 0.0
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  left:
+    body_positions: [ -0.0002, 0.0002, -0.0929, 0.1415 ]
+    left_arm_positions: [ 2.0661, -1.3874, -1.972, -1.2534, -0.5816, -0.8745, 0.2632 ]
+    right_arm_positions: [ -1.6591, -0.8134, 0.7442, -0.9956, 0.6257, -0.9213, 0.8616 ]
+    head_positions: [ -0.0001, -0.0005 ]
+    left_gripper_pos: 0.0
+    right_gripper_pos: 0.0
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+  stand:
+    body_positions: [ 0.0, 0.0, 0.0, 0.0 ]
+    left_arm_positions: [ 1.5552, -1.0194, -1.2447, -0.975, -0.6811, -0.6895, -0.0793 ]
+    right_arm_positions: [ -1.5552, -1.0194, 1.2448, -0.975, 0.6811, -0.6895, 0.0793 ]
+    head_positions: [ 0.0, 0.0 ]
+    left_gripper_pos: 0.0384
+    right_gripper_pos: 0.0384
+    arrival_timeout: 30.0
+    joint_tolerance: 0.05
+    body_movej_duration: 2.0
+    resume_ocs2: false
+
+#==================== 任务执行队列====================
+task_queue:
+  ##可以参考 但是以下内容在实际运行中很难抓住每一个手机...
+  #录的视频是分开运行剪辑的 抓完手机的内容都是在rviz里直接控制的 没有写进这份yaml文件
+
+   #导览动作
+#  - skill: nav.navigate_to_pose
+#    id: nav_start
+#  - skill: joint.movej_to_config
+#    id: start
+#  - skill: joint.movej_to_config
+#    id: left
+#  - skill: joint.movej_to_config
+#    id: start
+#  - skill: joint.movej_to_config
+#    id: right
+#  - skill: joint.movej_to_config
+#    id: start
+#  - skill: joint.movej_to_config
+#    id: home_movej
+#  - skill: nav.navigate_to_pose
+#    id: nav_next
+#  - skill: nav.navigate_to_pose
+#    id: nav_then
+#  - skill: nav.navigate_to_pose
+#    id: nav_0
+###第一个
+##  - skill: nav.navigate_to_pose
+##    id: nav
+  - skill: joint.movej_to_config
+    id: home_movej
+  - skill: joint.movej_to_config
+    id: firstpre
+  - skill: joint.movej_to_config
+    id: firstpick
+  - skill: single_arm.move_relative
+    id: up
+  - skill: single_arm.move_relative
+    id: in
+  - skill: nav.navigate_to_pose
+    id: nav_to_left
+  - skill: joint.movej_to_config
+    id: firstpalce
+#  - skill: single_arm.move_relative
+#    id: down
+  - skill: single_arm.move_relative
+    id: up
+  - skill: nav.navigate_to_pose
+    id: nav_0
+
+
+##  - skill: joint.movej_to_config
+##    id: home_movej
+##  - skill: nav.navigate_to_pose
+##    id: nav_to_right3
+##  - skill: joint.movej_to_config
+##    id: precarry
+#
+#
+# #以上第一个抓取
+##  - skill: joint.movej_to_config
+##    id: firstpalce
+##  - skill: single_arm.move_relative
+##    id: up
+##  - skill: joint.movej_to_config
+##    id: afterup
+##  - skill: joint.movej_to_config
+##    id: prenav
+##
+##  - skill: joint.movej_to_config
+##    id: precarry2
+##  - skill: joint.movej_to_config
+##    id: carry
+##  #以上是第一个抓取到搬箱子前一步
+
+##第二个
+  - skill: joint.movej_to_config
+    id: home_movej
+  - skill: joint.movej_to_config
+    id: threepre
+  - skill: joint.movej_to_config
+    id: threepick
+  - skill: single_arm.move_relative
+    id: up
+  - skill: nav.navigate_to_pose
+    id: nav_to_right2
+  - skill: joint.movej_to_config
+    id: firstpalce
+  - skill: single_arm.move_relative
+    id: up
+  - skill: nav.navigate_to_pose
+    id: nav_0
+  - skill: joint.movej_to_config
+    id: home_movej
+  #第三个
+  - skill: joint.movej_to_config
+    id: home_movej
+  - skill: joint.movej_to_config
+    id: secondpre
+  - skill: joint.movej_to_config
+    id: secondpick
+  - skill: single_arm.move_relative
+    id: up
+  - skill: single_arm.move_relative
+    id: in
+  - skill: nav.navigate_to_pose
+    id: nav_to_left
+  - skill: joint.movej_to_config
+    id: firstpalce
+#  - skill: single_arm.move_relative
+#    id: down
+  - skill: single_arm.move_relative
+    id: up
+  - skill: nav.navigate_to_pose
+    id: nav_0
+  - skill: joint.movej_to_config
+    id: home_movej
+
+#第四个
+  - skill: joint.movej_to_config
+    id: home_movej
+  - skill: joint.movej_to_config
+    id: pre4
+  - skill: joint.movej_to_config
+    id: pick4
+  - skill: joint.movej_to_config
+    id: afterpick4
+  - skill: nav.navigate_to_pose
+    id: nav_to_right2
+#  - skill: single_arm.move_relative
+#    id: up
+  - skill: joint.movej_to_config
+    id: firstpalce
+  - skill: single_arm.move_relative
+    id: up
+  - skill: nav.navigate_to_pose
+    id: nav_0
+  - skill: joint.movej_to_config
+    id: home_movej
+#第五个
+  - skill: joint.movej_to_config
+    id: home_movej
+  - skill: joint.movej_to_config
+    id: pre5
+  - skill: joint.movej_to_config
+    id: pick5
+  - skill: joint.movej_to_config
+    id: afterpick4
+  - skill: nav.navigate_to_pose
+    id: nav_to_left
+#  - skill: single_arm.move_relative
+#    id: up
+  - skill: joint.movej_to_config
+    id: firstpalce
+  - skill: single_arm.move_relative
+    id: up
+#  - skill: nav.navigate_to_pose
+#    id: nav_to_right3
+#  - skill: joint.movej_to_config
+#    id: precarry
+
+#试试导航的数
+#  - skill: nav.navigate_to_pose
+#    id: nav_to_right2
+#  - skill: nav.navigate_to_pose
+#    id: nav_0
+#==================== 场景预设配置 ====================
+scene_presets:
+  default: {}  # 默认场景无额外加载参数
