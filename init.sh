@@ -787,6 +787,7 @@ interactive_menu() {
   echo "    4) 安装任务编排（interface + composer；不含灵巧手）"
   echo "    i) 安装抓取 extras（viser + wuji-sdk，可选）"
   echo "    t) 创建训练环境（$LR_ENV_UV_TRAIN_VENV：numpy 2 + PyPI lerobot，仅训练用）"
+  echo "       （同 ./init.sh setup-train-env；旧编号 5 也可用）"
   echo "    h) 配置 HUG 独立 venv（Python 3.10，可选）"
   echo "    d) 检查各模块是否就绪"
   echo
@@ -813,9 +814,9 @@ interactive_menu() {
   echo "    q) 退出"
   echo
   if [[ "$LR_ENV_BACKEND" == "conda" ]]; then
-    read -r -p "输入选项 [1-12/i/h/d/g/q]: " choice
+    read -r -p "输入选项 [1-12/i/t/h/d/g/q]: " choice
   else
-    read -r -p "输入选项 [1-11/i/h/d/g/q]: " choice
+    read -r -p "输入选项 [1-11/i/t/h/d/g/q]: " choice
   fi
 
   case "$choice" in
@@ -835,7 +836,7 @@ interactive_menu() {
     i|I)
       install_grasp_extras
       ;;
-    5)
+    5|t|T)
       # 旧行为是「往主环境装 PyPI lerobot」，会把 numpy 升到 2 并破坏
       # cv_bridge（无法采头相机）。现在改为创建独立的训练环境。
       setup_train_env
