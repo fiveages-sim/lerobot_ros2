@@ -9,9 +9,18 @@ backend = "uv"
 name = "lerobot-ros2"
 
 [uv]
+# 主环境：numpy 1.x。编排 / 采集 / 导出 / 数据处理 都用它。
+# 不含 ROS（rclpy/cv_bridge/cv2）——那些来自 source /opt/ros/jazzy。
 venv = ".venv"
 
+# 训练环境：numpy 2.x + PyPI lerobot。只在跑官方训练脚本时用。
+# lerobot 0.5.x 强制 numpy>=2，与系统 cv_bridge 冲突，所以必须分开。
+train_venv = ".venv-train"
+
 [lerobot]
+# PyPI lerobot 版本，仅训练环境使用。
+# 主环境用的是 submodules/lerobot 的 editable 版本（见该目录 pyproject.toml），
+# 两者不必一致 —— 主环境要 numpy 1.x，训练环境要 numpy 2.x。
 version = "0.5.1"
 
 [ros2]

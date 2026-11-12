@@ -4,12 +4,17 @@
 LR_ENV_DEFAULT_BACKEND="uv"
 LR_ENV_DEFAULT_CONDA_NAME="lerobot-ros2"
 LR_ENV_DEFAULT_UV_VENV=".venv"
-LR_ENV_DEFAULT_LEROBOT_VERSION="0.5.1"
+# 训练专用环境（numpy 2 + PyPI lerobot）。只在要跑官方训练脚本时建。
+# 与主环境 (.venv) 分开，因为 lerobot 0.5.x 强制 numpy>=2，会破坏 cv_bridge
+# 与系统 OpenCV —— 而编排/采集/导出都要 numpy 1.x。
+LR_ENV_DEFAULT_UV_TRAIN_VENV=".venv-train"
+LR_ENV_DEFAULT_LEROBOT_VERSION="0.3.4"
 
 LR_ENV_BACKEND_OVERRIDE="${LR_ENV_BACKEND_OVERRIDE:-}"
 LR_ENV_BACKEND=""
 LR_ENV_CONDA_NAME=""
 LR_ENV_UV_VENV=""
+LR_ENV_UV_TRAIN_VENV=""
 LR_ENV_ROS2_WORKSPACE=""
 LR_ENV_LEROBOT_VERSION=""
 
@@ -170,14 +175,18 @@ lr_env_create_uv_venv() {
   local venv_path="$2"
   local python_exe=""
 
+  # **不加 --system-site-packages**：rclpy / cv_bridge / cv2 等 ROS 包由
+  # `source /opt/ros/jazzy/setup.bash` 通过 PYTHONPATH 提供，与 venv 无关。
+  # 加了反而会把系统 numpy/opencv 混进来，和 venv 里的版本打架。
+  # 这样 venv 与系统 ROS 完全隔离，别人 clone 后按 README source ROS 即可。
   if python_exe="$(lr_env_resolve_system_python "$want_version")"; then
     echo ">>> 使用系统解释器: $python_exe"
-    uv venv --python "$python_exe" --system-site-packages "$venv_path"
+    uv venv --python "$python_exe" "$venv_path"
     return 0
   fi
 
   echo ">>> WARN: 未找到 Python ${want_version} 的系统解释器，回退为 uv 托管的 Python ${want_version}"
-  uv venv --python "$want_version" --system-site-packages "$venv_path"
+  uv venv --python "$want_version" "$venv_path"
 }
 
 lr_env_load_config() {
@@ -194,6 +203,7 @@ lr_env_load_config() {
   LR_ENV_BACKEND="$LR_ENV_DEFAULT_BACKEND"
   LR_ENV_CONDA_NAME="$LR_ENV_DEFAULT_CONDA_NAME"
   LR_ENV_UV_VENV="$LR_ENV_DEFAULT_UV_VENV"
+  LR_ENV_UV_TRAIN_VENV="$LR_ENV_DEFAULT_UV_TRAIN_VENV"
   LR_ENV_ROS2_WORKSPACE=""
   LR_ENV_LEROBOT_VERSION="$LR_ENV_DEFAULT_LEROBOT_VERSION"
 
@@ -210,6 +220,9 @@ lr_env_load_config() {
     file_val="$(lr_env_toml_get "$cfg" "uv" "venv" 2>/dev/null || true)"
     [[ -n "$file_val" ]] && LR_ENV_UV_VENV="$file_val"
 
+    file_val="$(lr_env_toml_get "$cfg" "uv" "train_venv" 2>/dev/null || true)"
+    [[ -n "$file_val" ]] && LR_ENV_UV_TRAIN_VENV="$file_val"
+
     file_val="$(lr_env_toml_get "$cfg" "ros2" "workspace" 2>/dev/null || true)"
     [[ -n "$file_val" ]] && LR_ENV_ROS2_WORKSPACE="$file_val"
 
@@ -224,6 +237,10 @@ lr_env_load_config() {
 
 lr_env_uv_venv_path() {
   lr_env_expand_path "${LR_ENV_UV_VENV:-$LR_ENV_DEFAULT_UV_VENV}"
+}
+
+lr_env_uv_train_venv_path() {
+  lr_env_expand_path "${LR_ENV_UV_TRAIN_VENV:-$LR_ENV_DEFAULT_UV_TRAIN_VENV}"
 }
 
 lr_env_set_toml_value() {

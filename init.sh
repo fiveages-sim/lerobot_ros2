@@ -29,8 +29,10 @@ print_usage() {
   echo "  env                按 .fa-env.toml 的 backend 创建环境"
   echo "  install            安装任务编排（interface + composer）。不含 viser / wuji-sdk / HUG"
   echo "  install-grasp      可选：父仓环境安装 viser + wuji-sdk"
-  echo "  install-plugins    安装 PyTorch + PyPI lerobot + 插件包"
+  echo "  install-plugins    安装 PyTorch + PyPI lerobot + 插件包（numpy 2，会破坏 cv_bridge）"
   echo "  install-lerobot    同 install-plugins"
+  echo "  setup-train-env    创建训练专用环境（.venv-train：numpy 2 + PyPI lerobot）"
+  echo "                     日常编排/采集/导出仍用 .venv（numpy 1.x）"
   echo "  hug-env            可选：HUG 独立 venv（Python 3.10）。权重可下，MANO 需自行注册"
   echo "  doctor             检查各模块是否就绪，并给出补齐命令（不安装）"
   echo "  all-motion         编排：core 子模块 + 环境 + install（不含灵巧手）"
@@ -433,6 +435,63 @@ install_motion_stack() {
   install_motion_projects
 }
 
+# 训练专用环境（numpy 2 + PyPI lerobot）。
+#
+# 为什么要单独一个 venv
+# ---------------------
+# lerobot 0.5.x（PyPI）强制 `numpy>=2`。而系统 cv_bridge / OpenCV 是按
+# numpy 1.x 编译的，升到 2 之后 ROS 侧的图像转换会踩 ABI 问题 ——
+# 也就是**没法用 cv_bridge 采头相机**。
+#
+# 但编排、采集、导出全都需要 numpy 1.x。所以两者必须分开：
+#
+#   .venv          numpy 1.x + lerobot 0.3.4(editable submodule)
+#                  → 编排 / 采集 / 导出 / 数据处理 / 回放
+#   .venv-train    numpy 2.x + PyPI lerobot（含训练依赖）
+#                  → 只跑官方训练脚本（lerobot.policies.*）
+#
+# 实测确认：LeRobotDataset 的 create/add_frame/save_episode/视频编码
+# **都不需要 numpy 2** —— 所以导出走主环境即可，不必进训练环境。
+setup_train_env() {
+  lr_env_load_config "$ROOT_DIR"
+
+  if [[ "${LR_ENV_BACKEND:-}" != "uv" ]]; then
+    echo ">>> 训练环境目前只支持 uv backend（当前: ${LR_ENV_BACKEND:-conda}）"
+    echo "    切 backend: ./init.sh set-backend uv"
+    return 1
+  fi
+
+  local venv_path
+  venv_path="$(lr_env_uv_train_venv_path)"
+
+  echo ">>> 创建训练环境: $venv_path（numpy 2 + PyPI lerobot）"
+  echo "    注意：这个环境**不能**用来采头相机（numpy 2 与 cv_bridge 冲突）"
+  uv venv --python 3.12 "$venv_path" || return 1
+
+  local py="$venv_path/bin/python"
+  echo ">>> 安装 PyTorch 2.7.1/cu128"
+  uv pip install --python "$py" \
+    torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+    --index-url https://download.pytorch.org/whl/cu128 || return 1
+
+  echo ">>> 安装 PyPI lerobot==${LR_ENV_LEROBOT_VERSION}"
+  uv pip install --python "$py" "lerobot==${LR_ENV_LEROBOT_VERSION}" || return 1
+
+  echo ">>> 验证"
+  "$py" - <<'PYEOF'
+import numpy, torch
+print(f"  numpy {numpy.__version__}  torch {torch.__version__}  cuda={torch.cuda.is_available()}")
+try:
+    import lerobot
+    print(f"  lerobot {lerobot.__file__}")
+except ImportError:
+    print("  lerobot MISSING")
+PYEOF
+
+  echo ">>> 完成。训练时: source $(lr_env_expand_path "$venv_path")/bin/activate"
+  echo "    日常（编排/采集/导出）仍用: source $(lr_env_uv_venv_path)/bin/activate"
+}
+
 install_lerobot_stack() {
   lr_env_load_config "$ROOT_DIR"
   echo ">>> 使用 backend=$LR_ENV_BACKEND，安装 lerobot 相关（录制 / 推理 / 插件）"
@@ -595,7 +654,11 @@ run_all_grasp() {
 run_all_full() {
   local python_version="${1:-}"
   run_all_motion "$python_version"
-  install_lerobot_stack
+  # 不再往主环境装 PyPI lerobot（会把 numpy 升到 2，破坏 cv_bridge）。
+  # 改为创建独立的训练环境。
+  echo
+  echo ">>> 主环境（编排/采集/导出）已就绪；下面创建训练环境"
+  setup_train_env
 }
 
 doctor_modules() {
@@ -706,20 +769,24 @@ doctor_modules() {
 interactive_menu() {
   lr_env_load_config "$ROOT_DIR"
   echo "请选择要执行的操作 (backend=$LR_ENV_BACKEND)"
-  echo "三条路不要混在同一个环境里："
-  echo "  只编排: 3 → 4，或菜单 6 / ./init.sh all-motion"
-  echo "  编排+灵巧手: 再加 i 和 h，或菜单 g / ./init.sh all-grasp（numpy 保持 <2）"
-  echo "  录制/推理: 菜单 5 或 7。会把 numpy 升到 2，头相机抓取不要再用这个环境。"
+  echo "环境划分（uv）:"
+  echo "  $LR_ENV_UV_VENV         numpy 1.x  ← 编排 / 采集 / 导出 / 数据处理 全用它"
+  echo "  $LR_ENV_UV_TRAIN_VENV   numpy 2.x  ← 仅跑官方训练脚本（菜单 t 创建）"
+  echo "  两者互不影响；ROS（rclpy/cv_bridge/cv2）来自 source /opt/ros/jazzy，不进 venv"
+  echo
+  echo "  只编排:     3 → 4，或菜单 6 / ./init.sh all-motion"
+  echo "  编排+灵巧手: 再加 i 和 h，或菜单 g / ./init.sh all-grasp"
+  echo "  要训练:     菜单 t / ./init.sh setup-train-env（另建 $LR_ENV_UV_TRAIN_VENV）"
   echo
   echo "  [子模块]"
   echo "    1) 初始化子模块"
   echo "    2) 更新所有子模块到最新 main"
   echo
   echo "  [环境与安装]"
-  echo "    3) 按当前 backend 创建环境"
+  echo "    3) 按当前 backend 创建环境（$LR_ENV_UV_VENV：numpy 1.x，编排/采集/导出都用它）"
   echo "    4) 安装任务编排（interface + composer；不含灵巧手）"
   echo "    i) 安装抓取 extras（viser + wuji-sdk，可选）"
-  echo "    5) 安装 lerobot 相关（PyTorch + lerobot + 插件）"
+  echo "    t) 创建训练环境（$LR_ENV_UV_TRAIN_VENV：numpy 2 + PyPI lerobot，仅训练用）"
   echo "    h) 配置 HUG 独立 venv（Python 3.10，可选）"
   echo "    d) 检查各模块是否就绪"
   echo
@@ -769,7 +836,9 @@ interactive_menu() {
       install_grasp_extras
       ;;
     5)
-      install_lerobot_stack
+      # 旧行为是「往主环境装 PyPI lerobot」，会把 numpy 升到 2 并破坏
+      # cv_bridge（无法采头相机）。现在改为创建独立的训练环境。
+      setup_train_env
       ;;
     h|H)
       setup_hug_env
@@ -859,6 +928,9 @@ main() {
     install-plugins|install-lerobot)
       parse_install_backend_args "${@:2}"
       install_lerobot_stack
+      ;;
+    setup-train-env|train-env)
+      setup_train_env
       ;;
     install-uv)
       install_uv
