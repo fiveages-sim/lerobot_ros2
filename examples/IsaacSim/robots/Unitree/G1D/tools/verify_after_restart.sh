@@ -14,7 +14,9 @@ export ROS_DISTRO="${ROS_DISTRO:-jazzy}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
 export ZENOH_SESSION_CONFIG_URI="${ZENOH_SESSION_CONFIG_URI:-/home/fiveages/fa_w2_ws/zenoh/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5}"
 
-PY="/home/fiveages/miniconda3/envs/lerobot-ros2/bin/python"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../../../.." && pwd)"
+PY="${VERIFY_PYTHON:-$REPO_ROOT/.venv/bin/python}"
+[[ -x "$PY" ]] || PY="$(command -v python3)"
 
 echo "=================================================================="
 echo "1) OCS2 模型（必须是 mobile_base_tcp）"

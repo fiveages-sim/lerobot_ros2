@@ -44,10 +44,11 @@ else
   echo "[warn] zenoh 配置不存在: $ZENOH_CFG（仍继续，但可能发现不到话题）" >&2
 fi
 
-# ---- Python：需要 rclpy。优先用 lerobot 的 conda 环境 ----
-PYTHON="${EE_TRAJ_PYTHON:-/home/fiveages/miniconda3/envs/lerobot-ros2/bin/python}"
+# ---- Python：需要 rclpy。优先用本仓库的 uv venv（source /opt/ros 后即可用 rclpy）----
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../../../.." && pwd)"
+PYTHON="${EE_TRAJ_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 if [[ ! -x "$PYTHON" ]]; then
-  PYTHON="$(command -v python3)"
+    PYTHON="$(command -v python3)"
 fi
 if ! "$PYTHON" -c "import rclpy" >/dev/null 2>&1; then
   echo "[ERROR] $PYTHON 里没有 rclpy。" >&2
