@@ -218,11 +218,17 @@ skill_defaults:
     # Must stay false: G1D ROS2ServicePrim runs on OnPlaybackTick; PAUSE kills
     # /set_prim_attribute. Teleport uses /set_entity_state while Playing.
     pause_during_move: false
+    # Dynamic racks tip on the table after mid-sim XY teleport; keep fixtures kinematic.
+    force_kinematic: true
+    snap_authored_orientation: true
     settle_after_s: 1.0
     enabled: true
   randomize_place_rack:
     object_key: test_tube_rack
     xyz_offset: [0.05, 0.05, 0.0]
+    force_kinematic: true
+    snap_authored_orientation: true
+    settle_after_s: 0.8
     enabled: true
   single_arm.pick:
     object_prim_path: /World/room/scene/test_tube
