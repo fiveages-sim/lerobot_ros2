@@ -32,6 +32,12 @@
 
 LeRobot 从 PyPI 安装，版本在 `.fa-env.toml`。`submodules/lerobot` 不是本仓库的子模块。
 
+## 训练与推理
+
+| 文档 | 何时读 |
+|------|--------|
+| [TRAINING_AND_INFERENCE.md](TRAINING_AND_INFERENCE.md) | **要训 ACT 或跑推理**。已跑通的命令、两个必需参数（`push_to_hub=false` / `video_backend=pyav`）、环境划分（`.venv` vs `.venv-train`）、常见报错 |
+
 ## 参考实现笔记
 
 下面几篇是 FiveAges W2 加 Wuji Hand2 联调时的测量记录。换机器人时改配置，不要把这里的坐标系和话题当成唯一写法。可运行的配置在 `examples/IsaacSim/robots/FiveAges_W2/`。
