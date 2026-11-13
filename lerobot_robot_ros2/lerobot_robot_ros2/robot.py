@@ -451,29 +451,58 @@ class ROS2Robot(Robot):
         has_left_ee = any(k.startswith(f"{self.LEFT_EE_PREFIX}.") for k in action)
         has_right_ee = any(k.startswith(f"{self.RIGHT_EE_PREFIX}.") for k in action)
 
-        # Send left arm pose only when left ee keys are provided.
-        if has_left_ee:
-            left_pose = Pose()
-            left_pose.position.x = action.get(f"{self.LEFT_EE_PREFIX}.pos.x", 0.0)
-            left_pose.position.y = action.get(f"{self.LEFT_EE_PREFIX}.pos.y", 0.0)
-            left_pose.position.z = action.get(f"{self.LEFT_EE_PREFIX}.pos.z", 0.0)
-            left_pose.orientation.x = action.get(f"{self.LEFT_EE_PREFIX}.quat.x", 0.0)
-            left_pose.orientation.y = action.get(f"{self.LEFT_EE_PREFIX}.quat.y", 0.0)
-            left_pose.orientation.z = action.get(f"{self.LEFT_EE_PREFIX}.quat.z", 0.0)
-            left_pose.orientation.w = action.get(f"{self.LEFT_EE_PREFIX}.quat.w", 1.0)
-            self.ros2_interface.send_end_effector_target(left_pose)
+        def _pose_from(prefix: str) -> Pose:
+            p = Pose()
+            p.position.x = action.get(f"{prefix}.pos.x", 0.0)
+            p.position.y = action.get(f"{prefix}.pos.y", 0.0)
+            p.position.z = action.get(f"{prefix}.pos.z", 0.0)
+            p.orientation.x = action.get(f"{prefix}.quat.x", 0.0)
+            p.orientation.y = action.get(f"{prefix}.quat.y", 0.0)
+            p.orientation.z = action.get(f"{prefix}.quat.z", 0.0)
+            p.orientation.w = action.get(f"{prefix}.quat.w", 1.0)
+            return p
 
-        # Create and send right arm pose (if dual-arm keys provided)
-        if self._is_dual_arm_enabled() and has_right_ee:
-            right_pose = Pose()
-            right_pose.position.x = action.get(f"{self.RIGHT_EE_PREFIX}.pos.x", 0.0)
-            right_pose.position.y = action.get(f"{self.RIGHT_EE_PREFIX}.pos.y", 0.0)
-            right_pose.position.z = action.get(f"{self.RIGHT_EE_PREFIX}.pos.z", 0.0)
-            right_pose.orientation.x = action.get(f"{self.RIGHT_EE_PREFIX}.quat.x", 0.0)
-            right_pose.orientation.y = action.get(f"{self.RIGHT_EE_PREFIX}.quat.y", 0.0)
-            right_pose.orientation.z = action.get(f"{self.RIGHT_EE_PREFIX}.quat.z", 0.0)
-            right_pose.orientation.w = action.get(f"{self.RIGHT_EE_PREFIX}.quat.w", 1.0)
-            self.ros2_interface.send_right_end_effector_target(right_pose)
+        left_pose = _pose_from(self.LEFT_EE_PREFIX) if has_left_ee else None
+        right_pose = (_pose_from(self.RIGHT_EE_PREFIX)
+                      if (self._is_dual_arm_enabled() and has_right_ee) else None)
+
+        # ---- 双臂目标下发：兼容 ros2_robot_interface 的新旧 API ----
+        #
+        # v0.6.0 把 `send_end_effector_target` / `send_right_end_effector_target`
+        # 合并成 `send_dual_arm_target_stamped(left, right, frame_id, ...)`。
+        # 旧接口包没有新方法，新接口包没有旧方法，所以按可用性分派。
+        #
+        # 注意：新 API **双臂必须同时给**（内部会拼 [left, right, body] 一起发）。
+        # 只有一侧有 action 时，另一侧沿用「上一条已下发的目标」—— 用
+        # self._last_target_pose 缓存维护，避免发零位姿让手臂甩向原点。
+        iface = self.ros2_interface
+        cache = getattr(self, "_last_target_pose", None) or {}
+        if left_pose is not None:
+            cache["left"] = left_pose
+        if right_pose is not None:
+            cache["right"] = right_pose
+        self._last_target_pose = cache  # type: ignore[attr-defined]
+
+        if hasattr(iface, "send_dual_arm_target_stamped"):
+            l = cache.get("left")
+            r = cache.get("right")
+            if l is None and r is None:
+                pass                      # 两侧都没有，不发
+            elif l is None or r is None:
+                # 只下发了一侧：另一侧还没有历史目标，跳过本轮（等下一帧）
+                logger.debug("[send_action] 单侧目标但另一侧无历史，跳过本轮下发")
+            else:
+                iface.send_dual_arm_target_stamped(
+                    l, r,
+                    frame_id=str(getattr(self.config.ros2_interface,
+                                         "ee_frame_id", "") or "arm_base"),
+                )
+        else:
+            # 旧 API：左右分开发
+            if left_pose is not None:
+                iface.send_end_effector_target(left_pose)
+            if right_pose is not None:
+                iface.send_right_end_effector_target(right_pose)
         
         # Send gripper command(s) if provided and gripper is enabled
         if self.config.ros2_interface.gripper_enabled:

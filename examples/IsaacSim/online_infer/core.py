@@ -453,6 +453,55 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
     return train_cfg, meta, policy, policy_image_feats, gripper_idx
 
 
+def _camera_alias_map(meta: LeRobotDatasetMetadata) -> dict[str, str]:
+    """数据集相机 key → ROS2Robot observation key 的映射。
+
+    **为什么需要**：两套工具给同一台相机起了不同的名字。
+
+    | 来源 | head | 左腕 | 右腕 |
+    |---|---|---|---|
+    | sdg 采集（数据集 feature key） | ``head`` | ``wrist_left`` | ``wrist_right`` |
+    | lerobot_robot_ros2（话题名） | ``head_camera`` | ``left_hand_camera`` | ``right_hand_camera`` |
+
+    ROS2Robot 的 observation key 由 ``lerobot_config.py`` 的 cameras 决定；
+    有深度话题的相机拆成 ``<key>.rgb`` / ``<key>.depth``。
+
+    这里按「包含关系 + 方位词」做启发式匹配，避免写死映射表（换机器人也能用）。
+    """
+    # 从 robot 侧已知 key 里找（LEROBOT_CFG 可能在 inference.py 里注入）
+    robot_keys: list[str] = []
+    try:
+        cfg = LEROBOT_CFG
+        if cfg is not None and getattr(cfg, "cameras", None):
+            robot_keys = list(cfg.cameras.keys())
+    except Exception:  # noqa: BLE001
+        robot_keys = []
+
+    ds_keys = [k.replace("observation.images.", "") for k in (meta.camera_keys or [])]
+    if not robot_keys or not ds_keys:
+        return {k: k for k in ds_keys}
+
+    def _tokens(s: str) -> set[str]:
+        return {t for t in s.replace("-", "_").split("_") if t and t not in {"camera", "rgb"}}
+
+    alias: dict[str, str] = {}
+    for dk in ds_keys:
+        # 1) 完全同名
+        if dk in robot_keys:
+            alias[dk] = dk
+            continue
+        # 2) 方位词匹配（head / left / right / wrist / hand）
+        d_tok = _tokens(dk)
+        best, best_score = None, 0
+        for rk in robot_keys:
+            r_tok = _tokens(rk)
+            score = len(d_tok & r_tok)
+            if score > best_score:
+                best, best_score = rk, score
+        alias[dk] = best or dk
+    return alias
+
+
 def infer_action_vec(
     policy,
     meta: LeRobotDatasetMetadata,
@@ -468,11 +517,22 @@ def infer_action_vec(
         state = torch.from_numpy(build_state_vector(meta, raw_obs)).unsqueeze(0)
         batch["observation.state"] = state
 
+    # 相机 key 映射（数据集名 → ROS2Robot 名）。缓存在函数属性里，
+    # 避免每帧重算。
+    alias = getattr(infer_action_vec, "_alias_cache", None)
+    if alias is None:
+        alias = _camera_alias_map(meta)
+        infer_action_vec._alias_cache = alias  # type: ignore[attr-defined]
+        print(f"[info] camera alias: {alias}")
+
     for cam_key in policy_image_feats:
         cam_name = cam_key.replace("observation.images.", "")
-        cam_name_with_dot = cam_name.replace("_rgb", ".rgb")
+        mapped = alias.get(cam_name, cam_name)
+        cam_name_with_dot = mapped.replace("_rgb", ".rgb")
         candidates = [
+            raw_obs.get(f"{cam_name_with_dot}.rgb"),   # 有深度的相机 → head_camera.rgb
             raw_obs.get(cam_name_with_dot),
+            raw_obs.get(mapped),
             raw_obs.get(cam_name),
             raw_obs.get(cam_key),
         ]
@@ -610,16 +670,24 @@ def main() -> None:
     print("[OK] Robot connected")
 
     print("Resetting simulation state...")
-    if "object_prim_path" not in PICK_PLACE_FLOW_OVERRIDES:
-        raise RuntimeError("PICK_PLACE_FLOW_OVERRIDES.object_prim_path is required for reset")
+    # motion_cfg 后面切 FSM 和推理循环都要用（fsm_switch_delay / post_reset_wait），
+    # 所以必须在 if/else **之外**取，不能只在复位分支里定义。
     motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
-    if motion_cfg is None:
-        raise RuntimeError("MOTION_CFG is not configured. Run via examples/IsaacSim/inference.py.")
-    reset_simulation_state(
-        str(PICK_PLACE_FLOW_OVERRIDES["object_prim_path"]).strip(),
-        post_reset_wait=motion_cfg.post_reset_wait,
-        sleep_fn=sim_time.sleep,
-    )
+    if PICK_PLACE_FLOW_OVERRIDES.get("no_reset"):
+        print("[info] --no-reset: 跳过复位，使用当前场景状态")
+    else:
+        if "object_prim_path" not in PICK_PLACE_FLOW_OVERRIDES:
+            raise RuntimeError(
+                "PICK_PLACE_FLOW_OVERRIDES.object_prim_path is required for reset"
+                "（或用 --no-reset 跳过复位）"
+            )
+        if motion_cfg is None:
+            raise RuntimeError("MOTION_CFG is not configured. Run via examples/IsaacSim/inference.py.")
+        reset_simulation_state(
+            str(PICK_PLACE_FLOW_OVERRIDES["object_prim_path"]).strip(),
+            post_reset_wait=motion_cfg.post_reset_wait,
+            sleep_fn=sim_time.sleep,
+        )
 
     print("Switching FSM: HOLD -> OCS2 ...")
     robot.ros2_interface.send_fsm_command(FSM_HOLD)

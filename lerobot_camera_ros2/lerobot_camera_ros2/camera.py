@@ -25,9 +25,40 @@ from .config import ROS2CameraConfig
 logger = logging.getLogger(__name__)
 
 
+def _numpy_major_minor() -> tuple[int, int]:
+    try:
+        import numpy as np
+
+        parts = np.__version__.split(".")[:2]
+        return int(parts[0]), int(parts[1])
+    except Exception:  # noqa: BLE001
+        return (0, 0)
+
+
 def _try_create_cv_bridge():
-    """Return CvBridge instance if import succeeds; otherwise None (numpy 2.x safe path)."""
+    """Return CvBridge instance if import succeeds; otherwise None (numpy 2.x safe path).
+
+    三种情况会用**手动转换**（None）：
+      1. ``LEROBOT_ROS2_DISABLE_CV_BRIDGE=1`` 显式关闭
+      2. **numpy >= 2** —— 系统 ROS 的 cv_bridge 是按 numpy 1.x ABI 编译的，
+         import 能过但**一调用就崩**（"module compiled using NumPy 1.x cannot
+         be run in NumPy 2.x"，进程直接 core dump）。而 lerobot 0.5.x 要求
+         numpy>=2，两者不可共存 → 推断到 numpy 2 就别碰 cv_bridge。
+      3. cv_bridge import 失败
+
+    手动路径见 ``_manual_convert_image_msg``：直接用
+    ``np.frombuffer(msg.data)`` 解析，不依赖任何 ABI。
+    """
     if os.getenv("LEROBOT_ROS2_DISABLE_CV_BRIDGE", "0") == "1":
+        logger.info("cv_bridge disabled by LEROBOT_ROS2_DISABLE_CV_BRIDGE=1")
+        return None
+    major, _minor = _numpy_major_minor()
+    if major >= 2:
+        logger.info(
+            "numpy %s detected → skipping cv_bridge (it is built against numpy 1.x "
+            "and would crash). Using manual image converter.",
+            f"{major}.{_minor}",
+        )
         return None
     try:
         from cv_bridge import CvBridge

@@ -42,6 +42,23 @@ def _parse_launcher_args() -> tuple[argparse.Namespace, list[str]]:
         default=None,
         help="Shared robot profile root (default: <workspace>/robots or the scene robot.yaml robots_root)",
     )
+    parser.add_argument(
+        "--object-prim",
+        dest="object_prim",
+        type=str,
+        default="",
+        help="推理前要复位的物体 prim 路径，如 "
+             "/World/room/scene/test_tube。给了它就不需要任务 YAML 里的 "
+             "skill_defaults（推理与编排解耦）",
+    )
+    parser.add_argument(
+        "--no-reset",
+        dest="no_reset",
+        action="store_true",
+        help="不复位场景、不等物体稳定 —— 直接用当前状态开始推理。"
+             "适合「手动摆好物体、只想看一次效果」的演示；"
+             "闭环评测（反复跑算成功率）**不要**用它",
+    )
     return parser.parse_known_args()
 
 
@@ -62,12 +79,35 @@ def _iter_queue_blocks(blocks: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _resolve_inference_object_prim_path(task_cfg: dict[str, Any]) -> str:
+def _resolve_inference_object_prim_path(
+    task_cfg: dict[str, Any],
+    override: str = "",
+) -> str:
+    """确定推理时要复位的物体 prim。
+
+    优先级：
+      1. ``--object-prim`` 命令行显式给定（**推荐**，与编排 YAML 完全解耦）
+      2. 任务 YAML 里 ``skill_defaults.single_arm.pick.params.object_prim_path``
+         （或 ``move_to_object``；scene_presets 可覆盖）
+
+    为什么要支持 1：推理只需要「复位哪个物体」这一条信息，而任务 YAML 的
+    ``task_queue`` 是给**编排执行**用的（20+ 步技能序列），推理一步也不执行。
+    为了拿一个 prim 路径而要求任务里必须有完整编排队列，是概念上的耦合 ——
+    用 ``--object-prim`` 就能把两者解耦。
+    """
+    if str(override or "").strip():
+        return str(override).strip()
+
     from robot_action_composer.task_runtime.merge import merge_task_queue_skill_params  # pyright: ignore[reportMissingImports]
 
     task_queue = task_cfg.get("task_queue")
     if not isinstance(task_queue, list) or not task_queue:
-        raise ValueError("Inference task requires a non-empty task_queue.")
+        raise ValueError(
+            "推理任务缺少 object_prim_path。两种解决办法：\n"
+            "  1) 直接给 --object-prim <prim路径>（推荐，不需要编排 YAML）\n"
+            "  2) 在任务 YAML 的 skill_defaults.single_arm.pick.params 里写 "
+            "object_prim_path"
+        )
     skill_defaults = dict(task_cfg.get("skill_defaults") or {})
     scene_presets = dict(task_cfg.get("scene_presets") or {})
     default_scene = task_cfg.get("default_scene")
@@ -163,7 +203,14 @@ def main() -> None:
         task_cfg.get("runtime_defaults", {}),
         context=f"task[{task_key}].runtime_defaults",
     )
-    object_prim_path = _resolve_inference_object_prim_path(task_cfg)
+    # 不复位就不需要物体 prim（演示模式）
+    if getattr(launcher_args, "no_reset", False):
+        object_prim_path = (str(launcher_args.object_prim or "").strip() or "")
+        print("[info] --no-reset: 跳过场景复位与物体稳定等待")
+    else:
+        object_prim_path = _resolve_inference_object_prim_path(
+            task_cfg, override=launcher_args.object_prim
+        )
 
     core_script = isaac_dir / "online_infer" / "core.py"
     core_module = _load_module("isaac_inference_core", core_script)
@@ -188,7 +235,10 @@ def main() -> None:
     core_module.MOTION_CFG = motion_cfg
     core_module.LEROBOT_CFG = lerobot_cfg
     core_module.ROBOT_CFG = motion_cfg
-    core_module.PICK_PLACE_FLOW_OVERRIDES = {"object_prim_path": object_prim_path}
+    core_module.PICK_PLACE_FLOW_OVERRIDES = {
+        "object_prim_path": object_prim_path,
+        "no_reset": bool(getattr(launcher_args, "no_reset", False)),
+    }
 
     print(
         f"[Selection] robot={robot_key}, task={task_key}, "
