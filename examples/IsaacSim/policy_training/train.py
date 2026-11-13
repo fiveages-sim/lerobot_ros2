@@ -181,7 +181,7 @@ def main() -> None:
     output_dir = _resolve_output_dir(args.output_dir, dataset_path, args.policy)
 
     episodes = _parse_episode_list(args.episodes)
-    video_backend = get_safe_default_codec()
+    video_backend = "pyav"  # torchcodec broken vs system FFmpeg6; pyav works
     dataset_kwargs: dict[str, object] = {
         "repo_id": dataset_path.name,
         "root": str(dataset_path),

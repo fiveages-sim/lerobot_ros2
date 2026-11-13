@@ -144,22 +144,68 @@ class ROS2Robot(Robot):
             else self.TARGET_COMMAND_CLOSE
         )
 
-    def _send_gripper_value(self, raw_value: Any, *, is_right: bool) -> None:
-        """Send one gripper command according to cached mode config."""
-        if self._use_target_command:
-            handler_name = "right_gripper_handler" if is_right else "left_gripper_handler"
-            side_label = "Right" if is_right else "Left"
-            handler = getattr(self.ros2_interface, handler_name, None)
-            if handler is None:
-                logger.warning(f"{side_label} gripper handler not initialized")
+    def _publish_arm_target(self, *, is_right: bool, pose: Pose, action: dict[str, Any]) -> None:
+        """Publish an EE target via ArmHandler.
+
+        Default: unstamped ``left_target`` / ``right_target`` (continuous OCS2
+        tracking, ``interpolate=false``). Stamped ``*/stamped`` triggers MoveL
+        (2s+ duration) and must NOT be used for high-rate ACT streaming — that
+        floods the Isaac log with "MoveL duration extended".
+
+        Opt into MoveL with ``action["use_movel"]=True`` or ``action["frame_id"]``.
+        """
+        handler = (
+            self.ros2_interface.right_arm_handler
+            if is_right
+            else self.ros2_interface.left_arm_handler
+        )
+        side = "right" if is_right else "left"
+        if handler is None:
+            raise RuntimeError(f"{side} arm handler not initialized")
+
+        use_movel = bool(action.get("use_movel", False))
+        frame_id = action.get("frame_id") or action.get(f"{side}_ee.frame_id")
+        if use_movel or frame_id:
+            if getattr(handler, "target_stamped_pub", None) is None:
+                handler.send_target(pose)
                 return
-            handler.send_target_command(self._to_target_command(raw_value))
+            handler.send_target_stamped(str(frame_id or getattr(handler, "frame_id", None) or "world"), pose)
+        else:
+            handler.send_target(pose)
+
+    def _send_gripper_value(self, raw_value: Any, *, is_right: bool) -> None:
+        """Send one gripper command according to cached mode config.
+
+        Prefer continuous percent (0=closed … 1=open) via GripperHandler when
+        available — binary target_command is a poor fit for ACT absolute gripper
+        outputs and was slamming both hands closed every step.
+        """
+        handler_name = "right_gripper_handler" if is_right else "left_gripper_handler"
+        side_label = "Right" if is_right else "Left"
+        handler = getattr(self.ros2_interface, handler_name, None)
+        if handler is None:
+            logger.warning(f"{side_label} gripper handler not initialized")
             return
 
-        if is_right:
-            self.ros2_interface.send_right_gripper_command(raw_value)
-        else:
-            self.ros2_interface.send_gripper_command(raw_value)
+        value = float(raw_value)
+        if self._use_target_command:
+            handler.send_target_command(self._to_target_command(value))
+            return
+
+        # Continuous ACT / collector gripper in [0, 1].
+        if 0.0 <= value <= 1.0 and hasattr(handler, "send_position_percent"):
+            try:
+                handler.send_position_percent(value)
+                return
+            except Exception as exc:
+                logger.debug(f"{side_label} send_position_percent failed: {exc}")
+
+        if hasattr(handler, "send_joint_positions"):
+            handler.send_joint_positions(value)
+            return
+
+        # Last resort: binary open/close.
+        handler.send_target_command(self._to_target_command(value))
 
     def _refresh_joint_index_cache(self, joint_names: Sequence[str]) -> None:
         """Build joint-name indices once and refresh only when names change."""
@@ -452,6 +498,8 @@ class ROS2Robot(Robot):
         has_right_ee = any(k.startswith(f"{self.RIGHT_EE_PREFIX}.") for k in action)
 
         # Send left arm pose only when left ee keys are provided.
+        # ros2_robot_interface moved EE publishes onto ArmHandler (no longer
+        # send_end_effector_target / send_right_end_effector_target).
         if has_left_ee:
             left_pose = Pose()
             left_pose.position.x = action.get(f"{self.LEFT_EE_PREFIX}.pos.x", 0.0)
@@ -461,7 +509,7 @@ class ROS2Robot(Robot):
             left_pose.orientation.y = action.get(f"{self.LEFT_EE_PREFIX}.quat.y", 0.0)
             left_pose.orientation.z = action.get(f"{self.LEFT_EE_PREFIX}.quat.z", 0.0)
             left_pose.orientation.w = action.get(f"{self.LEFT_EE_PREFIX}.quat.w", 1.0)
-            self.ros2_interface.send_end_effector_target(left_pose)
+            self._publish_arm_target(is_right=False, pose=left_pose, action=action)
 
         # Create and send right arm pose (if dual-arm keys provided)
         if self._is_dual_arm_enabled() and has_right_ee:
@@ -473,7 +521,7 @@ class ROS2Robot(Robot):
             right_pose.orientation.y = action.get(f"{self.RIGHT_EE_PREFIX}.quat.y", 0.0)
             right_pose.orientation.z = action.get(f"{self.RIGHT_EE_PREFIX}.quat.z", 0.0)
             right_pose.orientation.w = action.get(f"{self.RIGHT_EE_PREFIX}.quat.w", 1.0)
-            self.ros2_interface.send_right_end_effector_target(right_pose)
+            self._publish_arm_target(is_right=True, pose=right_pose, action=action)
         
         # Send gripper command(s) if provided and gripper is enabled
         if self.config.ros2_interface.gripper_enabled:

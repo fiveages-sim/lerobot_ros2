@@ -15,6 +15,7 @@ LEROBOT_CFG = LeRobotRobotConfig(
     robot_id="unitree_g1d",
     cameras={
         # Policy feature observation.images.base_0_rgb ← /head_camera/rgb
+        # Dataset / Isaac head cam: 1280x720; wrists: 640x480.
         "base_0": CameraTopicConfig(
             topic_name="/head_camera/rgb",
             node_name="lerobot_g1d_base_0",

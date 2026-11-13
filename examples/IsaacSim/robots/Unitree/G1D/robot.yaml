@@ -4,6 +4,9 @@ label: Unitree G1D
 base_link_entity_path: /World/G1D/base_link
 post_reset_wait: 3.0
 gripper_action_wait: 1.5
+# ACT / collector gripper is continuous 0..1 (open). Binary target_command
+# collapses that to slam-closed every step — use percent/position instead.
+gripper_control_mode: position
 # 任务里的末端位姿默认是夹爪尖；运控跟踪腕部 TCP，技能下发前用实时 TF 换算。
 ee_target_frame: "{arm}_eef"
 ee_command_frame: "{arm}_tcp"
