@@ -31,14 +31,21 @@ runtime_defaults:
   gripper_closed: 0.0
 
 task_queue:
-  # 0) 锁底盘：全程不需要 WBC 挪底盘，采集到的末端轨迹才可复现。
+  # 0) 每集采集前抖动试管架局部 XY（勿改孔号；ACT 要学的是架位变化，不是 hole_i→hole_j）。
+  #    必须放在 reset 后、运动技能之前（runner 约定）。半幅先 ±5cm，稳定后再加大。
+  #    enabled: false 可临时关掉随机化做对照。
+  - skill: env.randomize_object_local_xyz
+    id: randomize_pick_rack
+  - skill: env.randomize_object_local_xyz
+    id: randomize_place_rack
+  # 1) 锁底盘：全程不需要 WBC 挪底盘，采集到的末端轨迹才可复现。
   #    BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0，不改变 MPC 维度。
   - skill: robot.send_mode_command
     params:
       commands: [BASE_LOCK]
       require_confirmed: true
       wait_timeout: 5.0
-  # 1) 抓取前关闭全身控制左臂。须先双臂独立，否则耦合状态下 LEFT_ARM_DISABLE 会被忽略。
+  # 2) 抓取前关闭全身控制左臂。须先双臂独立，否则耦合状态下 LEFT_ARM_DISABLE 会被忽略。
   - skill: robot.send_mode_command
     params:
       commands: [LEFT_ARM_DISABLE]
@@ -192,6 +199,20 @@ task_queue:
       motion_frame_id: world
       position_delta: [0.0, 0.0, 0.15]
       gripper: 1.0
+
+# Needed by examples/IsaacSim/inference.py for sim reset (object_key alone is not enough).
+skill_defaults:
+  # 右架取管 / 左架放管：局部平移均匀抖动（Z 默认 0，避免架腿离地）。
+  randomize_pick_rack:
+    object_key: test_tube_rack_01
+    xyz_offset: [0.05, 0.05, 0.0]
+    enabled: true
+  randomize_place_rack:
+    object_key: test_tube_rack
+    xyz_offset: [0.05, 0.05, 0.0]
+    enabled: true
+  single_arm.pick:
+    object_prim_path: /World/room/scene/test_tube
 
 scene_presets:
   # Default place target = hole_3 (matches task_queue insert grasp_id).
