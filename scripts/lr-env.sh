@@ -8,7 +8,9 @@ LR_ENV_DEFAULT_UV_VENV=".venv"
 # 与主环境 (.venv) 分开，因为 lerobot 0.5.x 强制 numpy>=2，会破坏 cv_bridge
 # 与系统 OpenCV —— 而编排/采集/导出都要 numpy 1.x。
 LR_ENV_DEFAULT_UV_TRAIN_VENV=".venv-train"
-LR_ENV_DEFAULT_LEROBOT_VERSION="0.3.4"
+# lerobot 版本：与 README / .fa-env.toml.example 保持一致（0.5.1）。
+# 0.5.x 强制 numpy>=2，只能装在 .venv-train；主 .venv 用 submodule 的旧版。
+LR_ENV_DEFAULT_LEROBOT_VERSION="0.5.1"
 
 LR_ENV_BACKEND_OVERRIDE="${LR_ENV_BACKEND_OVERRIDE:-}"
 LR_ENV_BACKEND=""
@@ -208,9 +210,22 @@ lr_env_load_config() {
   LR_ENV_LEROBOT_VERSION="$LR_ENV_DEFAULT_LEROBOT_VERSION"
 
   lr_env_ensure_config_file
-  cfg="$(lr_env_primary_config_file)"
+  # **两层配置**：先读共享的 .fa-env.toml，再用 .fa-env.local.toml 覆盖。
+  #
+  # 曾经的 bug：只读 lr_env_primary_config_file()（返回 local 优先），
+  # 而 local 文件通常只有个人覆盖项（如 [ros2] workspace），不含 [lerobot]，
+  # 于是 .fa-env.toml 里的 version=0.5.1 被完全忽略，回落到默认 0.3.4
+  # （实测装训练环境时 `lerobot==0.3.4` 解析失败才暴露）。
+  local cfgs=()
+  [[ -f "$root/.fa-env.toml" ]] && cfgs+=("$root/.fa-env.toml")
+  [[ -f "$root/.fa-env.local.toml" ]] && cfgs+=("$root/.fa-env.local.toml")
+  # 兜底：若上面都没有，用原来的探测逻辑
+  if [[ ${#cfgs[@]} -eq 0 ]]; then
+    cfg="$(lr_env_primary_config_file)"
+    [[ -n "$cfg" ]] && cfgs+=("$cfg")
+  fi
 
-  if [[ -n "$cfg" ]]; then
+  for cfg in "${cfgs[@]}"; do
     file_val="$(lr_env_toml_get "$cfg" "" "backend" 2>/dev/null || true)"
     [[ -n "$file_val" ]] && LR_ENV_BACKEND="$file_val"
 
@@ -228,7 +243,7 @@ lr_env_load_config() {
 
     file_val="$(lr_env_toml_get "$cfg" "lerobot" "version" 2>/dev/null || true)"
     [[ -n "$file_val" ]] && LR_ENV_LEROBOT_VERSION="$file_val"
-  fi
+  done
 
   if [[ -n "$user_backend" ]]; then
     LR_ENV_BACKEND="$user_backend"
