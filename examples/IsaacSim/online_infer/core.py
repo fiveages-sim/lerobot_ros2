@@ -293,7 +293,12 @@ def build_robot() -> ROS2Robot:
         robot_id_suffix="_inference",
     )
     camera_config = apply_fps_to_cameras(robot_config.cameras, int(FPS))
-    robot_config = replace(robot_config, cameras=camera_config)
+    # robot.yaml stays target_command for motion-generation; ACT needs continuous %.
+    robot_config = replace(
+        robot_config,
+        cameras=camera_config,
+        gripper_control_mode="position",
+    )
     return ROS2Robot(robot_config)
 
 

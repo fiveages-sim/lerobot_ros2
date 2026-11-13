@@ -2,11 +2,12 @@ key: unitree_g1d
 label: Unitree G1D
 # room.usda 里的 articulation 在 /World/G1D，里程计枢纽是 base_link。
 base_link_entity_path: /World/G1D/base_link
-post_reset_wait: 3.0
+# In-process OCS2 needs longer than tube settle after STOP→PLAY (see quick_start §3.1).
+post_reset_wait: 8.0
 gripper_action_wait: 1.5
-# ACT / collector gripper is continuous 0..1 (open). Binary target_command
-# collapses that to slam-closed every step — use percent/position instead.
-gripper_control_mode: position
+# motion-generation / pick_tube_full YAML requires target_command (open/close).
+# ACT inference overrides to continuous percent in online_infer/core.py build_robot().
+gripper_control_mode: target_command
 # 任务里的末端位姿默认是夹爪尖；运控跟踪腕部 TCP，技能下发前用实时 TF 换算。
 ee_target_frame: "{arm}_eef"
 ee_command_frame: "{arm}_tcp"

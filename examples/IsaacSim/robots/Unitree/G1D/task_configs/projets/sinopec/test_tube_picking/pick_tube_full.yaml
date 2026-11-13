@@ -160,7 +160,10 @@ task_queue:
   - skill: single_arm.insert
     params:
       arm: left
+      # Place rack (left). Do not rely on skill_defaults.single_arm.pick.object_prim_path
+      # (that pins the tube for reset); object_key must win so hole_N is under the rack.
       object_key: test_tube_rack
+      object_prim_path: /World/room/scene/test_tube_rack
       grasp_id: hole_3
       insert_axis: "-z"
       # 比原 0.06 抬高 1cm，避免夹爪下探时撞到架子。
@@ -203,9 +206,19 @@ task_queue:
 # Needed by examples/IsaacSim/inference.py for sim reset (object_key alone is not enough).
 skill_defaults:
   # 右架取管 / 左架放管：局部平移均匀抖动（Z 默认 0，避免架腿离地）。
+  # 试管是独立动态刚体（非架的 USD 子节点）。只抖架子会把管留在原处或撞飞；
+  # seat_* 用 G1D/room.usda 作者态下 tube−rack_01 的父系平移，把管重新坐回孔内，
+  # 并顺带修正 STOP→PLAY 接触爆炸弹到桌面的情况。
   randomize_pick_rack:
     object_key: test_tube_rack_01
     xyz_offset: [0.05, 0.05, 0.0]
+    seat_object_key: test_tube
+    # tube_local - rack_01_local from env/G1D/room.usda overlays
+    seat_translate_offset: [0.009929, -0.020547, 0.060713]
+    # Must stay false: G1D ROS2ServicePrim runs on OnPlaybackTick; PAUSE kills
+    # /set_prim_attribute. Teleport uses /set_entity_state while Playing.
+    pause_during_move: false
+    settle_after_s: 1.0
     enabled: true
   randomize_place_rack:
     object_key: test_tube_rack
