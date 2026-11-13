@@ -157,12 +157,22 @@ num_learnable_params=51650464 (52M)
 
 ## 4. 推理
 
-仓库里已有完整的推理链路：
+推理**只在本仓库做**（不在 sdg），原因：
+
+1. 需要 `lerobot`+`torch`（`.venv-train`，numpy 2.x），与 Isaac 进程的
+   numpy 1.x / cv_bridge 冲突，装不进 Isaac 进程
+2. 驱动应该**走运控**（OCS2 做 IK），而不是 Isaac 内部直接改关节 ——
+   这样才与真实部署一致
+3. 推理与「数采平台」职责无关
+
+仓库里已有完整实现：
 
 | 路径 | 作用 |
 |---|---|
 | `examples/IsaacSim/inference.py` | 统一推理启动器（LeRobot + ROS2） |
-| `examples/IsaacSim/online_infer/core.py` | 策略循环 + ROS2 发送 |
+| `examples/IsaacSim/online_infer/core.py` | 策略循环 + ROS2 发送（707 行） |
+| `examples/IsaacSim/online_infer/openloop_check.py` | **L2 开环验证**（只算不驱动） |
+| `lerobot_robot_ros2/.../robot.py` | `ROS2Robot.send_action()` 发 `Pose` 给运控 |
 | `examples/IsaacSim/robots/Unitree/G1D/` | G1D 的任务配置 |
 
 ### 4.1 手工加载 checkpoint（已验证）
@@ -185,10 +195,16 @@ print(p.config.chunk_size, p.config.n_action_steps)   # 100 1
 ```
 Isaac 渲染相机 + 关节状态
     ↓（ROS2 话题，由 lerobot_camera_ros2 / lerobot_robot_ros2 订阅）
-obs 张量 → policy.select_action() → action
-    ↓（反归一化 → 关节目标）
-/joint_states 目标 → OCS2 追踪 → PhysX
+obs 张量 → preprocessor 归一化 → policy.select_action() → postprocessor 反归一化
+    ↓
+ROS2Robot.send_action({"left_ee.pos.x": ..., ...})
+    ↓ geometry_msgs/Pose → /left_target /right_target
+OCS2 做 IK → 关节驱动
 ```
+
+**关键：不需要自己写 IK** —— `ROS2Robot.send_action()` 把末端位姿发成
+`Pose` 消息给运控，OCS2 负责解算关节。这与 sdg 的 `live` 回放
+`drive="ee"` 模式（`live_replay.py:22`）是同一条链路。
 
 核心代码在 `online_infer/core.py`：
 
@@ -197,6 +213,7 @@ from lerobot.policies.factory import make_policy          # :36
 train_cfg = TrainPipelineConfig.from_pretrained(...)      # :372
 policy = make_policy(cfg.policy, ds_meta=meta_obj)        # :420
 action = policy.select_action(batch)                      # :532
+robot.ros2_interface.send_fsm_command(FSM_HOLD)           # :597
 ```
 
 ### 4.3 启动
@@ -206,24 +223,55 @@ cd ~/lerobot_ros2/examples/IsaacSim
 source ~/lerobot_ros2/.venv-train/bin/activate
 
 python inference.py --robot g1d --task <task_key> \
-    --policy-path ~/act_runs/tube_v1/checkpoints/last/pretrained_model
+    --policy-path ~/act_runs/tube25/checkpoints/020000/pretrained_model
 ```
 
 > 参数以 `python inference.py --help` 为准（此命令结构已核对，但未做端到端实跑）。
 
 ---
 
-## 5. 三层评测
+## 5. 三层验证
 
-| 层 | 做什么 | 成本 | 能回答 |
+| 层 | 做什么 | 命令 | 能回答 |
 |---|---|---|---|
-| **L1 离线** | 留出帧算 MSE / loss | 秒 | 拟合好坏（**不能说明能用**） |
-| **L2 开环** | 预测 action 序列逐帧送执行器，**不闭环** | 分钟 | 动作是否饱和/发散/抖动 |
-| **L3 闭环** | 策略→运控→新观测→循环 | 小时 | **真实成功率** |
+| **L1** | 留出帧算 MSE / loss | 训练日志 | 拟合好坏（**不能说明能用**） |
+| **L2** | 逐帧预测与真值对比，**不驱动** | `openloop_check.py` | 量级/方向/抖动对不对 |
+| **L3** | 策略→运控→新观测→循环 | `inference.py` | **真实成功率** |
 
-**顺序**：L1（已做，loss 0.598）→ L2 → L3。
+**顺序**：L1 → **L2（先做，成本低）** → L3。
 
-L3 需要成功判定，目前没有。可用 `sdg` 的 `tracked_prims` 做：
+### 5.1 L2 开环验证（已实测）
+
+```bash
+cd ~/lerobot_ros2 && source .venv-train/bin/activate
+
+python examples/IsaacSim/online_infer/openloop_check.py \
+    --dataset ~/lerobot_datasets/tube_25eps \
+    --checkpoint ~/act_runs/tube25/checkpoints/020000/pretrained_model \
+    --episode 0 --start 300 --max-frames 200
+```
+
+**`--start 300` 很重要**：跳过开头静止段。静止段动作接近 0，
+预测再准也说明不了问题（会得到「真值 med=0、相关性 NaN」）。
+
+实测（25 条 / 20k 步 / loss 0.044）：
+
+| 指标 | 值 |
+|---|---|
+| MAE | **0.0057 rad**（≈0.33°） |
+| 量级 | 真值 0.1564 / 预测 0.1595 |
+| **逐维相关性** | **mean 0.996，中位 0.998，20/20 维 > 0.8** |
+| 抖动比 | 0.94x |
+
+**归一化陷阱（踩过）**：`select_action()` 只做前向，归一化在
+`PolicyProcessorPipeline` 里。漏掉后预测值是真值的 **1000 倍**、
+21.9% 饱和到 ±1。必须 `preprocessor(batch)` → `select_action` →
+`postprocessor({"action": a})`。补上后 MAE 从 0.496 → 0.0057（**改善 87 倍**）。
+
+### 5.2 L3 成功判定（还缺）
+
+目前 L3 只能肉眼观察。要算成功率需要自动判定，可用 sdg 采集的
+`tracked_prims`（物体位姿）：
 
 ```python
 d = ||test_tube_pos - target_hole_pos||
