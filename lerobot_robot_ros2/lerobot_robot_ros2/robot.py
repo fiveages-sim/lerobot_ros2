@@ -344,8 +344,24 @@ class ROS2Robot(Robot):
             joint_velocities = joint_state["velocities"]
             joint_efforts = joint_state["efforts"]
             self._refresh_joint_index_cache(joint_names)
-            
-            for joint_name in self.config.ros2_interface.joint_names:
+
+            # 用**机器人实际报的关节名**，而不是 config 里的列表。
+            #
+            # config.ros2_interface.joint_names 的默认值是占位符
+            # （body_joint1/left_joint1/... 共 20 个假名字），源码注释写着
+            # "未使用，预留"，但这里却在遍历它 —— 结果 G1D（实际关节名是
+            # waist_yaw_joint / left_shoulder_pitch_joint / ...）一个都对不上，
+            # observation.state 全被填 0，策略拿到的关节状态完全错误。
+            #
+            # 规则：只有配置里的名字**能在机器人上报的关节里找到**时才用配置
+            # （那是用户明确要求只看某几个关节的场景）；否则用实际全量。
+            configured = list(getattr(self.config.ros2_interface, "joint_names", []) or [])
+            if configured and (set(configured) & set(joint_names)):
+                targets = configured
+            else:
+                targets = list(joint_names)
+
+            for joint_name in targets:
                 idx = self._joint_name_to_index.get(joint_name)
                 if idx is not None:
                     obs_dict[f"{joint_name}.pos"] = joint_positions[idx]
@@ -466,43 +482,37 @@ class ROS2Robot(Robot):
         right_pose = (_pose_from(self.RIGHT_EE_PREFIX)
                       if (self._is_dual_arm_enabled() and has_right_ee) else None)
 
-        # ---- 双臂目标下发：兼容 ros2_robot_interface 的新旧 API ----
+        # ---- 下发末端目标：**用 live_replay 验证过的路径** ----
         #
-        # v0.6.0 把 `send_end_effector_target` / `send_right_end_effector_target`
-        # 合并成 `send_dual_arm_target_stamped(left, right, frame_id, ...)`。
-        # 旧接口包没有新方法，新接口包没有旧方法，所以按可用性分派。
+        # 三条候选路径，实测只有第一条可靠：
         #
-        # 注意：新 API **双臂必须同时给**（内部会拼 [left, right, body] 一起发）。
-        # 只有一侧有 action 时，另一侧沿用「上一条已下发的目标」—— 用
-        # self._last_target_pose 缓存维护，避免发零位姿让手臂甩向原点。
+        #   ✅ `arm_handler.send_target(pose)`
+        #      → 话题 ``/left_target`` / ``/right_target``
+        #      → 消息 ``geometry_msgs/Pose``（**无 stamp、无 frame_id**）
+        #      → **这正是 sdg 的 `live_replay --drive ee` 用的，你实测通过**
+        #
+        #   ~ `arm_handler.send_target_stamped(frame_id, pose)`
+        #      → ``/left_target/stamped`` + ``PoseStamped``
+        #      → 编排（single_arm.pick）走这条；但机器人是否响应取决于
+        #        运控是否订阅了 stamped 话题（可能没订阅）
+        #
+        #   ❌ `iface.send_dual_arm_target_stamped(...)`
+        #      → ``/dual_target/stamped`` + ``nav_msgs/Path``
+        #      → 我一开始误用的，运控不响应（400 帧只掉 8.8mm 是重力）
+        #
+        # 教训：有已验证可用的路径时，不要因为"新 API 看起来更正式"就换。
         iface = self.ros2_interface
-        cache = getattr(self, "_last_target_pose", None) or {}
-        if left_pose is not None:
-            cache["left"] = left_pose
-        if right_pose is not None:
-            cache["right"] = right_pose
-        self._last_target_pose = cache  # type: ignore[attr-defined]
 
-        if hasattr(iface, "send_dual_arm_target_stamped"):
-            l = cache.get("left")
-            r = cache.get("right")
-            if l is None and r is None:
-                pass                      # 两侧都没有，不发
-            elif l is None or r is None:
-                # 只下发了一侧：另一侧还没有历史目标，跳过本轮（等下一帧）
-                logger.debug("[send_action] 单侧目标但另一侧无历史，跳过本轮下发")
-            else:
-                iface.send_dual_arm_target_stamped(
-                    l, r,
-                    frame_id=str(getattr(self.config.ros2_interface,
-                                         "ee_frame_id", "") or "arm_base"),
-                )
-        else:
-            # 旧 API：左右分开发
-            if left_pose is not None:
-                iface.send_end_effector_target(left_pose)
-            if right_pose is not None:
-                iface.send_right_end_effector_target(right_pose)
+        def _send_one(handler, pose) -> None:
+            if handler is None or pose is None:
+                return
+            if hasattr(handler, "send_target"):
+                handler.send_target(pose)          # ← 与 live_replay 一致
+            elif hasattr(iface, "send_end_effector_target"):
+                iface.send_end_effector_target(pose)
+
+        _send_one(getattr(iface, "left_arm_handler", None), left_pose)
+        _send_one(getattr(iface, "right_arm_handler", None), right_pose)
         
         # Send gripper command(s) if provided and gripper is enabled
         if self.config.ros2_interface.gripper_enabled:

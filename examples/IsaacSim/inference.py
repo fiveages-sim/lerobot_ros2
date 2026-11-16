@@ -47,19 +47,30 @@ def _parse_launcher_args() -> tuple[argparse.Namespace, list[str]]:
         dest="object_prim",
         type=str,
         default="",
-        help="推理前要复位的物体 prim 路径，如 "
-             "/World/room/scene/test_tube。给了它就不需要任务 YAML 里的 "
-             "skill_defaults（推理与编排解耦）",
+        help="（已废弃，保留兼容）推理脚本不再复位仿真 —— 开关/复位场景由人负责。"
+             "给了也只打印，不触发任何仿真写操作。",
     )
     parser.add_argument(
         "--no-reset",
         dest="no_reset",
         action="store_true",
-        help="不复位场景、不等物体稳定 —— 直接用当前状态开始推理。"
-             "适合「手动摆好物体、只想看一次效果」的演示；"
-             "闭环评测（反复跑算成功率）**不要**用它",
+        help="（已废弃，保留兼容）推理脚本现在**始终**不复位仿真，此开关无作用。",
     )
-    return parser.parse_known_args()
+    parser.add_argument(
+        "--n-action-steps",
+        dest="n_action_steps",
+        type=int,
+        default=25,
+        help="一次预测后连续执行多少帧再回读观测（覆盖 checkpoint 里的值）。"
+             "checkpoint 常是 1，配 chunk_size=100 会导致闭环死锁：运控稳态残差"
+             "约 2.5mm，而数据每帧只走 1.66mm，增量被残差吃掉，目标每帧倒退。"
+             "默认 25；设 0 = 用 checkpoint 原值。",
+    )
+    launcher_args, core_args = parser.parse_known_args()
+    # 透传给 core.py（它自己也要 parse，所以必须显式追加）
+    if launcher_args.n_action_steps is not None:
+        core_args += ["--n-action-steps", str(launcher_args.n_action_steps)]
+    return launcher_args, core_args
 
 
 def _iter_queue_blocks(blocks: list[Any]) -> list[dict[str, Any]]:
@@ -203,14 +214,11 @@ def main() -> None:
         task_cfg.get("runtime_defaults", {}),
         context=f"task[{task_key}].runtime_defaults",
     )
-    # 不复位就不需要物体 prim（演示模式）
-    if getattr(launcher_args, "no_reset", False):
-        object_prim_path = (str(launcher_args.object_prim or "").strip() or "")
-        print("[info] --no-reset: 跳过场景复位与物体稳定等待")
-    else:
-        object_prim_path = _resolve_inference_object_prim_path(
-            task_cfg, override=launcher_args.object_prim
-        )
+    # 推理脚本**不再复位仿真**（开关/复位由人负责），所以不需要物体 prim 来等稳定。
+    # 仍然解析它只为打印/兼容旧命令行参数。
+    object_prim_path = str(launcher_args.object_prim or "").strip()
+    if object_prim_path:
+        print(f"[info] --object-prim={object_prim_path}（仅记录，不再触发复位）")
 
     core_script = isaac_dir / "online_infer" / "core.py"
     core_module = _load_module("isaac_inference_core", core_script)

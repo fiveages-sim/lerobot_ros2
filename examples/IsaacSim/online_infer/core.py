@@ -38,7 +38,7 @@ from lerobot_robot_ros2 import (
     ROS2Robot,
 )
 
-from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_state  # pyright: ignore[reportMissingImports]
+from isaac_ros2_sim_common import SimTimeHelper  # pyright: ignore[reportMissingImports]
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
@@ -114,6 +114,23 @@ def parse_args() -> argparse.Namespace:
         "--no-state",
         action="store_true",
         help="推理时不向模型输入 observation.state（即使数据集中存在）。",
+    )
+    parser.add_argument(
+        "--no-base-lock",
+        dest="no_base_lock",
+        action="store_true",
+        help="不锁底盘（默认会发 BASE_LOCK，与采集时的编排保持一致）。"
+             "只有需要 WBC 同时挪底盘时才用。",
+    )
+    parser.add_argument(
+        "--n-action-steps",
+        dest="n_action_steps",
+        type=int,
+        default=25,
+        help="覆盖 checkpoint 的 n_action_steps：一次预测后连续执行多少帧再回读观测。"
+             "checkpoint 常是 1，配 chunk_size=100 会导致闭环死锁（运控稳态残差约"
+             "2.5mm > 数据每帧 1.66mm，增量被残差吃掉，目标每帧倒退）。"
+             "默认 25；设 0 = 用 checkpoint 原值。",
     )
     return parser.parse_args()
 
@@ -256,6 +273,45 @@ def _sanitize_train_config(cfg_path: Path) -> Path:
     return tmp_path
 
 
+def _wait_for_scene_ready(robot: ROS2Robot, timeout_s: float = 15.0) -> bool:
+    """只读等待：轮询观测里的末端位姿，直到拿到非零值。
+
+    **不写任何仿真状态** —— 复位/开关仿真由人负责。这里只确认：
+      - Isaac 在跑（`/left_current_pose` 之类有数据）
+      - 运控在跑（末端位姿在更新）
+
+    为什么不用 `/get_entity_state` 等物体稳定：那属于复位流程的一部分，
+    我们不再复位场景，也就不需要等物体。推理开始时物体应在人摆好的位置。
+    """
+    import time as _t
+
+    keys = ("left_ee.pos.x", "right_ee.pos.x")
+    t0 = _t.monotonic()
+    announced = False
+    while _t.monotonic() - t0 < timeout_s:
+        try:
+            obs = robot.get_observation()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] 读取观测失败: {exc}")
+            obs = {}
+        vals = {k: obs.get(k) for k in keys if obs.get(k) is not None}
+        # 至少要有一侧末端位姿非零（(0,0,0) 说明话题还没出数据）
+        if any(abs(float(v)) > 1e-6 for v in vals.values()):
+            names = ", ".join(f"{k}={float(v):+.3f}" for k, v in vals.items())
+            print(f"[OK] 场景就绪（{_t.monotonic() - t0:.1f}s）：{names}")
+            return True
+        if not announced:
+            print(f"[info] 等待末端位姿话题出数据（最多 {timeout_s:.0f}s）...")
+            announced = True
+        _t.sleep(0.3)
+
+    print(f"[ERROR] {timeout_s:.0f}s 内没等到末端位姿 —— 请确认：")
+    print("        1) Isaac 已 Play，运控（/ocs2_wbc_controller）已启动")
+    print("        2) 终端与 Isaac 使用相同的 ROS_DOMAIN_ID / zenoh 配置")
+    print("        3) 手动验证：ros2 topic echo /left_current_pose --once")
+    return False
+
+
 def build_robot() -> ROS2Robot:
     """
     按 motion + lerobot 配置构建 ROS2 机器人，确保话题/相机/关节名与录制一致。
@@ -273,15 +329,72 @@ def build_robot() -> ROS2Robot:
         fps=int(FPS),
         robot_id_suffix="_inference",
     )
+
+    # ---- 关掉「发目标前自动切 FSM」----
+    #
+    # ArmHandler.send_target() 里有一段（handler/arm_handler.py:188）：
+    #     if config.auto_switch_fsm_before_control:
+    #         if query_fsm_command() != FSM_OCS2:
+    #             fsm_command_callback(FSM_OCS2)      # ← 每帧都可能触发
+    # 而该 callback 绑的是 send_fsm_command()，它**强制先回 HOLD**
+    # （ros_interface.py:2626 `hold_required_targets` 逻辑）。
+    #
+    # 一旦离开 OCS2，运控会调 resetHumanoidModeToFsmDefault()
+    # （Ocs2WbcController.cpp:100 `if (leaving_ocs2)`），
+    # 把全身模式设回 fsm_default_humanoid_mode_ —— **BASE_LOCK 被清掉**。
+    # 表现就是「推理启动时锁了底盘，跑着跑着底盘开始漂」。
+    #
+    # 更隐蔽的是 get_fsm_state() 读的是 /fsm_state（transient_local）缓存值，
+    # 仿真刚 reset、时间戳跳变时它可能是陈旧的，于是误判"不在 OCS2"
+    # 而反复触发切换，把锁住的底盘一次次踢开。
+    #
+    # 推理场景下 FSM 由 core.py 显式管理（HOLD→OCS2 一次），
+    # 不需要 send_target 每帧自查，所以这里关掉。
+    iface_cfg = getattr(robot_config, "ros2_interface", None)
+    if iface_cfg is not None and getattr(iface_cfg, "auto_switch_fsm_before_control", False):
+        iface_cfg.auto_switch_fsm_before_control = False
+        print("[info] auto_switch_fsm_before_control=False "
+              "（防止 send_target 偷偷回 HOLD 把 BASE_LOCK 清掉）")
+        # 注意：ROS2RobotInterface.__init__（ros_interface.py:248）会把这个值
+        # 复制成私有成员 _auto_switch_fsm_before_control，改 config 不影响它。
+        # 所以 connect() 之后还必须同步私有成员（见 _enforce_no_auto_fsm_switch）。
+
+
     camera_config = apply_fps_to_cameras(robot_config.cameras, int(FPS))
     robot_config = replace(robot_config, cameras=camera_config)
     return ROS2Robot(robot_config)
 
 
 def build_state_vector(meta: LeRobotDatasetMetadata, obs: Dict[str, float]) -> np.ndarray:
-    """根据数据集元信息的顺序构建 state 向量。"""
+    """根据数据集元信息的顺序构建 state 向量。
+
+    关节名后缀要兼容两种写法：
+      - 数据集里是裸关节名（sdg 导出的 ``waist_yaw_joint``）
+      - ROS2Robot 给的是 ``waist_yaw_joint.pos`` / ``.vel`` / ``.effort``
+
+    所以按名字找不到时，依次尝试 ``<name>.pos``（最常见）、``<name>``。
+    两样都没有才填 0（并计数告警，避免静默喂全零给策略）。
+    """
     names = meta.features.get("observation.state", {}).get("names", [])
-    return np.array([obs.get(name, 0.0) for name in names], dtype=np.float32)
+    if not names:
+        return np.zeros(0, dtype=np.float32)
+
+    out = np.zeros(len(names), dtype=np.float32)
+    missing: list[str] = []
+    for i, name in enumerate(names):
+        for cand in (name, f"{name}.pos"):
+            if cand in obs:
+                out[i] = float(obs[cand])
+                break
+        else:
+            missing.append(name)
+
+    if missing and not getattr(build_state_vector, "_warned", False):
+        build_state_vector._warned = True  # type: ignore[attr-defined]
+        sample = list(obs.keys())[:6]
+        print(f"[warn] {len(missing)}/{len(names)} 个 state 维度在观测里找不到，"
+              f"已填 0（示例 {missing[:4]}）。观测里的键示例: {sample}")
+    return out
 
 
 def build_action_dict(meta: LeRobotDatasetMetadata, action_vec: np.ndarray) -> Dict[str, float]:
@@ -444,13 +557,96 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
 
     policy.to(args.device)
     policy.eval()
+
+    # ---- 关键：提高 n_action_steps ----
+    #
+    # checkpoint 里存的是 n_action_steps=1（训练脚本的默认值），配合
+    # chunk_size=100 意味着"预测 100 帧、只执行第 0 帧、然后重新预测"。
+    #
+    # 实测这会导致**死锁**（见 docs/DEBUG_LOG.md 第 16 节）：
+    #   运控稳态残差 r≈2.5mm（current_pose 恒落后指令目标）
+    #   策略每帧增量  d≈1.66mm（训练数据真实量级）
+    #   target_new = current_pose + d = target_old - 2.5 + 1.66
+    #              = target_old - 0.84mm   ← 目标每帧倒退！
+    # 结果 800 帧目标只净动 8.5mm，方向还被下垂噪声主导（cos=-0.96）。
+    #
+    # 修法：一次预测、连续执行 N 帧不回读观测。执行的是 chunk 内的**绝对序列**，
+    # 不受残差反馈影响。实测单 chunk 净跨度 100mm+，足够走完 25cm 任务。
+    #
+    # 注意 `select_action` 内部有 action queue：队列空才重新预测。
+    # 所以只需设好 config，不需要在外面自己维护队列。
+    override = getattr(args, "n_action_steps", None)
+    if override is not None and override > 0:
+        old = policy.config.n_action_steps
+        cap = min(int(override), policy.config.chunk_size)
+        policy.config.n_action_steps = cap
+        if cap != old:
+            print(f"[info] n_action_steps: {old} → {cap} "
+                  f"(chunk_size={policy.config.chunk_size})")
+            print(f"[info]   ⇒ 一次预测执行 {cap} 帧再回读观测，避免稳态残差吃掉增量")
+        if cap > 1 and policy.config.temporal_ensemble_coeff is not None:
+            print("[warn] temporal_ensemble_coeff 非 None 时要求 n_action_steps==1；"
+                  "已把 temporal ensemble 关掉")
+            policy.config.temporal_ensemble_coeff = None
+    elif policy.config.n_action_steps == 1 and policy.config.chunk_size > 1:
+        print("[warn] n_action_steps=1 + chunk_size="
+              f"{policy.config.chunk_size}：闭环里会因稳态残差**倒退**。"
+              "建议加 --n-action-steps 25")
+
     policy.reset()
     print("[info] Policy reset, action queue initialized")
 
     action_names = meta.features.get("action", {}).get("names", [])
-    gripper_idx = action_names.index("left_gripper.pos") if "left_gripper.pos" in action_names else None
 
-    return train_cfg, meta, policy, policy_image_feats, gripper_idx
+    def _find_idx(name: str) -> int | None:
+        return action_names.index(name) if name in action_names else None
+
+    # 夹爪在 action 里的位置（``ee_absolute_gripper`` 才有）。
+    #
+    # 语义是**开关量** 0/1，对齐运控 ``target_command``：
+    #   0 = 闭合 → AdaptiveGripperController 回 ``closed_position_``（限位），
+    #       靠压出夹持力夹紧物体
+    #   1 = 张开
+    # 所以这里**绝不能**把连续值当关节位置发 —— 那样会停在"刚好碰到管子"，
+    # 夹持力不足（踩过的坑）。发送前统一 round 到 0/1。
+    gripper_idx = _find_idx("left_gripper.pos")
+    right_gripper_idx = _find_idx("right_gripper.pos")
+    if gripper_idx is not None:
+        print(f"[info] 夹爪通道: left idx={gripper_idx}"
+              + (f", right idx={right_gripper_idx}" if right_gripper_idx is not None else "")
+              + "（开关量 0/1 → target_command）")
+
+    # ---- 加载 pre/post processor（归一化）----
+    # 必须从 checkpoint 目录读：训练时自动保存了
+    #   policy_preprocessor.json  + ..._normalizer_processor.safetensors
+    #   policy_postprocessor.json + ..._unnormalizer_processor.safetensors
+    # 不加载的话 select_action 会拿原始观测当归一化输入、输出当归一化值直接用。
+    pre = post = None
+    try:
+        from lerobot.processor.pipeline import PolicyProcessorPipeline
+
+        ckpt_dir = Path(str(ckpt_path))
+        for fname, which in (("policy_preprocessor.json", "pre"),
+                             ("policy_postprocessor.json", "post")):
+            if (ckpt_dir / fname).is_file():
+                pipe = PolicyProcessorPipeline.from_pretrained(
+                    pretrained_model_name_or_path=str(ckpt_dir),
+                    config_filename=fname,
+                    to_transition=None,
+                )
+                if which == "pre":
+                    pre = pipe
+                else:
+                    post = pipe
+        if pre is None or post is None:
+            print("[warn] 未能加载 pre/post processor —— 归一化缺失，"
+                  "推理结果会严重偏差（动作目标会跑到错误位置）")
+        else:
+            print("[info] 归一化 processor 已加载")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] processor 加载失败: {exc}")
+
+    return train_cfg, meta, policy, policy_image_feats, gripper_idx, pre, post, right_gripper_idx
 
 
 def _camera_alias_map(meta: LeRobotDatasetMetadata) -> dict[str, str]:
@@ -510,12 +706,23 @@ def infer_action_vec(
     device: str,
     hz: float,
     sleep_fn: Callable[[float], None] = time.sleep,
+    preprocessor=None,
+    postprocessor=None,
 ) -> np.ndarray | None:
-    """执行一次策略推理并返回原始动作向量。"""
+    """执行一次策略推理并返回原始动作向量。
+
+    **归一化必须由调用方通过 ``preprocessor`` / ``postprocessor`` 传入**：
+    lerobot 0.5.x 的 ``policy.select_action()`` 只做模型前向，既不归一化输入
+    也不反归一化输出。漏掉这一步的症状（实测）：
+      - 输入喂的是原始米级坐标（x≈2.1），模型期待归一化值
+      - 输出是归一化空间的值（≈0.85），被当成米发给运控 → 目标跑到
+        (0.85, -0.87, -0.95)，与当前位置差 2.37m，机器人纹丝不动
+    这就是「机器人不动、只有腰部微抬」的成因。
+    """
     batch = {}
     if USE_STATE_INPUT and "observation.state" in meta.features:
         state = torch.from_numpy(build_state_vector(meta, raw_obs)).unsqueeze(0)
-        batch["observation.state"] = state
+        batch["observation.state"] = state.to(device)
 
     # 相机 key 映射（数据集名 → ROS2Robot 名）。缓存在函数属性里，
     # 避免每帧重算。
@@ -567,6 +774,29 @@ def infer_action_vec(
 
         if img.dtype != np.uint8:
             img = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
+
+        # ---- 尺寸对齐到训练数据（**必须**）----
+        #
+        # 训练数据三路都是 640x480；而 G1D 的 Camera=enable 发布的 head 是
+        # 1280x720（腕部恰好是 640x480）。不 resize 的话策略看到的头部画面
+        # 是"缩放过的世界" —— 场景在画面里比例/位置全变，策略读不懂，
+        # 输出退化成原地微动甚至乱动（实测：手臂拧成麻花）。
+        #
+        # 期望尺寸从数据集 feature shape 读：observation.images.<name> =
+        # [H, W, 3]。
+        feat = (meta.features or {}).get(cam_key) or {}
+        want_shape = feat.get("shape") or []
+        if len(want_shape) >= 2:
+            want_h, want_w = int(want_shape[0]), int(want_shape[1])
+            if img.shape[0] != want_h or img.shape[1] != want_w:
+                import cv2
+
+                img = cv2.resize(img, (want_w, want_h), interpolation=cv2.INTER_AREA)
+                if not getattr(infer_action_vec, "_resize_warned", False):
+                    infer_action_vec._resize_warned = True  # type: ignore[attr-defined]
+                    print(f"[info] 相机 {cam_name} 已 resize 到训练尺寸 "
+                          f"{want_w}x{want_h}（原 {img.shape[1]}x{img.shape[0]}）")
+
         chw = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
         batch[cam_key] = chw.unsqueeze(0)
 
@@ -589,9 +819,32 @@ def infer_action_vec(
                 v = v.to(device)
             batch[k] = v
 
+    # ---- 归一化 → 前向 → 反归一化 ----
+    # 顺序不能改。缺了这两步，模型拿原始米级坐标当归一化输入、又把归一化输出
+    # 当米发出去（实测：目标 (0.85,-0.87,-0.95) vs 当前 (2.11,-0.03,0.88)，
+    # 差 2.37m，机器人不动）。
+    if preprocessor is not None:
+        batch = preprocessor(batch)
     action = policy.select_action(batch)
-    action_vec = action.squeeze(0).cpu().numpy()
+    if postprocessor is not None:
+        out = postprocessor({"action": action})
+        action = out.get("action", action) if isinstance(out, dict) else out
+    action_vec = action.squeeze(0).detach().cpu().numpy()
     return action_vec
+
+
+def _binarize_gripper(value: float, threshold: float = 0.5) -> float:
+    """把策略输出的夹爪值变成 0/1 开关量。
+
+    训练时 action 里就是 0/1，但回归出来的会落在中间（比如 0.83、0.12）。
+    运控的 ``target_command`` 只认 0/1，所以这里必须二值化 —— 否则
+    ``_to_target_command`` 会把中间值按 0.5 阈值再判一次，行为一致但不可控。
+
+    **不要**把这里当成位置下发：0/1 走的是 ``closed_position_`` / 
+    ``open_position_``，闭合幅度由 AdaptiveGripperController 决定（回限位
+    压出夹持力），不是策略给的数值。
+    """
+    return 0.0 if float(value) < float(threshold) else 1.0
 
 
 def build_cmd_from_action_vec(
@@ -600,8 +853,13 @@ def build_cmd_from_action_vec(
     raw_obs: Dict[str, float],
     args,
     gripper_idx: int | None,
+    right_gripper_idx: int | None = None,
 ) -> Dict[str, float]:
-    """将动作向量转换为机器人命令字典，并应用可选覆盖。"""
+    """将动作向量转换为机器人命令字典，并应用可选覆盖。
+
+    夹爪两维（``left_gripper.pos`` / ``right_gripper.pos``）在这一步二值化成
+    0/1，对齐运控 ``target_command`` 的开关语义。
+    """
     cmd = build_action_dict(meta, action_vec)
 
     if args.relative:
@@ -609,15 +867,18 @@ def build_cmd_from_action_vec(
         cmd["left_ee.pos.y"] += raw_obs.get("left_ee.pos.y", 0.0)
         cmd["left_ee.pos.z"] += raw_obs.get("left_ee.pos.z", 0.0)
 
-    if gripper_idx is not None:
-        action_vec[gripper_idx] = np.clip(action_vec[gripper_idx], 0.0, 1.0)
+    for idx, key in ((gripper_idx, "left_gripper.pos"),
+                     (right_gripper_idx, "right_gripper.pos")):
+        if idx is None:
+            continue
+        action_vec[idx] = np.clip(action_vec[idx], 0.0, 1.0)
         if args.fixed_gripper is not None:
-            action_vec[gripper_idx] = np.clip(args.fixed_gripper, 0.0, 1.0)
-        elif args.auto_close_z is not None:
+            action_vec[idx] = np.clip(args.fixed_gripper, 0.0, 1.0)
+        elif (idx == gripper_idx and args.auto_close_z is not None):
             curr_z = raw_obs.get("left_ee.pos.z")
             if curr_z is not None and curr_z <= args.auto_close_z:
-                action_vec[gripper_idx] = 0.0
-        cmd["left_gripper.pos"] = float(action_vec[gripper_idx])
+                action_vec[idx] = 0.0
+        cmd[key] = _binarize_gripper(action_vec[idx])
 
     return cmd
 
@@ -643,7 +904,7 @@ def _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, d
 def main() -> None:
     """在线控制主循环。"""
     args = parse_args()
-    _train_cfg, meta, policy, policy_image_feats, gripper_idx = init_inference(args)
+    _train_cfg, meta, policy, policy_image_feats, gripper_idx, _pre, _post, right_gripper_idx = init_inference(args)
 
     robot = build_robot()
     sim_time = SimTimeHelper()
@@ -669,37 +930,273 @@ def main() -> None:
     robot_connected = True
     print("[OK] Robot connected")
 
-    print("Resetting simulation state...")
-    # motion_cfg 后面切 FSM 和推理循环都要用（fsm_switch_delay / post_reset_wait），
-    # 所以必须在 if/else **之外**取，不能只在复位分支里定义。
-    motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
-    if PICK_PLACE_FLOW_OVERRIDES.get("no_reset"):
-        print("[info] --no-reset: 跳过复位，使用当前场景状态")
-    else:
-        if "object_prim_path" not in PICK_PLACE_FLOW_OVERRIDES:
-            raise RuntimeError(
-                "PICK_PLACE_FLOW_OVERRIDES.object_prim_path is required for reset"
-                "（或用 --no-reset 跳过复位）"
-            )
-        if motion_cfg is None:
-            raise RuntimeError("MOTION_CFG is not configured. Run via examples/IsaacSim/inference.py.")
-        reset_simulation_state(
-            str(PICK_PLACE_FLOW_OVERRIDES["object_prim_path"]).strip(),
-            post_reset_wait=motion_cfg.post_reset_wait,
-            sleep_fn=sim_time.sleep,
-        )
+    # ---- 同步「自动切 FSM」开关到接口的私有成员 ----
+    #
+    # ROS2RobotInterface.__init__（ros_interface.py:248）把
+    # config.auto_switch_fsm_before_control 复制成 _auto_switch_fsm_before_control，
+    # 而 ArmHandler.send_target 读的是后者。只改 config 不会生效，
+    # 必须在这里同步；否则 send_target 仍会在"以为不在 OCS2"时发 HOLD，
+    # 把 BASE_LOCK 清掉（详见 build_robot 里的注释）。
+    iface0 = getattr(robot, "ros2_interface", None)
+    if iface0 is not None:
+        cur = getattr(iface0, "_auto_switch_fsm_before_control", None)
+        if cur:
+            try:
+                iface0._auto_switch_fsm_before_control = False  # noqa: SLF001
+                print("[OK] 已关闭 send_target 的自动 FSM 切换（保护 BASE_LOCK）")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 关闭自动 FSM 切换失败: {exc}")
 
-    print("Switching FSM: HOLD -> OCS2 ...")
-    robot.ros2_interface.send_fsm_command(FSM_HOLD)
+    # ---- 不再复位仿真 ----
+    #
+    # 分工约定：**仿真的开关/复位由人负责**，推理脚本只负责「你开好之后让机器人动」。
+    #
+    # 这里原本会调 reset_simulation_state()（/set_simulation_state + 等物体稳定）。
+    # 它有两处副作用，都很难看：
+    #   1) 仿真时间从 0 重新走，而接口进程已经收过上一轮的 TF（stamp 16.6s）。
+    #      ros2_robot_interface 新版有 clock-regression 检测
+    #      （CLOCK_REGRESSION_THRESHOLD_SEC=1.0），于是判定"仿真重启"并重建 TF buffer，
+    #      重建窗口期内 tf2 对每条旧 TF 打 TF_OLD_DATA —— 就是那段刷屏。
+    #   2) 会把人手动摆好的场景状态冲掉。
+    #
+    # 所以改成只**等**场景可用（等到末端位姿有稳定发布为止），不写任何仿真状态。
+    motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
+    print("Waiting for simulation to be ready (只读等待，不复位仿真)...")
+    _wait_for_scene_ready(robot, timeout_s=15.0)
+
+    # ---- 使能机械臂 + 锁底盘（关键，漏了/顺序错机器人就不动）----
+    #
+    # 严格照编排（pick_tube_full.yaml）的做法：
+    #   1) **先 BASE_LOCK**（第 0 步，require_confirmed + 5s 超时）
+    #      BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0。不锁的话
+    #      全身控制会自己挪底盘去"够"目标 —— 实测就是这个现象：
+    #      手不动、底盘缓慢移动、腰部微调。
+    #   2) 再使能双臂
+    #   3) **每条命令都要等运控确认**（wait_until_mode_commands_applied），
+    #      只 sleep 固定时长不可靠 —— 运控可能还没切完就往下走。
+    iface = robot.ros2_interface
+
+    def _send_modes(cmds: list[str], require: bool = True, timeout: float = 5.0) -> bool:
+        for c in cmds:
+            try:
+                iface.send_mode_command(c)
+                print(f"[OK] mode command: {c}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] {c} 发送失败: {exc}")
+                if require:
+                    return False
+        # 等运控在 /ocs2_wbc_controller/current_state 上确认
+        waiter = getattr(iface, "wait_until_mode_commands_applied", None)
+        if waiter is not None:
+            try:
+                ok = bool(waiter(cmds, timeout=timeout,
+                                 time_now_fn=sim_time.now_seconds,
+                                 sleep_fn=sim_time.sleep))
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 等待模式确认异常: {exc}")
+                ok = False
+            if ok:
+                print(f"[OK] modes confirmed: {cmds}")
+            else:
+                msg = f"modes {cmds} 在 {timeout:.0f}s 内未确认"
+                print(f"[{'ERROR' if require else 'warn'}] {msg}")
+                if require:
+                    return False
+        else:
+            sim_time.sleep(0.6)     # 旧接口没有确认 API，退化为等一会
+        return True
+
+    # ---- 使能机械臂 + 锁底盘（顺序和编排 pick_tube_full.yaml 一致）----
+    #
+    # 编排第 0 步就是 BASE_LOCK，随后 LEFT_ARM_ENABLE。这里照抄。
+    #
+    # 为什么必须锁：BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0，
+    # 全身控制就不会为了"够目标"而挪底盘。虽然末端目标是 world 绝对系、
+    # 底盘漂移不直接改目标，但编排全程锁底盘，推理要对齐同一工况。
+    #
+    # 关键时序陷阱（踩过）：运控在**离开 OCS2** 时会调
+    # resetHumanoidModeToFsmDefault()（Ocs2WbcController.cpp:100）
+    # 把全身模式设回 fsm_default_humanoid_mode_，BASE_LOCK 被清掉。
+    # 所以 **BASE_LOCK 必须是最后一次写全身模式**，且之后不能再切 FSM。
+    iface = robot.ros2_interface
+
+    def _send_modes(cmds: list[str], require: bool = True, timeout: float = 5.0) -> bool:
+        for c in cmds:
+            try:
+                iface.send_mode_command(c)
+                print(f"[OK] mode command: {c}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] {c} 发送失败: {exc}")
+                if require:
+                    return False
+        # 等运控在 /ocs2_wbc_controller/current_state 上确认
+        waiter = getattr(iface, "wait_until_mode_commands_applied", None)
+        if waiter is not None:
+            try:
+                ok = bool(waiter(cmds, timeout=timeout,
+                                 time_now_fn=sim_time.now_seconds,
+                                 sleep_fn=sim_time.sleep))
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 等待模式确认异常: {exc}")
+                ok = False
+            if ok:
+                print(f"[OK] modes confirmed: {cmds}")
+            else:
+                msg = f"modes {cmds} 在 {timeout:.0f}s 内未确认"
+                print(f"[{'ERROR' if require else 'warn'}] {msg}")
+                if require:
+                    return False
+        else:
+            sim_time.sleep(0.6)     # 旧接口没有确认 API，退化为等一会
+        return True
+
+    def _fsm_state() -> int | None:
+        getter = getattr(iface, "get_fsm_state", None)
+        if getter is None:
+            return None
+        try:
+            return int(getter())
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _ensure_ocs2(timeout: float = 6.0) -> bool:
+        """确保 FSM 真的在 OCS2（不在就切，切完再确认）。"""
+        import time as _t
+        if _fsm_state() == FSM_OCS2:
+            print("[OK] FSM 已在 OCS2")
+            return True
+        print(f"[info] FSM={_fsm_state()}，切到 OCS2 ...")
+        robot.ros2_interface.send_fsm_command(FSM_OCS2)
+        t0 = _t.monotonic()
+        while _t.monotonic() - t0 < timeout:
+            if _fsm_state() == FSM_OCS2:
+                print("[OK] FSM=OCS2（已确认）")
+                return True
+            _t.sleep(0.1)
+        print(f"[warn] {timeout:.0f}s 内未确认 FSM=OCS2（当前 {_fsm_state()}）")
+        return False
+
+    want_lock = not getattr(args, "no_base_lock", False)
+    if not want_lock:
+        print("[info] --no-base-lock: 跳过底盘锁定（全身控制可能自行挪底盘）")
+
+    # 顺序（对齐编排 pick_tube_full.yaml / tools/ee_traj.py 的验证过的做法）：
+    #   ARMS_INDEPENDENT → 切 OCS2 → BASE_LOCK → ARM_ENABLE
+    #
+    # ARMS_INDEPENDENT 必须最先：耦合状态下 /right_target 会被左臂 leader 覆盖。
+    _send_modes(["ARMS_INDEPENDENT"], require=False, timeout=3.0)
+
+    _ensure_ocs2()
+
+    # ---- 等 TF 探针结束再锁（关键，踩过）----
+    #
+    # 控制器激活时会 beginMobileBaseTfProbe()，等 world->base TF，
+    # 超时（mobile_base_tf_timeout_sec，默认 2.0s）后调
+    # finalizeMobileBaseTfProbe()，其末尾**无条件**执行
+    #     resetHumanoidModeToFsmDefault();
+    # 把全身模式设回 fsm_default_humanoid_mode_。
+    #
+    # 而 TF 可用时（Isaac 会发 world->base），那个默认值的 baseLocked **是 false**
+    # （`HM_DUAL_RELATIVE_MOBILE_BASE`）—— 于是我们刚发的 BASE_LOCK 被冲掉。
+    # 症状：终检通过 → 跑一会儿底盘开始动。
+    #
+    # 所以锁之前必须等过这个窗口。探针只有一次（mobile_base_tf_decided_），
+    # 之后不会再重置。等 2.6s（2.0 超时 + 余量）足够覆盖。
+    print("[info] 等待运控 TF 探针窗口结束（约 2.6s，避免 BASE_LOCK 被 resetHumanoidModeToFsmDefault 冲掉）...")
+    import time as _tw
+    _tw.sleep(2.6)
+
+    # 再锁底盘 + 使能双臂。锁在最后，确保不被 FSM 切换/TF 探针清掉。
+    if want_lock:
+        if not _send_modes(["BASE_LOCK"], require=True, timeout=5.0):
+            print("[ERROR] BASE_LOCK 未生效 —— 全身控制会挪底盘，末端跟踪会失效。")
+            print("        排查：/ocs2_wbc_controller 是否在跑、current_state 是否可读。")
+            raise SystemExit(3)
+
+    # 编排里 LEFT_ARM_DISABLE（抓取前关左臂）是任务层的事，推理不照做：
+    # 策略输出 14 维含左臂，双臂都要使能。
+    _send_modes(["LEFT_ARM_ENABLE", "RIGHT_ARM_ENABLE"], require=True, timeout=5.0)
+
     sim_time.sleep(motion_cfg.fsm_switch_delay)
-    robot.ros2_interface.send_fsm_command(FSM_OCS2)
-    print("[OK] FSM switched to OCS2, starting inference loop...")
+
+    # ---- 终检：确认 FSM 仍 OCS2 且锁/使能都在 ----
+    # 上面每步都确认过，但 FSM 切换是异步的；如果切换在模式下发之后才落地，
+    # 前面的确认就白费了。所以最后再核一遍，不对就补（只补模式，不再切 FSM）。
+    def _final_check() -> bool:
+        checker = getattr(iface, "mode_commands_match_wbc_state", None)
+        if checker is None:
+            print("[warn] 接口没有 mode_commands_match_wbc_state，跳过终检")
+            return True
+        cmds = (["BASE_LOCK"] if want_lock else []) + ["LEFT_ARM_ENABLE", "RIGHT_ARM_ENABLE"]
+        for attempt in (1, 2, 3):
+            fsm_left_ocs2 = False
+            if _fsm_state() not in (None, FSM_OCS2):
+                print(f"[warn] 终检发现 FSM 离开了 OCS2（{_fsm_state()}）—— 重新切回")
+                _ensure_ocs2()
+                # 切 FSM 会让运控 resetHumanoidModeToFsmDefault() 把 BASE_LOCK 清掉，
+                # 所以必须无条件重发模式 —— 不能等下面 checker 发现。
+                fsm_left_ocs2 = True
+            try:
+                ok = checker(cmds)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 终检异常: {exc}")
+                ok = False if fsm_left_ocs2 else None
+            if ok is True and not fsm_left_ocs2:
+                print(f"[OK] 终检通过：FSM=OCS2，{cmds} 全部生效")
+                return True
+            print(f"[warn] 终检未通过（第 {attempt} 次），补发 {cmds} ...")
+            for c in cmds:
+                try:
+                    iface.send_mode_command(c)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[warn] 补发 {c} 失败: {exc}")
+            sim_time.sleep(0.8)
+        print("[ERROR] 终检连续失败 —— 底盘可能仍会漂移 / 手臂可能不跟随。")
+        print("        建议先跑：python exts/fasim.replicator.sdg/scripts/probe_ee_tracking.py --check-only")
+        return False
+
+    lock_ok = _final_check()
+
+    print("[OK] FSM=OCS2, arms enabled, base locked — starting inference loop...")
+    if not lock_ok:
+        print("[WARN] 锁底盘/使能未完全确认，先跑几帧观察；若底盘漂移请中断。")
+
+    # ---- 运行期守护：底盘锁被冲掉就补回来 ----
+    #
+    # 即使启动时锁成功了，运控仍可能在某些时刻重置全身模式
+    # （resetHumanoidModeToFsmDefault，见 WbcCtrlComponent.cpp:299 / Ocs2WbcController.cpp:100）。
+    # 每帧检查一次 current_state，发现 base_state 不是 LOCKED 就立刻补发 BASE_LOCK。
+    # 检查本身是本地缓存读（wbc_state 由订阅回调更新），不阻塞控制循环。
+    guard_checker = getattr(iface, "mode_commands_match_wbc_state", None)
+    _guard = {"count": 0, "last_relock": 0.0}
+
+    def _guard_base_lock() -> None:
+        if not want_lock or guard_checker is None:
+            return
+        _guard["count"] += 1
+        if _guard["count"] % 10:          # 每 10 帧查一次（20Hz 下即 0.5s）
+            return
+        try:
+            if guard_checker(["BASE_LOCK"]) is True:
+                return
+        except Exception:                  # noqa: BLE001
+            return
+        now = sim_time.now_seconds()
+        if now - _guard["last_relock"] < 1.0:   # 限频，别刷爆运控队列
+            return
+        _guard["last_relock"] = now
+        try:
+            iface.send_mode_command("BASE_LOCK")
+            print("[warn] 底盘锁丢失，已自动补发 BASE_LOCK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] 补发 BASE_LOCK 失败: {exc}")
 
     period = 1.0 / args.hz
     try:
         missing_warned = False
         while True:
             t0 = sim_time.now_seconds()
+            _guard_base_lock()
             raw_obs = robot.get_observation()
             _maybe_inject_rot6d_in_obs(raw_obs, meta)
             if not missing_warned and USE_STATE_INPUT and "observation.state" in meta.features:
@@ -717,11 +1214,15 @@ def main() -> None:
                 device=args.device,
                 hz=args.hz,
                 sleep_fn=sim_time.sleep,
+                preprocessor=_pre,
+                postprocessor=_post,
             )
             if action_vec is None:
                 continue
 
-            cmd = build_cmd_from_action_vec(meta, action_vec, raw_obs, args, gripper_idx)
+            cmd = build_cmd_from_action_vec(
+                meta, action_vec, raw_obs, args, gripper_idx, right_gripper_idx
+            )
             _maybe_convert_rot6d_action(cmd)
 
             curr_x = raw_obs.get("left_ee.pos.x")

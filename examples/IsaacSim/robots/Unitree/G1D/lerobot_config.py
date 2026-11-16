@@ -23,6 +23,13 @@ from robot_action_composer.config.robot_profiles import CameraTopicConfig, LeRob
 
 LEROBOT_CFG = LeRobotRobotConfig(
     robot_id="unitree_g1d",
+    # 注意：**CameraTopicConfig 不支持 width/height**（它只是话题描述，
+    # 相机侧也不做 resize —— 只会把配置值改成实际值并告警
+    # "Image dimensions mismatch: configured WxH, actual WxH"）。
+    #
+    # 而 G1D 的 Camera=enable 变体发布的 head 是 1280x720，训练数据是 640x480。
+    # 所以尺寸对齐必须放在推理侧做（见 online_infer/core.py 里按数据集
+    # feature shape 的 cv2.resize）。
     cameras={
         "head_camera": CameraTopicConfig(
             topic_name="/head_camera/rgb",

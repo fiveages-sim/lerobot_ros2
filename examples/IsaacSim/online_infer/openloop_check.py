@@ -183,7 +183,23 @@ def main() -> int:
     print(f"[l2] 相邻帧变化: 真值 med={np.median(jg):.6f} 预测 med={np.median(jp):.6f} "
           f"({ratio:.2f}x)")
 
-    sat = float((np.abs(pred) > 0.99).mean())
+    # 饱和检查：只对「关节角/增量」这类**有界**的量有意义（限位 ±3.14 或
+    # 归一化 ±1）。末端**绝对位姿**含米级坐标（x≈2.1）和四元数（±1），
+    # 用 |a|>0.99 判饱和必然误命中 —— 实测 ee 数据集报 28.5%，但逐维相关性
+    # 全 >0.99、位置 MAE 3mm，是判据错不是数据错。
+    #
+    # 所以按量级自动判断：若 action 的量级明显超过 1（说明是米级坐标），
+    # 跳过饱和检查，改为报告「越界率」（远超训练集范围的帧占比）。
+    abs_scale = float(np.abs(gt).max())
+    if abs_scale <= 1.5:
+        sat = float((np.abs(pred) > 0.99).mean())
+        sat_note = "饱和占比"
+    else:
+        # 米级坐标：检查预测是否跑到训练集范围外（外扩 20%）
+        lo, hi = float(gt.min()), float(gt.max())
+        span = max(hi - lo, 1e-6)
+        sat = float(((pred < lo - 0.2 * span) | (pred > hi + 0.2 * span)).mean())
+        sat_note = "越界占比（超训练集范围 20%）"
     dead = int((np.abs(pred).std(axis=0) < 1e-6).sum())
 
     issues = []
@@ -194,7 +210,7 @@ def main() -> int:
     if ratio > 3:
         issues.append(f"抖动 {ratio:.1f}x")
     if sat > 0.01:
-        issues.append(f"{sat*100:.1f}% 饱和")
+        issues.append(f"{sat*100:.1f}% {sat_note}")
     print("\n[l2] 判定: " + ("✅ 无明显问题" if not issues else "⚠️ " + "; ".join(issues)))
 
     res = {
