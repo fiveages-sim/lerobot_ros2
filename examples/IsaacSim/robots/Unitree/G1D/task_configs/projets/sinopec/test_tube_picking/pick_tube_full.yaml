@@ -24,7 +24,21 @@ runtime_defaults:
   # USD /World/G1D/base_link ≡ TF base_footprint；TF base_link 高 +0.1114（机体系路点才相关）。
   base_link_entity_path: /World/G1D/base_link
   frame_id: world
-  max_stage_duration: 8.0
+  # 单个 stage 的最长等待时间（秒）。超时不报错，只打 WARN 后继续往下走。
+  #
+  # 【为什么从 8.0 降到 3.0】
+  #   实测每个 stage 都耗满 8 秒才放行 —— 但动作其实早就完成了：
+  #   从采集数据看左手抬手段帧 730 就停稳（z 恒定），之后 3 秒完全不动，
+  #   编排却在等「到位判定」到 8 秒超时。
+  #
+  #   原因：判定是 pos_dist < pose_tol_pos(0.02)，而运控有约 10mm 的
+  #   **稳态误差**（pos_dist 稳定在 0.0100~0.0101）—— 卡在阈值边缘，
+  #   能不能过看运气，过不了就耗满超时。
+  #
+  #   3.0 的依据：抬手 12cm 实测约 0.6~1.0s 规划 + 1s 执行 ≈ 2s 完成，
+  #   留 1s 余量。若某段动作确实更久，只会在日志多一条 WARN，不影响结果
+  #   （MPC 仍在跟踪目标，后面 HOME 会把它收回去）。
+  max_stage_duration: 3.0
   pose_tol_pos: 0.02
   pose_tol_ori: 0.08
   gripper_open: 1.0
@@ -172,26 +186,66 @@ task_queue:
       hover_compensate: true
       max_align_corr: 0.03
       motion_frame_id: world
-      # 插入段到位容差。实测「试管在孔正中时距孔沿约 2mm」，即单侧余量 2mm；
-      # 取 1.5mm 留 0.5mm 安全余量 —— 既能穿过，又不必像 0.3mm 那样等 MPC 磨到位。
-      # 整个 insert 只有 AlignAbove 一步做这个判定（见 single_arm.py 的 hover 分支），
-      # 下探/松爪/退出都跳过到达判定，所以这里收紧不会拖慢整体节奏。
-      pose_tol_pos: 0.0015
+      # 插入段到位容差。
+      #
+      # 【为什么删掉 pose_tol_pos: 0.0015 —— 踩过的坑】
+      #   本意是「插入更精确，取 1.5mm」，但实际完全没起作用，反而害了后面：
+      #
+      #   1) hover_compensate=true 时，insert 的**所有** stage 都是
+      #      skip_arrival=True（见 single_arm.py 的 hover 分支），
+      #      根本不做到达判定 —— 精度来自 hover 阶段的 corr_xy 补偿
+      #      (把实测偏差算进目标)，不是靠等 MPC 收敛到 1.5mm。
+      #   2) 但 skill_insert 末尾有 ctx.task_cfg = replace(..., common=qt.common)
+      #      会把含 0.0015 的 common **写回全局 ctx.task_cfg**。
+      #   3) 于是下一步 move_relative 用 ctx.task_cfg.common 做到位判定：
+      #      pos_dist=0.0101 > 0.0015 → 永远判不到 → 耗满 8s 超时。
+      #
+      #   所以这个参数是「无用 + 有害」。删掉，用 runtime_defaults 的 0.02。
+      #   实测：hover 补偿后的插入精度 xy=2~15mm，与设不设这个值无关。
+      #
+      # 若要恢复：只在下探段确实需要到位判定时才加（当前 hover 分支全部
+      # skip_arrival，加了也不生效）。加之前先确认 ctx.task_cfg 不会被污染。
       pose_tol_ori: 0.02
       # 松爪后沿插入轴（架体 -Z）反向退出 8cm
       retreat_distance: 0.08
       gripper_open: 1.0
-  # 10) 插入完成后左臂抬起收尾：insert 的 retreat 只沿插入轴（竖直）退 8cm，
-  #     完成后夹爪仍贴在架面上方很近的位置。这里再垂直抬 15cm 让手臂离开工件，
-  #     便于观察/录屏，也为后续动作留出空间。
-  #     motion_frame_id 用 world（底盘全程锁定，world 与 base 等价且不受躯干抖动影响）；
-  #     gripper: 1.0 保持张开，避免带着残余夹持力刮到试管。
+  # 10) 插入后先竖直抬一段再回 HOME —— **必须保留，否则会拖拽试管架**。
+  #
+  # 为什么不能直接回 HOME（实测 run_43 失败）：
+  #   insert 的 retreat 只沿**插入轴**退 8cm（架体 -Z 方向，即竖直向上）。
+  #   但夹爪是从侧面夹住试管的，退出 8cm 后夹爪仍在试管正上方很近处；
+  #   此时若直接切 HOME，手臂向内收的轨迹会**扫过试管架**，把管子撞歪：
+  #   实测 run_43 末帧 tilt=35.8°、dxy=57.4mm（试管被拖出孔并歪倒）。
+  #
+  #   即使跑"成功"的 run_42 也有轻微拖拽：帧 700→760 试管相对架子移动
+  #   约 2mm（19.0,8.5)→(19.7,6.6)，只是没脱离孔所以没被发现。
+  #
+  # 为什么之前删掉这步时很慢（8 秒超时）—— **真因不是 movel_duration**：
+  #
+  #   实测日志: move_relative timeout pos_dist=0.0101 elapsed=8.05s
+  #   而 pose_tol_pos=0.02 —— 0.0101 < 0.02 本该判"到达"！
+  #
+  #   bug 在上游: 上一步 insert 的 params 里写了 pose_tol_pos: 0.0015
+  #   （为了让插入更精确），而 skill_insert 末尾有一句
+  #       ctx.task_cfg = replace(ctx.task_cfg, common=qt.common, ...)
+  #   把含 0.0015 的 common **写回了全局 ctx.task_cfg**。
+  #   于是后面的 move_relative 也拿 0.0015 做到位判定：
+  #       pos_dist=0.0101 > 0.0015  →  永远判不到  →  耗满 8s 超时。
+  #
+  # 修法：把 runtime_defaults.max_stage_duration 从 8.0 降到 3.0（见文件开头），
+  #       让"等到位"最多等 3 秒就放行。实测动作本身 2 秒内完成。
+  #
+  #   注：move_relative **不读** params 里的 pose_tol_pos（只有 pick/place/
+  #   insert 的 overlay 会用它），所以在这里写 pose_tol_pos 是无效的 ——
+  #   之前试过，仍耗满 8 秒。真正起作用的是 max_stage_duration。
   - skill: single_arm.move_relative
     params:
       arm: left
       motion_frame_id: world
-      position_delta: [0.0, 0.0, 0.15]
+      position_delta: [0.0, 0.0, 0.12]
       gripper: 1.0
+      # 让 OCS2 用 0.6s 规划这段（比默认慢速规划更快动起来）
+      arm_movel_duration: 0.6
   # 11) 归位 + 收尾：回 HOME，再切 HOLD。
   #
   # 为什么用 FSM HOME 而不是发关节目标（踩过）：
