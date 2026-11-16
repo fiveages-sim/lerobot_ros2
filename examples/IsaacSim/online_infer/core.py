@@ -38,7 +38,11 @@ from lerobot_robot_ros2 import (
     ROS2Robot,
 )
 
-from isaac_ros2_sim_common import SimTimeHelper, reset_simulation_state  # pyright: ignore[reportMissingImports]
+from isaac_ros2_sim_common import (  # pyright: ignore[reportMissingImports]
+    SimTimeHelper,
+    get_entity_pose_world_service,
+    reset_simulation_state,
+)
 from lerobot_robot_ros2.utils.pose_utils import (  # pyright: ignore[reportMissingImports]
     quat_xyzw_to_rot6d,
     rot6d_to_quat_xyzw,
@@ -326,6 +330,25 @@ def _quat_mul_xyzw(q1: tuple[float, float, float, float], q2: tuple[float, float
     )
 
 
+def _quat_conj_xyzw(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    return (-q[0], -q[1], -q[2], q[3])
+
+
+def _quat_rotate_vec_xyzw(
+    q: tuple[float, float, float, float],
+    v: tuple[float, float, float] | np.ndarray,
+) -> np.ndarray:
+    """Rotate vector ``v`` by unit quaternion ``q`` (x, y, z, w)."""
+    qn = np.asarray(q, dtype=np.float64)
+    qn = qn / max(float(np.linalg.norm(qn)), 1e-12)
+    x, y, z, w = (float(qn[0]), float(qn[1]), float(qn[2]), float(qn[3]))
+    vv = np.asarray(v, dtype=np.float64).reshape(3)
+    # Rodrigues form via quat sandwich: q * (0,v) * q_conj
+    q_v = (vv[0], vv[1], vv[2], 0.0)
+    q_out = _quat_mul_xyzw((x, y, z, w), _quat_mul_xyzw(q_v, (-x, -y, -z, w)))
+    return np.asarray(q_out[:3], dtype=np.float64)
+
+
 def _quat_slerp_xyzw(
     q0: tuple[float, float, float, float],
     q1: tuple[float, float, float, float],
@@ -419,41 +442,215 @@ _MIN_DQUAT_ANGLE = 0.02  # rad (~1.1°)
 # Apply in FSM=HOLD before OCS2 so the default mobile-base mode never runs first.
 _RIGHT_GRASP_CLOSED = 0.25
 _RIGHT_GRASP_CLOSED_STEPS = 8
-# Demo approach (ep0): z rises over the rack (→~0.94) while pitch slerps 0°→30°
-# as x goes 2.10→1.94, then settles to grasp ≈ (1.916, 0.236, 0.930) and closes.
-# Prior ACT clamps forced z≤0.915 (into the rack) and snapped full -30° at x≤2.02.
-_GRASP_X = 1.916
-_GRASP_Y = 0.236
-_GRASP_Z = 0.930
+# Demo approach (hole3→4 ep0): pitch slerps as x 2.10→~2.00, close mid-shaft, settle, lift.
+# Rack rim ≈ z=0.846. Prefer close high, but OCS2 often stalls at z≈0.925 at grasp X —
+# requiring z≥0.935 deadlocked with gripper forever open. Close from z≥0.922; if XY is
+# on-tube for long enough, force-close even if Z is ~1 cm short.
+_GRASP_X = 1.998
+_GRASP_Y = 0.234
+_GRASP_Z = 0.938  # preferred close height (commanded)
+_GRASP_CLOSE_Z_MIN = 0.922  # measured floor to allow close (reachable; was 0.935 deadlock)
+_GRASP_SETTLE_XYZ = (1.991, 0.234, 0.928)  # after close, creep onto mid-tube
 _GRASP_QUAT_XYZW = (-0.260955, 0.000219, 0.965351, 0.000441)
 _APPROACH_X_START = 2.10  # begin pitch slerp (demo ~1.6°)
-_APPROACH_X_END = 1.94  # full ~30° pitch (demo)
-_PRE_GRASP_Z_MIN = 0.880
-_PRE_GRASP_Z_MAX = 0.945  # clear the rack like demos (was 0.915 → collisions)
-# Close as soon as pitch is full / at the tube face — waiting until 1.925 with an
-# open gripper was plowing the tube backward for ~1.5 s.
-_PRE_GRASP_X_MAX = 1.940
-_PRE_GRASP_X_MIN = 1.900
+_APPROACH_X_END = 2.00  # ~demo close x (full pitch near tube face)
+_PRE_GRASP_Z_MIN = 0.920  # never command below this while approaching
+_PRE_GRASP_Z_MAX = 0.960  # approach high
+# Close near the demo tube-face x (not 1.94). Early 1.94 + high-z → tip pinch.
+_PRE_GRASP_X_MAX = 2.005
+_PRE_GRASP_X_MIN = 1.980
 _PRE_GRASP_Y_MIN = 0.228
 _PRE_GRASP_Y_MAX = 0.245
 _MAX_STUCK_LEAD_M = 0.02
+_GRASP_XY_STUCK_STEPS = 45  # ~1.5 s on-tube XY → force close if Z short
 _EE_HOLD_SETTLE_S = 1.0
 _FORCE_CLOSE_GRIPPER = 0.0
 _POST_GRASP_Z_LIFT = 0.20  # YAML single_arm.move_relative +0.20 world Z
 # ACT post-grasp |dpos_z|≈0.05 mm/step → ~2 min lift. Script ~4 mm/step (~0.12 m/s).
 _LIFT_STEP_M = 0.004
 _LIFT_DONE_TOL_M = 0.025
-_GRASP_SETTLE_STEPS = 6  # hold closed at grasp pose before lifting
+_GRASP_SETTLE_STEPS = 45  # ~1.5 s closed settle toward mid-tube before lifting
 _LEFT_ENABLE_WAIT_S = 10.0  # OCS2 arm-policy hold often needs >3 s
 # Demo world chest handover (ep0 at left-close): right brings tube in, left meets it.
 # Pinning right at pick XY after lift left ACT hovering — must script this phase.
 _HANDOVER_RIGHT_XYZ = (2.072, 0.204, 1.096)
 _HANDOVER_RIGHT_QUAT = (-0.224069, -0.130218, 0.843456, -0.470550)
-_HANDOVER_LEFT_XYZ = (2.059, 0.002, 1.041)
+_HANDOVER_LEFT_XYZ = (2.047, 0.015, 1.043)
 _HANDOVER_LEFT_QUAT = (-0.114797, 0.065468, 0.859709, 0.493392)
+# Left targets are OFFSETS IN THE RIGHT EE FRAME (not world). World-fixed L−R caused the
+# left fingers to stab the free tube tip whenever right pitch differed from the demo,
+# tilting the tube into an ungraspable pose. Local offsets = R_demo^T @ demo_world_L−R.
+# clear → approach → grip: come from further away / slightly lower, then creep in OPEN.
+_HANDOVER_LEFT_CLEAR_LOCAL = (0.278, 0.145, 0.046)  # ~30 cm world-side clearance
+_HANDOVER_LEFT_APPROACH_LOCAL = (0.210, 0.100, 0.030)  # pre-contact, still clear of tip
+_HANDOVER_LEFT_GRIP_LOCAL = (0.178, 0.078, 0.043)  # demo both-closed L−R in right frame
+# left_quat = right_quat ⊗ q_rel  (demo relative orientation)
+_HANDOVER_LEFT_Q_REL = (0.331741, -0.062365, -0.791073, 0.510158)
 _HANDOVER_STEP_M = 0.006
-_HANDOVER_ARRIVE_M = 0.03
-_HANDOVER_LEFT_CLOSE_STEPS = 10
+_HANDOVER_ARRIVE_M = 0.015  # 3D arrive (Z often ~1 cm short of cmd)
+_HANDOVER_ARRIVE_XY_M = 0.015  # clear/approach/creep: XY gate (avoid grinding Z into tube)
+_HANDOVER_CHEST_MEAS_M = 0.020  # right must be this close to chest before left moves
+# Demo |L−R| at left-close ≈ 0.199–0.204. 0.185 blocked close forever (stuck in left_creep).
+_HANDOVER_LR_MAX_M = 0.220
+_HANDOVER_LEFT_CLOSE_STEPS = 90  # demo keeps both closed ~3.0 s before right opens
+_HANDOVER_LEFT_CLOSED_FB = 0.25  # left gripper feedback must read closed before right opens
+_HANDOVER_LEFT_CLOSED_FB_STEPS = 15  # ~0.5 s of confirmed left-closed feedback
+# Scripted left place: hole-centered vertical insert with FROZEN XY targets.
+# Per-step ee−tube chase drifted Y and rammed the rack — do not revive it.
+# Always apply one-shot (ee−tube) so the TUBE (not the TCP) sits on the hole;
+# rejecting large |ee−tube| left the tube on the wood beside hole_4.
+_PLACE_RACK_PRIM = "/World/room/scene/test_tube_rack"
+_PLACE_TUBE_PRIM = "/World/room/scene/test_tube"
+_PLACE_HOLE_ID = "hole_4"  # hole3to4 dataset → left rack hole_4
+_PLACE_LEFT_QUAT = (-0.023, 0.005, 0.988, 0.150)
+_PLACE_EE_ABOVE_HOLE_M = 0.055  # EE Z above hole rim at release
+_PLACE_HOVER_CLEAR_M = 0.120  # hover well above rack, then drop straight down
+_PLACE_RETREAT_CLEAR_M = 0.150
+_PLACE_STEP_M = 0.005
+_PLACE_ARRIVE_XY_M = 0.010
+_PLACE_ARRIVE_Z_M = 0.020
+_PLACE_OPEN_STEPS = 60
+_PLACE_GRIP_XY_MAX_M = 0.18  # allow post-handover tilt; still reject absurd outliers
+_PLACE_HOVER_TUBE_CORR_MAX_M = 0.15  # one-shot hover/insert XY re-aim (tube→hole), clamped
+_PLACE_OPEN_TUBE_XY_MAX_M = 0.012  # refuse to open until tube is over the hole
+
+
+def _place_xy_z_err(
+    meas_xyz: tuple[float, float, float] | np.ndarray,
+    target_xyz: tuple[float, float, float],
+) -> tuple[float, float]:
+    m = np.asarray(meas_xyz, dtype=np.float64)
+    t = np.asarray(target_xyz, dtype=np.float64)
+    return float(np.linalg.norm(m[:2] - t[:2])), float(abs(m[2] - t[2]))
+
+
+def _shift_place_xyz(
+    xyz: tuple[float, float, float],
+    dxy: np.ndarray,
+) -> tuple[float, float, float]:
+    return (float(xyz[0] + dxy[0]), float(xyz[1] + dxy[1]), float(xyz[2]))
+
+
+def _resolve_left_place_targets(
+    ee_xyz: tuple[float, float, float] | np.ndarray,
+    *,
+    hole_id: str = _PLACE_HOLE_ID,
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+]:
+    """One-shot EE targets that put the held tube on ``hole_id`` (frozen XY)."""
+    hole_prim = f"{_PLACE_RACK_PRIM}/{hole_id}"
+    hole_xyz, _ = get_entity_pose_world_service(hole_prim)
+    hole = np.asarray(hole_xyz, dtype=np.float64)
+    ee = np.asarray(ee_xyz, dtype=np.float64)
+    off_xy = np.zeros(2, dtype=np.float64)
+    grip_xy = float("nan")
+    try:
+        tube_xyz, _ = get_entity_pose_world_service(_PLACE_TUBE_PRIM)
+        tube = np.asarray(tube_xyz, dtype=np.float64)
+        hold_off = ee - tube
+        grip_xy = float(np.linalg.norm(hold_off[:2]))
+        if np.isfinite(grip_xy) and grip_xy <= _PLACE_GRIP_XY_MAX_M:
+            # ee_target = hole + (ee − tube)  ⇒  tube lands on hole in XY.
+            off_xy = hold_off[:2].copy()
+            print(
+                f"[info] Place one-shot grip offset xy=({off_xy[0]:.3f},{off_xy[1]:.3f}) "
+                f"(|ee−tube|_xy={grip_xy:.3f}m) — tube→{_PLACE_HOLE_ID}"
+            )
+        else:
+            print(
+                f"[WARN] |ee−tube|_xy={grip_xy:.3f}m > {_PLACE_GRIP_XY_MAX_M:.3f}m — "
+                "using hole XY only; hover re-aim will correct"
+            )
+    except Exception as exc:
+        print(f"[WARN] tube pose unavailable ({exc}) — using hole XY only")
+    insert = (
+        float(hole[0] + off_xy[0]),
+        float(hole[1] + off_xy[1]),
+        float(hole[2] + _PLACE_EE_ABOVE_HOLE_M),
+    )
+    hover = (insert[0], insert[1], insert[2] + _PLACE_HOVER_CLEAR_M)
+    retreat = (insert[0], insert[1], insert[2] + _PLACE_RETREAT_CLEAR_M)
+    print(
+        f"[info] Live place {hole_id}=({hole[0]:.3f},{hole[1]:.3f},{hole[2]:.3f}) → "
+        f"hover={tuple(round(v, 3) for v in hover)} "
+        f"insert={tuple(round(v, 3) for v in insert)}"
+    )
+    return hover, insert, retreat, (float(hole[0]), float(hole[1]), float(hole[2]))
+
+
+def _hover_correct_place_targets_to_tube(
+    hover: tuple[float, float, float],
+    insert: tuple[float, float, float],
+    retreat: tuple[float, float, float],
+    hole_xyz: tuple[float, float, float],
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+    float,
+]:
+    """At hover: one-shot shift so measured tube XY matches hole (YAML hover_compensate)."""
+    try:
+        tube_xyz, _ = get_entity_pose_world_service(_PLACE_TUBE_PRIM)
+    except Exception as exc:
+        print(f"[WARN] hover tube re-aim skipped ({exc})")
+        return hover, insert, retreat, float("nan")
+    tube = np.asarray(tube_xyz, dtype=np.float64)
+    hole = np.asarray(hole_xyz, dtype=np.float64)
+    corr = hole[:2] - tube[:2]
+    corr_n = float(np.linalg.norm(corr))
+    if not np.isfinite(corr_n) or corr_n < 1e-4:
+        print(f"[info] Hover tube already on hole (xy_err={corr_n:.4f}m)")
+        return hover, insert, retreat, corr_n
+    if corr_n > _PLACE_HOVER_TUBE_CORR_MAX_M:
+        corr = corr * (_PLACE_HOVER_TUBE_CORR_MAX_M / corr_n)
+        print(
+            f"[WARN] Hover tube→hole xy_err={corr_n:.3f}m clamped to "
+            f"{_PLACE_HOVER_TUBE_CORR_MAX_M:.3f}m"
+        )
+    else:
+        print(
+            f"[OK] Hover tube→hole re-aim dxy=({corr[0]:.3f},{corr[1]:.3f}) "
+            f"(|err|={corr_n:.3f}m)"
+        )
+    return (
+        _shift_place_xyz(hover, corr),
+        _shift_place_xyz(insert, corr),
+        _shift_place_xyz(retreat, corr),
+        corr_n,
+    )
+
+
+def _tube_hole_xy_err(hole_xyz: tuple[float, float, float]) -> float:
+    try:
+        tube_xyz, _ = get_entity_pose_world_service(_PLACE_TUBE_PRIM)
+    except Exception:
+        return float("nan")
+    t = np.asarray(tube_xyz, dtype=np.float64)
+    h = np.asarray(hole_xyz, dtype=np.float64)
+    return float(np.linalg.norm(t[:2] - h[:2]))
+
+def _handover_left_pose_from_right(
+    right_xyz: tuple[float, float, float] | np.ndarray,
+    right_quat_xyzw: tuple[float, float, float, float],
+    local_offset: tuple[float, float, float],
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    """Map a right-EE-local offset to a world left EE pose that tracks the held tube."""
+    world_off = _quat_rotate_vec_xyzw(right_quat_xyzw, local_offset)
+    left_xyz = (
+        float(right_xyz[0] + world_off[0]),
+        float(right_xyz[1] + world_off[1]),
+        float(right_xyz[2] + world_off[2]),
+    )
+    left_quat = _quat_mul_xyzw(right_quat_xyzw, _HANDOVER_LEFT_Q_REL)
+    # Normalize.
+    lq = np.asarray(left_quat, dtype=np.float64)
+    lq = lq / max(float(np.linalg.norm(lq)), 1e-12)
+    return left_xyz, (float(lq[0]), float(lq[1]), float(lq[2]), float(lq[3]))
 _ACT_PICK_MODE_COMMANDS = [
     "ARMS_INDEPENDENT",
     "BASE_LOCK",
@@ -588,13 +785,13 @@ def _clamp_pre_grasp_right_cmd(
     Returns True when the right gripper should stay closed (in-window or latched).
     When ``lift_target_z`` is set, ignore ACT z and ramp the open-loop ref up
     (scripted YAML-style +0.20 m lift — ACT post-grasp deltas are ~0.05 mm/step).
-    When ``handover_active``, leave right pose alone (caller scripts chest move).
+    When ``handover_active``, leave right pose alone (caller scripts chest/place).
     """
     del action_vec  # policy gripper unused; we gate close ourselves
     if "right_ee.pos.x" not in cmd:
         return False
     if handover_active:
-        cmd["right_gripper.pos"] = _FORCE_CLOSE_GRIPPER
+        # Keep right closed only through handover grip; place phases open/disable right.
         return True
 
     rx = float(raw_obs.get("right_ee.pos.x", 2.1))
@@ -619,7 +816,6 @@ def _clamp_pre_grasp_right_cmd(
 
     x_cmd = float(np.clip(float(cmd["right_ee.pos.x"]), _PRE_GRASP_X_MIN, 2.15))
     z_raw = float(cmd.get("right_ee.pos.z", rz))
-    # Freeze XY at first contact — commanding _GRASP_X=1.916 from x=1.94 shoves the tube.
     hold_x, hold_y = (freeze_xy if freeze_xy is not None else (rx, ry))
 
     if lift_target_z is not None and "right" in ee_ref:
@@ -628,19 +824,31 @@ def _clamp_pre_grasp_right_cmd(
         z_cmd = float(min(float(ee_ref["right"]["pos"][2]) + _LIFT_STEP_M, float(lift_target_z)))
         z_cmd = float(max(z_cmd, rz + 0.005))
         z_cmd = float(min(z_cmd, float(lift_target_z)))
-    elif grasp_latched:
-        x_cmd = float(hold_x)
-        y_cmd = float(hold_y)
-        z_cmd = float(_GRASP_Z)
+    elif grasp_latched and "right" in ee_ref:
+        # Demo: after close, creep -x / -z onto mid-tube before lifting (not tip pinch).
+        sx, sy, sz = _GRASP_SETTLE_XYZ
+        cur = ee_ref["right"]["pos"]
+        tgt = np.asarray([sx, sy, sz], dtype=np.float64)
+        delta = tgt - cur
+        dist = float(np.linalg.norm(delta))
+        step = min(0.003, dist)
+        if dist > 1e-9:
+            cur[:] = cur + delta * (step / dist)
+        x_cmd, y_cmd, z_cmd = float(cur[0]), float(cur[1]), float(cur[2])
     elif rx <= _PRE_GRASP_X_MAX:
-        # Close in place — do not drive further -x into the tube.
+        # At close X: hold high enough that fingers clear the rack top, then settle lowers.
         x_cmd = float(rx)
         y_cmd = float(np.clip(ry, _PRE_GRASP_Y_MIN, _PRE_GRASP_Y_MAX))
-        z_cmd = _GRASP_Z
-        if rz > _GRASP_Z + 0.01:
-            z_cmd = _GRASP_Z - 0.005
+        z_cmd = float(max(min(rz, _GRASP_Z), _GRASP_CLOSE_Z_MIN))
     else:
-        z_cmd = float(np.clip(max(z_raw, 0.90), _PRE_GRASP_Z_MIN, _PRE_GRASP_Z_MAX))
+        # Keep Z high while approaching so fingers never dive into the rack wood.
+        alpha = (_APPROACH_X_START - rx) / max(_APPROACH_X_START - _APPROACH_X_END, 1e-6)
+        alpha = float(np.clip(alpha, 0.0, 1.0))
+        z_hi = float((1.0 - alpha) * _PRE_GRASP_Z_MAX + alpha * _GRASP_Z)
+        z_lo = float(_PRE_GRASP_Z_MIN)
+        z_cmd = float(np.clip(z_raw, z_lo, z_hi))
+        if rx <= 2.05:
+            z_cmd = float(max(z_cmd, _GRASP_CLOSE_Z_MIN))
 
     if "right" in ee_ref:
         lead_x = float(ee_ref["right"]["pos"][0]) - rx
@@ -669,14 +877,33 @@ def _clamp_pre_grasp_right_cmd(
         cmd["right_gripper.pos"] = _FORCE_CLOSE_GRIPPER
         return True
 
-    near_tube = (
+    xy_on_tube = (
         rx <= _PRE_GRASP_X_MAX
-        and abs(rz - _GRASP_Z) <= 0.025
         and abs(ry - _GRASP_Y) <= 0.015
     )
+    if "right" in ee_ref:
+        if xy_on_tube:
+            ee_ref["right"]["close_xy_streak"] = int(
+                ee_ref["right"].get("close_xy_streak", 0)
+            ) + 1
+        else:
+            ee_ref["right"]["close_xy_streak"] = 0
+        xy_streak = int(ee_ref["right"].get("close_xy_streak", 0))
+    else:
+        xy_streak = 0
+
+    z_ok = _GRASP_CLOSE_Z_MIN <= rz <= (_GRASP_Z + 0.030)
+    # Force-close if we sit on-tube XY long enough but Z never quite reaches preferred height.
+    force_close = xy_on_tube and xy_streak >= _GRASP_XY_STUCK_STEPS and rz >= 0.915
+    near_tube = xy_on_tube and (z_ok or force_close)
     if not near_tube:
         cmd["right_gripper.pos"] = 1.0
         return False
+    if force_close and not z_ok:
+        print(
+            f"[OK] Right grasp force-close after {xy_streak} on-tube steps "
+            f"at z={rz:.3f} (preferred ≥{_GRASP_CLOSE_Z_MIN:.3f})"
+        )
     cmd["right_gripper.pos"] = _FORCE_CLOSE_GRIPPER
     return True
 
@@ -1267,11 +1494,19 @@ def main() -> None:
         f"clamp ±{_MAX_DPOS_M*1000:.0f}mm/step; "
         f"pre-grasp corridor x∈[{_PRE_GRASP_X_MIN:.2f},{_PRE_GRASP_X_MAX:.2f}] "
         f"y∈[{_PRE_GRASP_Y_MIN:.2f},{_PRE_GRASP_Y_MAX:.2f}] "
-        f"z∈[{_PRE_GRASP_Z_MIN:.3f},{_PRE_GRASP_Z_MAX:.3f}] (clear rack), "
+        f"z∈[{_PRE_GRASP_Z_MIN:.3f},{_PRE_GRASP_Z_MAX:.3f}] (above rack), "
         f"pitch slerp x∈[{_APPROACH_X_END:.2f},{_APPROACH_X_START:.2f}] → demo 30°; "
-        f"close in-place at x≤{_PRE_GRASP_X_MAX:.3f}, "
-        f"scripted lift +{_POST_GRASP_Z_LIFT:.2f}m, then chest handover "
-        f"R→{_HANDOVER_RIGHT_XYZ} L→{_HANDOVER_LEFT_XYZ}"
+        f"close if z≥{_GRASP_CLOSE_Z_MIN:.3f} (or XY stuck ≥{_GRASP_XY_STUCK_STEPS} steps) "
+        f"then settle→{_GRASP_SETTLE_XYZ} ({_GRASP_SETTLE_STEPS} steps), "
+        f"lift +{_POST_GRASP_Z_LIFT:.2f}m, "
+        f"chest handover R→{_HANDOVER_RIGHT_XYZ}; "
+        f"left OPEN clear→approach→creep (right-EE-frame targets)→close; "
+        f"open right only after left_fb≤{_HANDOVER_LEFT_CLOSED_FB} "
+        f"({_HANDOVER_LEFT_CLOSE_STEPS}+ steps); "
+        f"then RIGHT_ARM_DISABLE + scripted left place on live "
+        f"{_PLACE_RACK_PRIM}/{_PLACE_HOLE_ID} "
+        f"(grip-off≤{_PLACE_GRIP_XY_MAX_M*100:.0f}cm, hover re-aim, "
+        f"open if tube_xy≤{_PLACE_OPEN_TUBE_XY_MAX_M*1000:.0f}mm)"
     )
 
     # Demos start with grippers open (1.0). Open both before the policy loop.
@@ -1303,9 +1538,19 @@ def main() -> None:
         grasp_settle_steps = 0
         right_closed_streak = 0
         grasp_freeze_xy: tuple[float, float] | None = None
-        # handover: None → "right_chest" → "left_approach" → "left_close" → "done"
+        # handover: None → right_chest → … → left_close → place_prep → place_hover →
+        # place_insert → place_open → place_retreat → place_done
         handover_phase: str | None = None
         left_close_streak = 0
+        left_closed_fb_streak = 0
+        place_open_streak = 0
+        right_arm_disabled = False
+        place_hover_xyz: tuple[float, float, float] | None = None
+        place_insert_xyz: tuple[float, float, float] | None = None
+        place_retreat_xyz: tuple[float, float, float] | None = None
+        place_hole_xyz: tuple[float, float, float] | None = None
+        place_hover_corrected = False
+        place_insert_reamed = False
         while True:
             t0 = sim_time.now_seconds()
             raw_obs = robot.get_observation()
@@ -1367,8 +1612,15 @@ def main() -> None:
             if action_vec is None:
                 continue
 
+            # Scripted handover/place owns ee_ref — do not integrate ACT deltas into it
+            # (that was OOD post-handover and yanked BODY_RELATIVE torso/chassis).
             cmd = build_cmd_from_action_vec(
-                meta, action_vec, raw_obs, args, gripper_idx, ee_ref=ee_ref
+                meta,
+                action_vec,
+                raw_obs,
+                args,
+                gripper_idx,
+                ee_ref=None if handover_phase is not None else ee_ref,
             )
             _maybe_convert_rot6d_action(cmd)
 
@@ -1401,7 +1653,7 @@ def main() -> None:
                     f"freeze XY, settle {_GRASP_SETTLE_STEPS} steps, then +{_POST_GRASP_Z_LIFT:.2f}m lift"
                 )
 
-            # After close: settle → lift → enable left → scripted chest handover.
+            # After close: settle mid-tube → lift → enable left → scripted chest handover.
             if (
                 right_grasp_latched
                 and right_lift_target_z is None
@@ -1410,11 +1662,16 @@ def main() -> None:
             ):
                 grasp_settle_steps += 1
                 if grasp_settle_steps >= _GRASP_SETTLE_STEPS:
-                    right_lift_target_z = float(rz) + _POST_GRASP_Z_LIFT
+                    # Pin lift XY at the settled mid-tube pose (not the tip-close pose).
+                    grasp_freeze_xy = (float(rx), float(ry))
                     if "right" in ee_ref:
+                        ee_ref["right"]["pos"][0] = float(rx)
+                        ee_ref["right"]["pos"][1] = float(ry)
                         ee_ref["right"]["pos"][2] = float(rz)
+                    right_lift_target_z = float(rz) + _POST_GRASP_Z_LIFT
                     print(
-                        f"[info] Scripted right EE lift → z={right_lift_target_z:.3f} "
+                        f"[info] Scripted right EE lift from settled "
+                        f"({rx:.3f},{ry:.3f},{rz:.3f}) → z={right_lift_target_z:.3f} "
                         f"({_LIFT_STEP_M*1000:.0f} mm/step)"
                     )
             if right_lift_target_z is not None and not right_lift_done and not handover_active:
@@ -1463,7 +1720,103 @@ def main() -> None:
                     _strip_arm_from_cmd(cmd, "left")
                     ee_ref.pop("left", None)
 
-            # Scripted handover (demos: right to chest, then left approaches tube).
+            # Scripted handover: right→chest, then left CLEAR (away from tip) → approach →
+            # creep → close. Left targets are in the RIGHT EE frame so they track tube pose.
+            rq_meas = (
+                float(raw_obs.get("right_ee.quat.x", _HANDOVER_RIGHT_QUAT[0])),
+                float(raw_obs.get("right_ee.quat.y", _HANDOVER_RIGHT_QUAT[1])),
+                float(raw_obs.get("right_ee.quat.z", _HANDOVER_RIGHT_QUAT[2])),
+                float(raw_obs.get("right_ee.quat.w", _HANDOVER_RIGHT_QUAT[3])),
+            )
+            # Prefer commanded right orientation once chest motion started (more stable).
+            if "right" in ee_ref:
+                rq_cmd = tuple(float(v) for v in ee_ref["right"]["quat"])
+                rq_use = rq_cmd
+            else:
+                rq_use = rq_meas
+            r_xyz = (rx, ry, rz)
+            left_clear_xyz, left_clear_quat = _handover_left_pose_from_right(
+                r_xyz, rq_use, _HANDOVER_LEFT_CLEAR_LOCAL
+            )
+            left_approach_xyz, left_approach_quat = _handover_left_pose_from_right(
+                r_xyz, rq_use, _HANDOVER_LEFT_APPROACH_LOCAL
+            )
+            left_grip_xyz, left_grip_quat = _handover_left_pose_from_right(
+                r_xyz, rq_use, _HANDOVER_LEFT_GRIP_LOCAL
+            )
+            lr_dist = float(
+                np.linalg.norm(
+                    np.asarray([lx, ly, lz], dtype=np.float64)
+                    - np.asarray([rx, ry, rz], dtype=np.float64)
+                )
+            )
+            left_g_fb = float(
+                raw_obs.get(
+                    "left_gripper.pos",
+                    raw_obs.get("left_gripper", 1.0),
+                )
+            )
+
+            def _hold_right_at_chest() -> None:
+                _step_pose_toward(
+                    ee_ref,
+                    "right",
+                    _HANDOVER_RIGHT_XYZ,
+                    _HANDOVER_RIGHT_QUAT,
+                    step_m=_HANDOVER_STEP_M,
+                    measured=np.asarray([rx, ry, rz], dtype=np.float64),
+                )
+                _apply_ee_ref_to_cmd(cmd, ee_ref, "right", gripper=_FORCE_CLOSE_GRIPPER)
+
+            def _xy_err(meas: np.ndarray, tgt: tuple[float, float, float]) -> float:
+                return float(np.linalg.norm(meas[:2] - np.asarray(tgt[:2], dtype=np.float64)))
+
+            def _drive_left_open(
+                target_xyz: tuple[float, float, float],
+                target_quat: tuple[float, float, float, float],
+            ) -> tuple[float, float]:
+                if "left" not in ee_ref:
+                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
+                rem_ref = _step_pose_toward(
+                    ee_ref,
+                    "left",
+                    target_xyz,
+                    target_quat,
+                    step_m=_HANDOVER_STEP_M,
+                    measured=np.asarray([lx, ly, lz], dtype=np.float64),
+                )
+                _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=1.0)
+                rem_meas = float(
+                    np.linalg.norm(
+                        np.asarray([lx, ly, lz], dtype=np.float64)
+                        - np.asarray(target_xyz, dtype=np.float64)
+                    )
+                )
+                return rem_ref, rem_meas
+
+            def _drive_left_closed(
+                target_xyz: tuple[float, float, float],
+                target_quat: tuple[float, float, float, float],
+            ) -> tuple[float, float]:
+                if "left" not in ee_ref:
+                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
+                rem_ref = _step_pose_toward(
+                    ee_ref,
+                    "left",
+                    target_xyz,
+                    target_quat,
+                    step_m=_PLACE_STEP_M,
+                    measured=np.asarray([lx, ly, lz], dtype=np.float64),
+                )
+                _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=_FORCE_CLOSE_GRIPPER)
+                rem_meas = float(
+                    np.linalg.norm(
+                        np.asarray([lx, ly, lz], dtype=np.float64)
+                        - np.asarray(target_xyz, dtype=np.float64)
+                    )
+                )
+                return rem_ref, rem_meas
+
             if handover_phase == "right_chest":
                 rem = _step_pose_toward(
                     ee_ref,
@@ -1474,78 +1827,311 @@ def main() -> None:
                     measured=np.asarray([rx, ry, rz], dtype=np.float64),
                 )
                 _apply_ee_ref_to_cmd(cmd, ee_ref, "right", gripper=_FORCE_CLOSE_GRIPPER)
-                # Hold left at current while right travels.
                 if "left" in ee_ref:
                     _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=1.0)
-                if rem <= _HANDOVER_ARRIVE_M:
+                rem_meas = float(
+                    np.linalg.norm(
+                        np.asarray([rx, ry, rz], dtype=np.float64)
+                        - np.asarray(_HANDOVER_RIGHT_XYZ, dtype=np.float64)
+                    )
+                )
+                if rem <= _HANDOVER_ARRIVE_M and rem_meas <= _HANDOVER_CHEST_MEAS_M:
+                    handover_phase = "left_clear"
+                    print(
+                        f"[OK] Right at chest (ref={rem:.3f}m meas={rem_meas:.3f}m) — "
+                        f"left CLEAR of tip (OPEN) ~{tuple(round(v, 3) for v in left_clear_xyz)}"
+                    )
+            elif handover_phase == "left_clear":
+                # Stay well clear of the free tube tip; jaws OPEN. XY-arrive only.
+                _hold_right_at_chest()
+                rem_l, rem_l_meas = _drive_left_open(left_clear_xyz, left_clear_quat)
+                xy = _xy_err(np.asarray([lx, ly, lz], dtype=np.float64), left_clear_xyz)
+                if rem_l <= _HANDOVER_ARRIVE_XY_M and xy <= _HANDOVER_ARRIVE_XY_M:
                     handover_phase = "left_approach"
                     print(
-                        f"[OK] Right at chest (rem={rem:.3f}m) — left approaches "
-                        f"{_HANDOVER_LEFT_XYZ}"
+                        f"[OK] Left clear of tip (xy={xy:.3f}m |L-R|={lr_dist:.3f}m) — "
+                        f"approaching (OPEN) ~{tuple(round(v, 3) for v in left_approach_xyz)}"
                     )
             elif handover_phase == "left_approach":
-                # Keep right at chest target.
-                rem_r = _step_pose_toward(
-                    ee_ref,
-                    "right",
-                    _HANDOVER_RIGHT_XYZ,
-                    _HANDOVER_RIGHT_QUAT,
-                    step_m=_HANDOVER_STEP_M,
-                    measured=np.asarray([rx, ry, rz], dtype=np.float64),
-                )
-                _apply_ee_ref_to_cmd(cmd, ee_ref, "right", gripper=_FORCE_CLOSE_GRIPPER)
-                if "left" not in ee_ref:
-                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
-                rem_l = _step_pose_toward(
-                    ee_ref,
-                    "left",
-                    _HANDOVER_LEFT_XYZ,
-                    _HANDOVER_LEFT_QUAT,
-                    step_m=_HANDOVER_STEP_M,
-                    measured=np.asarray([lx, ly, lz], dtype=np.float64),
-                )
-                _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=1.0)
-                if rem_l <= _HANDOVER_ARRIVE_M:
+                _hold_right_at_chest()
+                rem_l, rem_l_meas = _drive_left_open(left_approach_xyz, left_approach_quat)
+                xy = _xy_err(np.asarray([lx, ly, lz], dtype=np.float64), left_approach_xyz)
+                if rem_l <= _HANDOVER_ARRIVE_XY_M and xy <= _HANDOVER_ARRIVE_XY_M:
+                    handover_phase = "left_creep"
+                    print(
+                        f"[OK] Left pre-contact (xy={xy:.3f}m meas={rem_l_meas:.3f}m "
+                        f"|L-R|={lr_dist:.3f}m) — creeping onto glass (OPEN) "
+                        f"→ ~{tuple(round(v, 3) for v in left_grip_xyz)}"
+                    )
+            elif handover_phase == "left_creep":
+                _hold_right_at_chest()
+                rem_l, rem_l_meas = _drive_left_open(left_grip_xyz, left_grip_quat)
+                xy = _xy_err(np.asarray([lx, ly, lz], dtype=np.float64), left_grip_xyz)
+                z_err = abs(float(lz) - float(left_grip_xyz[2]))
+                # Close when XY is on target. Z is often ~1 cm short (lead/collision) — do not
+                # block forever on 3D rem (that left the jaw open around the tube).
+                if (
+                    xy <= _HANDOVER_ARRIVE_XY_M
+                    and z_err <= 0.025
+                    and lr_dist <= _HANDOVER_LR_MAX_M
+                ):
                     handover_phase = "left_close"
                     left_close_streak = 0
-                    print(f"[OK] Left at tube (rem={rem_l:.3f}m) — closing left gripper")
+                    left_closed_fb_streak = 0
+                    print(
+                        f"[OK] Left on tube (xy={xy:.3f}m z_err={z_err:.3f}m "
+                        f"meas={rem_l_meas:.3f}m |L-R|={lr_dist:.3f}m) — closing left; "
+                        f"right stays closed until left feedback≤{_HANDOVER_LEFT_CLOSED_FB}"
+                    )
             elif handover_phase == "left_close":
-                _step_pose_toward(
-                    ee_ref,
-                    "right",
-                    _HANDOVER_RIGHT_XYZ,
-                    _HANDOVER_RIGHT_QUAT,
-                    step_m=_HANDOVER_STEP_M,
-                    measured=np.asarray([rx, ry, rz], dtype=np.float64),
-                )
+                _hold_right_at_chest()
+                if "left" not in ee_ref:
+                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
                 _step_pose_toward(
                     ee_ref,
                     "left",
-                    _HANDOVER_LEFT_XYZ,
-                    _HANDOVER_LEFT_QUAT,
+                    left_grip_xyz,
+                    left_grip_quat,
                     step_m=_HANDOVER_STEP_M,
                     measured=np.asarray([lx, ly, lz], dtype=np.float64),
                 )
                 _apply_ee_ref_to_cmd(cmd, ee_ref, "right", gripper=_FORCE_CLOSE_GRIPPER)
                 _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=_FORCE_CLOSE_GRIPPER)
                 left_close_streak += 1
-                if left_close_streak >= _HANDOVER_LEFT_CLOSE_STEPS:
-                    # YAML: open right after left has closed.
+                if left_g_fb <= _HANDOVER_LEFT_CLOSED_FB:
+                    left_closed_fb_streak += 1
+                else:
+                    left_closed_fb_streak = 0
+                if (
+                    left_close_streak >= _HANDOVER_LEFT_CLOSE_STEPS
+                    and left_closed_fb_streak >= _HANDOVER_LEFT_CLOSED_FB_STEPS
+                ):
                     _apply_ee_ref_to_cmd(cmd, ee_ref, "right", gripper=1.0)
-                    handover_phase = "done"
-                    print("[OK] Handover complete — left closed, right opened")
-            elif handover_phase == "done":
-                _apply_ee_ref_to_cmd(cmd, ee_ref, "right", gripper=1.0)
+                    handover_phase = "place_prep"
+                    place_open_streak = 0
+                    print(
+                        f"[OK] Handover complete — left closed {left_close_streak} steps "
+                        f"(fb≤{_HANDOVER_LEFT_CLOSED_FB} for {left_closed_fb_streak}), "
+                        f"right opened — starting scripted left place"
+                    )
+                elif (
+                    left_close_streak >= _HANDOVER_LEFT_CLOSE_STEPS
+                    and left_close_streak % 30 == 0
+                ):
+                    print(
+                        f"[WARN] Waiting to open right: left_fb={left_g_fb:.3f} "
+                        f"(need ≤{_HANDOVER_LEFT_CLOSED_FB} for "
+                        f"{_HANDOVER_LEFT_CLOSED_FB_STEPS} steps); |L-R|={lr_dist:.3f}m"
+                    )
+            elif handover_phase == "place_prep":
+                # Match YAML: disable right so WBC won't chase ACT right targets with body.
+                if not right_arm_disabled:
+                    _apply_mode_commands(
+                        robot.ros2_interface,
+                        ["RIGHT_ARM_DISABLE", "BASE_LOCK"],
+                        wait_timeout=5.0,
+                        sleep_fn=sim_time.sleep,
+                    )
+                    right_arm_disabled = True
+                    ee_ref.pop("right", None)
+                if place_hover_xyz is None:
+                    try:
+                        (
+                            place_hover_xyz,
+                            place_insert_xyz,
+                            place_retreat_xyz,
+                            place_hole_xyz,
+                        ) = _resolve_left_place_targets((lx, ly, lz))
+                    except Exception as exc:
+                        print(f"[WARN] Live hole query failed ({exc}) — abort place")
+                        handover_phase = "place_done"
+                        _strip_arm_from_cmd(cmd, "right")
+                        continue
+                    print(
+                        "[OK] RIGHT_ARM_DISABLE + BASE_LOCK — left place "
+                        f"hover→{tuple(round(v, 3) for v in place_hover_xyz)}"
+                    )
+                _strip_arm_from_cmd(cmd, "right")
+                if "left" not in ee_ref:
+                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
                 _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=_FORCE_CLOSE_GRIPPER)
+                handover_phase = "place_hover"
+            elif handover_phase == "place_hover":
+                _strip_arm_from_cmd(cmd, "right")
+                assert (
+                    place_hover_xyz is not None
+                    and place_insert_xyz is not None
+                    and place_retreat_xyz is not None
+                    and place_hole_xyz is not None
+                )
+                rem_l, rem_l_meas = _drive_left_closed(
+                    place_hover_xyz, _PLACE_LEFT_QUAT
+                )
+                xy_err, z_err = _place_xy_z_err((lx, ly, lz), place_hover_xyz)
+                # Arrive on XY first (high Z), then one-shot tube→hole re-aim, then drop.
+                if xy_err <= _PLACE_ARRIVE_XY_M and z_err <= _PLACE_ARRIVE_Z_M:
+                    if not place_hover_corrected:
+                        (
+                            place_hover_xyz,
+                            place_insert_xyz,
+                            place_retreat_xyz,
+                            tube_xy_err,
+                        ) = _hover_correct_place_targets_to_tube(
+                            place_hover_xyz,
+                            place_insert_xyz,
+                            place_retreat_xyz,
+                            place_hole_xyz,
+                        )
+                        place_hover_corrected = True
+                        rem_l, rem_l_meas = _drive_left_closed(
+                            place_hover_xyz, _PLACE_LEFT_QUAT
+                        )
+                        xy_err2, _ = _place_xy_z_err((lx, ly, lz), place_hover_xyz)
+                        if xy_err2 > _PLACE_ARRIVE_XY_M:
+                            print(
+                                f"[info] Hover re-aim pending EE catch-up "
+                                f"(xy={xy_err2:.3f}m, tube_xy_err={tube_xy_err:.3f}m)"
+                            )
+                        else:
+                            handover_phase = "place_insert"
+                            print(
+                                f"[OK] Left place hover (xy={xy_err:.3f}m z={z_err:.3f}m "
+                                f"meas={rem_l_meas:.3f}m) — vertical insert → "
+                                f"{tuple(round(v, 3) for v in place_insert_xyz)}"
+                            )
+                    else:
+                        handover_phase = "place_insert"
+                        print(
+                            f"[OK] Left place hover (xy={xy_err:.3f}m z={z_err:.3f}m "
+                            f"meas={rem_l_meas:.3f}m) — vertical insert → "
+                            f"{tuple(round(v, 3) for v in place_insert_xyz)}"
+                        )
+            elif handover_phase == "place_insert":
+                _strip_arm_from_cmd(cmd, "right")
+                assert place_insert_xyz is not None and place_hole_xyz is not None
+                rem_l, rem_l_meas = _drive_left_closed(
+                    place_insert_xyz, _PLACE_LEFT_QUAT
+                )
+                xy_err, z_err = _place_xy_z_err((lx, ly, lz), place_insert_xyz)
+                tube_xy = _tube_hole_xy_err(place_hole_xyz)
+                ee_ok = xy_err <= _PLACE_ARRIVE_XY_M and z_err <= _PLACE_ARRIVE_Z_M
+                tube_ok = (not np.isfinite(tube_xy)) or tube_xy <= _PLACE_OPEN_TUBE_XY_MAX_M
+                if ee_ok and tube_ok:
+                    handover_phase = "place_open"
+                    place_open_streak = 0
+                    print(
+                        f"[OK] Left at hole (ee_xy={xy_err:.3f}m z={z_err:.3f}m "
+                        f"tube_xy={tube_xy:.3f}m meas={rem_l_meas:.3f}m) — opening gripper"
+                    )
+                elif (
+                    ee_ok
+                    and not tube_ok
+                    and not place_insert_reamed
+                ):
+                    # EE on target but tube still off — one-shot nudge by tube→hole.
+                    try:
+                        tube_xyz, _ = get_entity_pose_world_service(_PLACE_TUBE_PRIM)
+                        corr = np.asarray(place_hole_xyz[:2], dtype=np.float64) - np.asarray(
+                            tube_xyz[:2], dtype=np.float64
+                        )
+                    except Exception as exc:
+                        print(f"[WARN] Insert tube re-aim failed ({exc})")
+                        corr = np.zeros(2, dtype=np.float64)
+                    corr_n = float(np.linalg.norm(corr))
+                    place_insert_reamed = True
+                    if corr_n > 1e-4:
+                        if corr_n > _PLACE_HOVER_TUBE_CORR_MAX_M:
+                            corr = corr * (_PLACE_HOVER_TUBE_CORR_MAX_M / corr_n)
+                        place_insert_xyz = _shift_place_xyz(place_insert_xyz, corr)
+                        if place_retreat_xyz is not None:
+                            place_retreat_xyz = _shift_place_xyz(place_retreat_xyz, corr)
+                        print(
+                            f"[info] Insert tube re-aim dxy=({corr[0]:.3f},{corr[1]:.3f}) "
+                            f"(|tube−hole|={tube_xy:.3f}m) → "
+                            f"{tuple(round(v, 3) for v in place_insert_xyz)}"
+                        )
+                    else:
+                        handover_phase = "place_open"
+                        place_open_streak = 0
+                        print(
+                            f"[WARN] Opening despite tube_xy={tube_xy:.3f}m "
+                            "(re-aim ~0); releasing"
+                        )
+                elif ee_ok and not tube_ok and place_insert_reamed:
+                    handover_phase = "place_open"
+                    place_open_streak = 0
+                    print(
+                        f"[WARN] Opening after re-aim with tube_xy={tube_xy:.3f}m "
+                        f"(ee_xy={xy_err:.3f}m) — best-effort release"
+                    )
+            elif handover_phase == "place_open":
+                _strip_arm_from_cmd(cmd, "right")
+                assert place_insert_xyz is not None and place_retreat_xyz is not None
+                if "left" not in ee_ref:
+                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
+                _step_pose_toward(
+                    ee_ref,
+                    "left",
+                    place_insert_xyz,
+                    _PLACE_LEFT_QUAT,
+                    step_m=_PLACE_STEP_M,
+                    measured=np.asarray([lx, ly, lz], dtype=np.float64),
+                )
+                _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=1.0)
+                place_open_streak += 1
+                if place_open_streak >= _PLACE_OPEN_STEPS:
+                    handover_phase = "place_retreat"
+                    print(
+                        f"[OK] Left released ({place_open_streak} steps) — "
+                        f"retreat → {tuple(round(v, 3) for v in place_retreat_xyz)}"
+                    )
+            elif handover_phase == "place_retreat":
+                _strip_arm_from_cmd(cmd, "right")
+                assert place_retreat_xyz is not None
+                if "left" not in ee_ref:
+                    _seed_ee_ref_from_obs(ee_ref, raw_obs, "left")
+                rem_l = _step_pose_toward(
+                    ee_ref,
+                    "left",
+                    place_retreat_xyz,
+                    _PLACE_LEFT_QUAT,
+                    step_m=_PLACE_STEP_M,
+                    measured=np.asarray([lx, ly, lz], dtype=np.float64),
+                )
+                _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=1.0)
+                xy_err, z_err = _place_xy_z_err((lx, ly, lz), place_retreat_xyz)
+                if (
+                    rem_l <= _PLACE_ARRIVE_XY_M
+                    and xy_err <= _PLACE_ARRIVE_XY_M * 2.0
+                    and z_err <= _PLACE_ARRIVE_Z_M
+                ):
+                    handover_phase = "place_done"
+                    print("[OK] Place complete — left retreated above rack")
+            elif handover_phase == "place_done":
+                _strip_arm_from_cmd(cmd, "right")
+                if "left" in ee_ref:
+                    _apply_ee_ref_to_cmd(cmd, ee_ref, "left", gripper=1.0)
             elif not left_arm_enabled:
                 pass  # left already stripped above
             else:
                 _strip_arm_from_cmd(cmd, "left")
 
-            # Active EE for logging: left during handover approach, else right.
+            # Active EE for logging: left during handover/place, else right.
             log_side = (
                 "left_ee"
-                if handover_phase in ("left_approach", "left_close", "done")
+                if handover_phase
+                in (
+                    "left_clear",
+                    "left_approach",
+                    "left_creep",
+                    "left_close",
+                    "place_prep",
+                    "place_hover",
+                    "place_insert",
+                    "place_open",
+                    "place_retreat",
+                    "place_done",
+                )
                 else "right_ee"
             )
             curr_x = raw_obs.get(f"{log_side}.pos.x")
@@ -1598,8 +2184,8 @@ def main() -> None:
                         "[WARN] |right_dpos| still >5cm/step after unnormalize — "
                         "check preprocessor/postprocessor load; demo scale is ~0.3mm/step."
                     )
-                # Re-assert BASE_LOCK only. Never re-apply LEFT_ARM_DISABLE after
-                # LEFT_ARM_ENABLE (that bug re-disabled the left arm mid-handover).
+                # Re-assert BASE_LOCK. Never re-apply LEFT_ARM_DISABLE after enable,
+                # and keep RIGHT_ARM_DISABLE once place starts.
                 if step_i > 0 and step_i % 90 == 0:
                     match = getattr(
                         robot.ros2_interface, "mode_commands_match_wbc_state", None
@@ -1608,6 +2194,8 @@ def main() -> None:
                         want = ["BASE_LOCK"]
                         if not left_arm_enabled:
                             want.append("LEFT_ARM_DISABLE")
+                        if right_arm_disabled:
+                            want.append("RIGHT_ARM_DISABLE")
                         ok = match(want)
                         if ok is False:
                             print(f"[WARN] WBC lost {want} — re-applying")
@@ -1616,6 +2204,8 @@ def main() -> None:
                                 reapply.append("LEFT_ARM_DISABLE")
                             else:
                                 reapply.append("LEFT_ARM_ENABLE")
+                            if right_arm_disabled:
+                                reapply.append("RIGHT_ARM_DISABLE")
                             _apply_mode_commands(
                                 robot.ros2_interface,
                                 reapply,
