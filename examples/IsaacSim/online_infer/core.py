@@ -939,6 +939,66 @@ def bringup_control(
     iface = robot.ros2_interface
     motion_cfg = motion_cfg if motion_cfg is not None else (MOTION_CFG or ROBOT_CFG)
 
+    # ---------- 局部辅助 ----------
+    def _fsm_state() -> int | None:
+        getter = getattr(iface, "get_fsm_state", None)
+        if getter is None:
+            return None
+        try:
+            return int(getter())
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _send_modes(cmds: list, require: bool = True, timeout: float = 5.0) -> bool:
+        """下发一组 mode 命令并等运控在 current_state 上确认。"""
+        for c in cmds:
+            try:
+                iface.send_mode_command(c)
+                print(f"[OK] mode command: {c}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] {c} 发送失败: {exc}")
+                if require:
+                    return False
+        waiter = getattr(iface, "wait_until_mode_commands_applied", None)
+        if waiter is None:
+            sim_time.sleep(0.6)     # 旧接口没有确认 API，退化为等一会
+            return True
+        try:
+            ok = bool(waiter(cmds, timeout=timeout,
+                             time_now_fn=sim_time.now_seconds,
+                             sleep_fn=sim_time.sleep))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] 等待模式确认异常: {exc}")
+            ok = False
+        if ok:
+            print(f"[OK] modes confirmed: {cmds}")
+        else:
+            msg = f"modes {cmds} 在 {timeout:.0f}s 内未确认"
+            print(f"[{'ERROR' if require else 'warn'}] {msg}")
+            if require:
+                return False
+        return True
+
+    def _ensure_fsm(target: int, name: str, timeout: float = 8.0) -> bool:
+        """把 FSM 切到 target 并确认。send_fsm_command 内部会按需先回 HOLD。"""
+        import time as _t
+        if _fsm_state() == target:
+            print(f"[OK] FSM 已在 {name}")
+            return True
+        print(f"[info] FSM={_fsm_state()} → {name} ...")
+        robot.ros2_interface.send_fsm_command(target)
+        t0 = _t.monotonic()
+        while _t.monotonic() - t0 < timeout:
+            if _fsm_state() == target:
+                print(f"[OK] FSM={name}（已确认）")
+                return True
+            _t.sleep(0.1)
+        print(f"[warn] {timeout:.0f}s 内未确认 FSM={name}（当前 {_fsm_state()}）")
+        return False
+
+    def _ensure_ocs2(timeout: float = 8.0) -> bool:
+        return _ensure_fsm(FSM_OCS2, "OCS2", timeout=timeout)
+
     # ---- 1) 先回 HOLD：只有在 HOLD 里下发的全身模式才不会被 OCS2 默认值覆盖 ----
     _ensure_fsm(FSM_HOLD, "HOLD")
 
