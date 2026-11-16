@@ -132,6 +132,14 @@ def parse_args() -> argparse.Namespace:
              "2.5mm > 数据每帧 1.66mm，增量被残差吃掉，目标每帧倒退）。"
              "默认 25；设 0 = 用 checkpoint 原值。",
     )
+    parser.add_argument(
+        "--settle-s",
+        dest="settle_s",
+        type=float,
+        default=1.0,
+        help="进入 OCS2 后、开始推理前原地保持多少秒（等 MPC 收敛、姿态稳定）。"
+             "默认 1.0；设 0 = 不等待。",
+    )
     return parser.parse_args()
 
 
@@ -1080,42 +1088,130 @@ def main() -> None:
     if not want_lock:
         print("[info] --no-base-lock: 跳过底盘锁定（全身控制可能自行挪底盘）")
 
-    # 顺序（对齐编排 pick_tube_full.yaml / tools/ee_traj.py 的验证过的做法）：
-    #   ARMS_INDEPENDENT → 切 OCS2 → BASE_LOCK → ARM_ENABLE
+    # ================================================================
+    # 启动顺序：**在 HOLD 里先把全身模式设好，再进 OCS2**
+    # ================================================================
     #
-    # ARMS_INDEPENDENT 必须最先：耦合状态下 /right_target 会被左臂 leader 覆盖。
-    _send_modes(["ARMS_INDEPENDENT"], require=False, timeout=3.0)
+    # 这是底盘"从推理一开始就缓慢前移"的根因修复。
+    #
+    # 旧顺序是「先进 OCS2 → 等 2.6s → BASE_LOCK」，问题在于：
+    # 进 OCS2 时用的是 `fsm_default_humanoid_mode_` =
+    # `HM_DUAL_RELATIVE_MOBILE_BASE`（**baseLocked = false**）。
+    # 于是从进 OCS2 到 BASE_LOCK 真正落地的那几秒里，WBC 一直在**按未锁底盘
+    # 在规划**——它为了"够末端目标"会主动挪底盘，底盘就开始往前蹭。
+    # 之后再怎么锁，已经挪出去的那段回不来了。
+    #
+    # 正确做法（与编排采集一致、也与运控设计意图一致）：
+    #   HOLD（不动底盘，全身模式可安全下发）
+    #     → ARMS_INDEPENDENT + BASE_LOCK + BODY_VERTICAL + HOME_JOINT_OFF
+    #     → 把 EE 目标播种到当前实测位姿（防进 OCS2 瞬间被拽向零位）
+    #     → 切 OCS2
+    #     → 再 re-apply 一遍（on_activate 可能重置 fsm_default）
+    #
+    # 关于 **body 模式**：编排 YAML 里**从不发任何 BODY_\* 命令**（只发 BASE_LOCK /
+    # ARM_DISABLE|ENABLE），body 一直沿用 `fsm_default_humanoid_mode_` —— 待机实测
+    # `body_state=1`，即 `BODY_VERTICAL`（本接口里 `BODY_RELATIVE` 与它同值）。
+    #
+    # 所以这里**不发 body 命令**，让它与编排完全一致。
+    # 显式发 `BODY_VERTICAL` 虽然值相同，但会多一次模式变更（走一遍 arm-hold 仲裁），
+    # 反而可能被 delay 或拒绝；不发才是最忠实的复刻。
+    # 绝不要用 `BODY_LOCK`：那会让手臂浮在试管上方、x 方向差一截（同事实测）。
+    #
+    # 关于 **HOME_JOINT_OFF**：`mobile_base_tcp.info` 里 `homeJointReference.activate
+    # = true`，进 OCS2 时会有一个把手臂往全零姿态拉的软约束（mu=1e-3，稳态拉力
+    # 很小，但切换瞬间会有一次拽动）。编排不依赖它，推理也不需要，关掉更干净。
+    def _ensure_fsm(target: int, name: str, timeout: float = 8.0) -> bool:
+        """把 FSM 切到 target 并确认。send_fsm_command 内部会按需先回 HOLD。"""
+        import time as _t
+        if _fsm_state() == target:
+            print(f"[OK] FSM 已在 {name}")
+            return True
+        print(f"[info] FSM={_fsm_state()} → {name} ...")
+        robot.ros2_interface.send_fsm_command(target)
+        t0 = _t.monotonic()
+        while _t.monotonic() - t0 < timeout:
+            if _fsm_state() == target:
+                print(f"[OK] FSM={name}（已确认）")
+                return True
+            _t.sleep(0.1)
+        print(f"[warn] {timeout:.0f}s 内未确认 FSM={name}（当前 {_fsm_state()}）")
+        return False
 
+    # ---- 1) 先回 HOLD：只有在 HOLD 里下发的全身模式才不会被 OCS2 默认值覆盖 ----
+    _ensure_fsm(FSM_HOLD, "HOLD")
+
+    # ---- 2) 在 HOLD 里把全身模式一次性设好 ----
+    # body 模式不发（编排也不发，保持 fsm_default = BODY_VERTICAL）。
+    boot_modes = ["ARMS_INDEPENDENT",
+                  "HOME_JOINT_OFF"]      # 进 OCS2 时不往全零姿态拽
+    if want_lock:
+        boot_modes.append("BASE_LOCK")
+    print(f"[info] 在 HOLD 里应用全身模式: {boot_modes}")
+    _send_modes(boot_modes, require=False, timeout=5.0)
+
+    # ---- 3) 播种 EE 目标 = 当前实测位姿 ----
+    #
+    # 进 OCS2 的瞬间若还没有任何末端目标，运控会沿用缓存/零位目标，手臂会
+    # 先"掉"一下再恢复（实测约 2s 的下垂）。先把两侧目标设成当前实测位姿，
+    # 进 OCS2 后手臂就原地保持。
+    from geometry_msgs.msg import Pose as _Pose
+
+    def _pose_of(obs: Dict[str, float], side: str) -> _Pose:
+        p = _Pose()
+        p.position.x = float(obs.get(f"{side}_ee.pos.x", 0.0))
+        p.position.y = float(obs.get(f"{side}_ee.pos.y", 0.0))
+        p.position.z = float(obs.get(f"{side}_ee.pos.z", 0.0))
+        p.orientation.x = float(obs.get(f"{side}_ee.quat.x", 0.0))
+        p.orientation.y = float(obs.get(f"{side}_ee.quat.y", 0.0))
+        p.orientation.z = float(obs.get(f"{side}_ee.quat.z", 0.0))
+        p.orientation.w = float(obs.get(f"{side}_ee.quat.w", 1.0))
+        return p
+
+    def _seed_ee_hold_current(obs: Dict[str, float]) -> int:
+        n = 0
+        for side in ("left", "right"):
+            if obs.get(f"{side}_ee.pos.x") is None:
+                continue
+            handler = getattr(iface, f"{side}_arm_handler", None)
+            if handler is None or not hasattr(handler, "send_target"):
+                continue
+            try:
+                handler.send_target(_pose_of(obs, side))
+                n += 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 播种 {side} EE 目标失败: {exc}")
+        return n
+
+    try:
+        raw_now = robot.get_observation()
+    except Exception as exc:  # noqa: BLE001
+        raw_now = {}
+        print(f"[warn] 读观测失败，跳过 EE 播种: {exc}")
+    if raw_now:
+        seeded = _seed_ee_hold_current(raw_now)
+        print(f"[info] 已在 HOLD 播种 EE 目标（{seeded} 侧 = 当前实测位姿）")
+        sim_time.sleep(0.1)
+
+    # ---- 4) 切 OCS2（此时底盘已锁、HOME 已关、EE 目标已在实测位姿）----
     _ensure_ocs2()
 
-    # ---- 等 TF 探针结束再锁（关键，踩过）----
-    #
-    # 控制器激活时会 beginMobileBaseTfProbe()，等 world->base TF，
-    # 超时（mobile_base_tf_timeout_sec，默认 2.0s）后调
-    # finalizeMobileBaseTfProbe()，其末尾**无条件**执行
-    #     resetHumanoidModeToFsmDefault();
-    # 把全身模式设回 fsm_default_humanoid_mode_。
-    #
-    # 而 TF 可用时（Isaac 会发 world->base），那个默认值的 baseLocked **是 false**
-    # （`HM_DUAL_RELATIVE_MOBILE_BASE`）—— 于是我们刚发的 BASE_LOCK 被冲掉。
-    # 症状：终检通过 → 跑一会儿底盘开始动。
-    #
-    # 所以锁之前必须等过这个窗口。探针只有一次（mobile_base_tf_decided_），
-    # 之后不会再重置。等 2.6s（2.0 超时 + 余量）足够覆盖。
-    print("[info] 等待运控 TF 探针窗口结束（约 2.6s，避免 BASE_LOCK 被 resetHumanoidModeToFsmDefault 冲掉）...")
-    import time as _tw
-    _tw.sleep(2.6)
+    # ---- 5) 再 re-apply 一遍：on_activate 会把 fsm_default 装回去 ----
+    print(f"[info] OCS2 激活后重申全身模式: {boot_modes}")
+    _send_modes(boot_modes, require=False, timeout=5.0)
 
-    # 再锁底盘 + 使能双臂。锁在最后，确保不被 FSM 切换/TF 探针清掉。
-    if want_lock:
-        if not _send_modes(["BASE_LOCK"], require=True, timeout=5.0):
-            print("[ERROR] BASE_LOCK 未生效 —— 全身控制会挪底盘，末端跟踪会失效。")
-            print("        排查：/ocs2_wbc_controller 是否在跑、current_state 是否可读。")
-            raise SystemExit(3)
-
+    # ---- 6) 使能双臂 ----
     # 编排里 LEFT_ARM_DISABLE（抓取前关左臂）是任务层的事，推理不照做：
-    # 策略输出 14 维含左臂，双臂都要使能。
+    # 策略输出 16 维含左臂，双臂都要使能。
     _send_modes(["LEFT_ARM_ENABLE", "RIGHT_ARM_ENABLE"], require=True, timeout=5.0)
+
+    # ---- 7) 进 OCS2 后原地保持一会儿，等姿态稳定再交策略 ----
+    #
+    # 进 OCS2 时 MPC 需要几个周期收敛到"原地保持"，期间手臂可能有几毫米
+    # 的沉降。等它稳了再开始推理，否则策略第一帧看到的是"正在沉降的画面"。
+    settle_s = float(getattr(args, "settle_s", 1.0) or 0.0)
+    if settle_s > 0:
+        print(f"[info] 等待 OCS2 姿态稳定 {settle_s:.1f}s ...")
+        sim_time.sleep(settle_s)
 
     sim_time.sleep(motion_cfg.fsm_switch_delay)
 
@@ -1127,7 +1223,8 @@ def main() -> None:
         if checker is None:
             print("[warn] 接口没有 mode_commands_match_wbc_state，跳过终检")
             return True
-        cmds = (["BASE_LOCK"] if want_lock else []) + ["LEFT_ARM_ENABLE", "RIGHT_ARM_ENABLE"]
+        cmds = (["BASE_LOCK"] if want_lock else []) + \
+               ["LEFT_ARM_ENABLE", "RIGHT_ARM_ENABLE", "HOME_JOINT_OFF"]
         for attempt in (1, 2, 3):
             fsm_left_ocs2 = False
             if _fsm_state() not in (None, FSM_OCS2):
@@ -1171,13 +1268,16 @@ def main() -> None:
     _guard = {"count": 0, "last_relock": 0.0}
 
     def _guard_base_lock() -> None:
-        if not want_lock or guard_checker is None:
+        if guard_checker is None:
             return
         _guard["count"] += 1
         if _guard["count"] % 10:          # 每 10 帧查一次（20Hz 下即 0.5s）
             return
+        # 一起守：底盘锁 + HOME 约束关闭。两者任何一个被运控重置，
+        # 都会让手臂在无指令的情况下被拉走。
+        want = (["BASE_LOCK"] if want_lock else []) + ["HOME_JOINT_OFF"]
         try:
-            if guard_checker(["BASE_LOCK"]) is True:
+            if guard_checker(want) is True:
                 return
         except Exception:                  # noqa: BLE001
             return
@@ -1185,11 +1285,12 @@ def main() -> None:
         if now - _guard["last_relock"] < 1.0:   # 限频，别刷爆运控队列
             return
         _guard["last_relock"] = now
-        try:
-            iface.send_mode_command("BASE_LOCK")
-            print("[warn] 底盘锁丢失，已自动补发 BASE_LOCK")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[warn] 补发 BASE_LOCK 失败: {exc}")
+        for c in want:
+            try:
+                iface.send_mode_command(c)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 补发 {c} 失败: {exc}")
+        print(f"[warn] 全身模式丢失，已补发 {want}")
 
     period = 1.0 / args.hz
     try:

@@ -72,7 +72,6 @@ def _parse_launcher_args() -> tuple[argparse.Namespace, list[str]]:
         core_args += ["--n-action-steps", str(launcher_args.n_action_steps)]
     return launcher_args, core_args
 
-
 def _iter_queue_blocks(blocks: list[Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
