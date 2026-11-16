@@ -214,6 +214,10 @@ task_queue:
       state: HOME
       then: HOLD
       settle_time: 0.3
+      # HOME 是异步插值（home_duration 默认 5.0s，实测日志显示 5.0s）。
+      # /fsm_state 在插值**一开始**就报 HOME，所以「确认到位」不等于「动作完成」。
+      # 必须额外等插值结束再切 HOLD，否则机器人刚往 home 走就停了。
+      motion_wait: 6.0
       wait_timeout: 10.0
 
 scene_presets:
