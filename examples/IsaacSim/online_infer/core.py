@@ -1189,6 +1189,12 @@ def main() -> None:
     #
     # 所以改成只**等**场景可用（等到末端位姿有稳定发布为止），不写任何仿真状态。
     motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
+    # `--no-base-lock` 时跳过锁底盘（全身控制可能自行挪底盘）。
+    # 注意这个变量在运行期守护里也要用（见下面的 _guard_base_lock），
+    # 所以必须在 bringup 之前定义好 —— 之前重构时漏了，运行时 NameError。
+    want_lock = not getattr(args, "no_base_lock", False)
+    if not want_lock:
+        print("[info] --no-base-lock: 跳过底盘锁定")
     print("Waiting for simulation to be ready (只读等待，不复位仿真)...")
     _wait_for_scene_ready(robot, timeout_s=15.0)
 
@@ -1205,6 +1211,7 @@ def main() -> None:
     # （resetHumanoidModeToFsmDefault，见 WbcCtrlComponent.cpp:299 / Ocs2WbcController.cpp:100）。
     # 每帧检查一次 current_state，发现 base_state 不是 LOCKED 就立刻补发 BASE_LOCK。
     # 检查本身是本地缓存读（wbc_state 由订阅回调更新），不阻塞控制循环。
+    iface = robot.ros2_interface      # bringup_control 用的是自己的局部 iface
     guard_checker = getattr(iface, "mode_commands_match_wbc_state", None)
     _guard = {"count": 0, "last_relock": 0.0}
 
