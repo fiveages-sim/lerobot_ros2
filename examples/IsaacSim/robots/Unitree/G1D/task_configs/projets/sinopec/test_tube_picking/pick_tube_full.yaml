@@ -31,6 +31,14 @@ runtime_defaults:
   gripper_closed: 0.0
 
 task_queue:
+  # -1) 记录起始关节角，供最后一步归位用。
+  #     必须在任何动作之前 —— 此时机器人还停在"仿真刚 Play、运控刚起"的姿态，
+  #     也正是下一次采集想要的起始姿态（自动化采集循环依赖这一点）。
+  #     body=True 连躯干（LZ_mt/it、waist）一起记，否则归位后躯干高度不对。
+  - skill: robot.cache_joint_state
+    params:
+      key: task_start_joints
+      include_body: true
   # 0) 锁底盘：全程不需要 WBC 挪底盘，采集到的末端轨迹才可复现。
   #    BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0，不改变 MPC 维度。
   - skill: robot.send_mode_command
@@ -192,6 +200,15 @@ task_queue:
       motion_frame_id: world
       position_delta: [0.0, 0.0, 0.15]
       gripper: 1.0
+  # 11) 归位：回到第 -1 步缓存的起始关节角（自动化采集循环的关键）。
+  #     走运控 MoveJ（movej_return_to_initial_state），不是直接写关节：
+  #       ① 它会先回 HOLD 再发 MoveJ，避免 OCS2 与 MoveJ 抢控制权
+  #       ② 到位判定用 wait_until_joint_arrive
+  #       ③ 结束后 FSM 在 MOVEJ，下一轮开始前需要重进 OCS2（编排 runner 已处理）
+  #     底盘全程锁着，所以只需把关节角设回去即可复现起始位姿。
+  - skill: joint.goto_cached_joints
+    params:
+      key: task_start_joints
 
 scene_presets:
   default: {}
