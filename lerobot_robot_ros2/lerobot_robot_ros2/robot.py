@@ -422,10 +422,18 @@ class ROS2Robot(Robot):
                 obs_dict[f"{self.RIGHT_EE_PREFIX}.quat.w"] = 1.0
         
         # Capture images from cameras
+        #
+        # 超时取短一些：相机 56Hz（18ms/帧），20Hz 的推理循环每帧只需等到
+        # 下一帧即可。原来写死 300ms，一旦某帧没到就阻塞 300ms，
+        # 而 head 相机还有 depth 话题（再等一次），最坏 600ms —— 直接把
+        # 20Hz 循环拖成 1.4Hz（实测）。这里降到 100ms，且可通过
+        # config.camera_read_timeout_ms 覆盖。
+        cam_timeout_ms = float(getattr(
+            self.config, "camera_read_timeout_ms", 100.0) or 100.0)
         for cam_key, cam in self.cameras.items():
-            start = time.perf_counter()
+            _t_cam = time.perf_counter()
             try:
-                cam_data = cam.async_read(timeout_ms=300)
+                cam_data = cam.async_read(timeout_ms=cam_timeout_ms)
                 if isinstance(cam_data, dict):
                     for modality, value in cam_data.items():
                         if value is None:
@@ -443,7 +451,7 @@ class ROS2Robot(Robot):
                     obs_dict[f"{cam_key}.depth"] = None
                 else:
                     obs_dict[cam_key] = None
-            dt_ms = (time.perf_counter() - start) * 1e3
+            dt_ms = (time.perf_counter() - _t_cam) * 1e3
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
         
         return obs_dict

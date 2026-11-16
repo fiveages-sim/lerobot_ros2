@@ -140,6 +140,18 @@ def parse_args() -> argparse.Namespace:
         help="进入 OCS2 后、开始推理前原地保持多少秒（等 MPC 收敛、姿态稳定）。"
              "默认 1.0；设 0 = 不等待。",
     )
+    parser.add_argument(
+        "--clock",
+        dest="clock",
+        type=str,
+        default="wall",
+        choices=("sim", "wall"),
+        help="循环节拍按哪个时钟走。"
+             "sim = 仿真时间（与采集时间轴语义一致，但仿真 RTF 低时会把动作拉慢）；"
+             "wall = 墙钟（保证实际吞吐 20Hz）。"
+             "实测闭环只有 1.4Hz 时用 wall；训练数据是 20Hz 仿真时间，"
+             "理想情况两钟一致（RTF=1）。默认 wall。",
+    )
     return parser.parse_args()
 
 
@@ -1222,12 +1234,47 @@ def main() -> None:
         print(f"[warn] 全身模式丢失，已补发 {want}")
 
     period = 1.0 / args.hz
+    # 循环节拍模式：
+    #   sim  —— 按**仿真时间**等（默认，与采集时的时间轴语义一致）
+    #   wall —— 按**墙钟**等（仿真跑不到实时时用它，保证实际吞吐）
+    #
+    # 关键背景：训练数据是严格 20Hz **仿真时间**（每帧 50ms，见 session.json
+    # 的 every×physics_dt）。理想情况下推理也按仿真时间 50ms 走。
+    # 但实测闭环只有 1.4Hz（700ms/帧），因为每帧的 get_observation（三路相机
+    # async_read 各 300ms 超时）+ 前向 + `sim_time.sleep` 叠加，在 RTF≈0.09
+    # 的仿真里被放大了 11 倍 —— 于是动作被拉慢十几倍，闭环必然失败。
+    # 开环回放（一次前向、固定 sleep）能成功，正是因为它没这个问题。
+    clock_mode = str(getattr(args, "clock", "sim") or "sim").lower()
+    period_fn = (lambda: period) if clock_mode == "sim" else (lambda: period)
+    now_fn = sim_time.now_seconds if clock_mode == "sim" else time.monotonic
+
+    # 分段计时（--debug 时打印，定位 700ms 到底花在哪）
+    _prof = {"obs": 0.0, "infer": 0.0, "send": 0.0, "sleep": 0.0, "n": 0}
+
+    def _report_prof() -> None:
+        n = _prof["n"]
+        if n < 5:
+            return
+        tot = sum(_prof[k] for k in ("obs", "infer", "send", "sleep"))
+        print(f"[prof] 每帧平均（{n} 帧，{clock_mode} 节拍）: "
+              f"obs={_prof['obs']/n*1000:6.1f}ms  "
+              f"infer={_prof['infer']/n*1000:6.1f}ms  "
+              f"send={_prof['send']/n*1000:5.1f}ms  "
+              f"sleep={_prof['sleep']/n*1000:6.1f}ms  "
+              f"合计={tot/n*1000:6.1f}ms → {n/tot:.2f} Hz"
+              if tot > 0 else "")
+        _prof.update({"obs": 0.0, "infer": 0.0, "send": 0.0, "sleep": 0.0, "n": 0})
+
     try:
         missing_warned = False
         while True:
-            t0 = sim_time.now_seconds()
+            t0 = now_fn()
             _guard_base_lock()
+
+            _t_obs = time.monotonic()
             raw_obs = robot.get_observation()
+            _prof["obs"] += time.monotonic() - _t_obs
+
             _maybe_inject_rot6d_in_obs(raw_obs, meta)
             if not missing_warned and USE_STATE_INPUT and "observation.state" in meta.features:
                 expected = meta.features.get("observation.state", {}).get("names", [])
@@ -1236,6 +1283,7 @@ def main() -> None:
                     print(f"[WARN] Missing observation.state keys: {missing}")
                 missing_warned = True
 
+            _t_inf = time.monotonic()
             action_vec = infer_action_vec(
                 policy=policy,
                 meta=meta,
@@ -1247,6 +1295,7 @@ def main() -> None:
                 preprocessor=_pre,
                 postprocessor=_post,
             )
+            _prof["infer"] += time.monotonic() - _t_inf
             if action_vec is None:
                 continue
 
@@ -1279,12 +1328,22 @@ def main() -> None:
             _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, distance)
             if args.debug:
                 print(f"Gripper cmd: {cmd.get('left_gripper.pos', 'N/A')}")
+            _t_send = time.monotonic()
             robot.send_action(cmd)
+            _prof["send"] += time.monotonic() - _t_send
+            _prof["n"] += 1
 
-            elapsed = sim_time.now_seconds() - t0
-            sleep_t = period - elapsed
+            elapsed = now_fn() - t0
+            sleep_t = period_fn() - elapsed
             if sleep_t > 0:
-                sim_time.sleep(sleep_t)
+                _t_sl = time.monotonic()
+                if clock_mode == "sim":
+                    sim_time.sleep(sleep_t)
+                else:
+                    time.sleep(sleep_t)
+                _prof["sleep"] += time.monotonic() - _t_sl
+            if _prof["n"] % 40 == 0:
+                _report_prof()
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:

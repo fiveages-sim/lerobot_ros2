@@ -132,6 +132,11 @@ class ROS2Camera(Camera):
         self.depth_lock = threading.Lock()
         self.image_received_event = threading.Event()
         self.depth_received_event = threading.Event()
+        # 帧序号：用来判定"这一帧是新到的"（见 async_read 的说明）
+        self._frame_seq = 0
+        self._depth_seq = 0
+        self._last_read_seq = 0
+        self._last_depth_seq = 0
         self._dimensions_initialized = False
         self._cv_bridge_enabled = self.bridge is not None
         self._last_cv_bridge_error_log_ts = 0.0
@@ -330,6 +335,7 @@ class ROS2Camera(Camera):
             
             with self.image_lock:
                 self.latest_image = rgb_image.copy()
+                self._frame_seq = getattr(self, "_frame_seq", 0) + 1
                 self.image_received_event.set()
                 
         except Exception as e:
@@ -436,6 +442,7 @@ class ROS2Camera(Camera):
 
             with self.depth_lock:
                 self.latest_depth = depth_vis.copy()
+                self._depth_seq = getattr(self, "_depth_seq", 0) + 1
                 self.depth_received_event.set()
         except Exception as exc:
             logger.error(f"Failed to process depth image: {exc}")
@@ -444,27 +451,50 @@ class ROS2Camera(Camera):
         return self.async_read(timeout_ms=self.timeout_ms)
     
     def async_read(self, timeout_ms: float = None):
+        """取**最新**一帧图像，且保证每次调用返回的帧是"新到的"。
+
+        关键修正：``image_received_event`` 在回调里 ``set()`` 之后**从不清除**，
+        原实现直接 ``wait()`` 于是**第二次起立刻返回**、永远读到同一张图。
+        闭环推理表现为"画面冻结"：策略看到的始终是第一帧，输出自然不推进。
+
+        用**帧序号**而不是 clear 事件来判定"新帧"，避免丢掉刚到达的帧：
+          - 回调里每次存图都 ``frame_seq += 1``
+          - read 记住上次返回的 seq，等到 ``frame_seq > last_seq`` 才返回
+
+        深度图同理（``depth_seq``）。
+        """
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected")
-        
+
         timeout_ms = timeout_ms or self.timeout_ms
-        
-        if not self.image_received_event.wait(timeout=timeout_ms / 1000.0):
-            raise TimeoutError(f"No image received within {timeout_ms}ms")
-        
+        deadline = time.monotonic() + timeout_ms / 1000.0
+
         rgb_image = None
-        with self.image_lock:
-            if self.latest_image is not None:
-                rgb_image = self.latest_image.copy()
-        
+        last = getattr(self, "_last_read_seq", 0)
+        while True:
+            with self.image_lock:
+                seq = getattr(self, "_frame_seq", 0)
+                if seq > last and self.latest_image is not None:
+                    rgb_image = self.latest_image.copy()
+                    self._last_read_seq = seq
+                    break
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"No new image within {timeout_ms}ms")
+            time.sleep(0.002)
+
         if self.depth_topic_name:
             depth_image = None
-            if self.depth_received_event.wait(timeout=timeout_ms / 1000.0):
+            last_d = getattr(self, "_last_depth_seq", 0)
+            while time.monotonic() < deadline:
                 with self.depth_lock:
-                    if self.latest_depth is not None:
+                    dseq = getattr(self, "_depth_seq", 0)
+                    if dseq > last_d and self.latest_depth is not None:
                         depth_image = self.latest_depth.copy()
+                        self._last_depth_seq = dseq
+                        break
+                time.sleep(0.002)
             return {"rgb": rgb_image, "depth": depth_image}
-        
+
         if rgb_image is None:
             raise RuntimeError("No image available")
         return rgb_image
