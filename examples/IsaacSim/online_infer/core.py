@@ -909,233 +909,35 @@ def _log_debug(args, action_vec, gripper_idx, curr_xyz, target_xyz, delta_xyz, d
 
 
 
-def main() -> None:
-    """在线控制主循环。"""
-    args = parse_args()
-    _train_cfg, meta, policy, policy_image_feats, gripper_idx, _pre, _post, right_gripper_idx = init_inference(args)
+def bringup_control(
+    robot,
+    args,
+    sim_time,
+    *,
+    motion_cfg=None,
+    want_lock: bool = True,
+) -> bool:
+    """把运控从「待命」带到「OCS2 + 双臂使能 + 底盘锁定」的推理就绪状态。
 
-    robot = build_robot()
-    sim_time = SimTimeHelper()
-    robot_connected = False
+    这段是**推理与开环回放共用**的启动序列 —— 两条路径必须走完全相同的
+    运控准备，否则工况不一致会让结果不可比。抽出来就是为了避免两边漂移。
 
-    def shutdown_handler(sig, frame) -> None:
-        print("\nInterrupt received, shutting down...")
-        try:
-            if robot_connected:
-                try:
-                    robot.ros2_interface.send_fsm_command(FSM_HOLD)
-                except Exception:
-                    pass
-                robot.disconnect()
-        finally:
-            sim_time.shutdown()
-        sys.exit(0)
+    顺序（每一步都有踩坑记录，见 docs/DEBUG_LOG.md）::
 
-    signal.signal(signal.SIGINT, shutdown_handler)
+        1. HOLD                          ← 全身模式只在 HOLD 里下发才不被覆盖
+        2. ARMS_INDEPENDENT + HOME_JOINT_OFF + BASE_LOCK
+        3. 播种 EE 目标 = 当前实测位姿   ← 防进 OCS2 瞬间被拽向零位
+        4. 切 OCS2
+        5. re-apply 一遍模式             ← on_activate 会装回 fsm_default
+        6. 使能双臂
+        7. 原地保持 settle_s 秒          ← 等 MPC 收敛
+        8. 终检（含补发）
 
-    print("Connecting to robot...")
-    robot.connect()
-    robot_connected = True
-    print("[OK] Robot connected")
-
-    # ---- 同步「自动切 FSM」开关到接口的私有成员 ----
-    #
-    # ROS2RobotInterface.__init__（ros_interface.py:248）把
-    # config.auto_switch_fsm_before_control 复制成 _auto_switch_fsm_before_control，
-    # 而 ArmHandler.send_target 读的是后者。只改 config 不会生效，
-    # 必须在这里同步；否则 send_target 仍会在"以为不在 OCS2"时发 HOLD，
-    # 把 BASE_LOCK 清掉（详见 build_robot 里的注释）。
-    iface0 = getattr(robot, "ros2_interface", None)
-    if iface0 is not None:
-        cur = getattr(iface0, "_auto_switch_fsm_before_control", None)
-        if cur:
-            try:
-                iface0._auto_switch_fsm_before_control = False  # noqa: SLF001
-                print("[OK] 已关闭 send_target 的自动 FSM 切换（保护 BASE_LOCK）")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[warn] 关闭自动 FSM 切换失败: {exc}")
-
-    # ---- 不再复位仿真 ----
-    #
-    # 分工约定：**仿真的开关/复位由人负责**，推理脚本只负责「你开好之后让机器人动」。
-    #
-    # 这里原本会调 reset_simulation_state()（/set_simulation_state + 等物体稳定）。
-    # 它有两处副作用，都很难看：
-    #   1) 仿真时间从 0 重新走，而接口进程已经收过上一轮的 TF（stamp 16.6s）。
-    #      ros2_robot_interface 新版有 clock-regression 检测
-    #      （CLOCK_REGRESSION_THRESHOLD_SEC=1.0），于是判定"仿真重启"并重建 TF buffer，
-    #      重建窗口期内 tf2 对每条旧 TF 打 TF_OLD_DATA —— 就是那段刷屏。
-    #   2) 会把人手动摆好的场景状态冲掉。
-    #
-    # 所以改成只**等**场景可用（等到末端位姿有稳定发布为止），不写任何仿真状态。
-    motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
-    print("Waiting for simulation to be ready (只读等待，不复位仿真)...")
-    _wait_for_scene_ready(robot, timeout_s=15.0)
-
-    # ---- 使能机械臂 + 锁底盘（关键，漏了/顺序错机器人就不动）----
-    #
-    # 严格照编排（pick_tube_full.yaml）的做法：
-    #   1) **先 BASE_LOCK**（第 0 步，require_confirmed + 5s 超时）
-    #      BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0。不锁的话
-    #      全身控制会自己挪底盘去"够"目标 —— 实测就是这个现象：
-    #      手不动、底盘缓慢移动、腰部微调。
-    #   2) 再使能双臂
-    #   3) **每条命令都要等运控确认**（wait_until_mode_commands_applied），
-    #      只 sleep 固定时长不可靠 —— 运控可能还没切完就往下走。
+    Returns:
+        True 表示终检通过。
+    """
     iface = robot.ros2_interface
-
-    def _send_modes(cmds: list[str], require: bool = True, timeout: float = 5.0) -> bool:
-        for c in cmds:
-            try:
-                iface.send_mode_command(c)
-                print(f"[OK] mode command: {c}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[warn] {c} 发送失败: {exc}")
-                if require:
-                    return False
-        # 等运控在 /ocs2_wbc_controller/current_state 上确认
-        waiter = getattr(iface, "wait_until_mode_commands_applied", None)
-        if waiter is not None:
-            try:
-                ok = bool(waiter(cmds, timeout=timeout,
-                                 time_now_fn=sim_time.now_seconds,
-                                 sleep_fn=sim_time.sleep))
-            except Exception as exc:  # noqa: BLE001
-                print(f"[warn] 等待模式确认异常: {exc}")
-                ok = False
-            if ok:
-                print(f"[OK] modes confirmed: {cmds}")
-            else:
-                msg = f"modes {cmds} 在 {timeout:.0f}s 内未确认"
-                print(f"[{'ERROR' if require else 'warn'}] {msg}")
-                if require:
-                    return False
-        else:
-            sim_time.sleep(0.6)     # 旧接口没有确认 API，退化为等一会
-        return True
-
-    # ---- 使能机械臂 + 锁底盘（顺序和编排 pick_tube_full.yaml 一致）----
-    #
-    # 编排第 0 步就是 BASE_LOCK，随后 LEFT_ARM_ENABLE。这里照抄。
-    #
-    # 为什么必须锁：BASE_LOCK 在 mobile_base_tcp 下把 u_base 约束为 0，
-    # 全身控制就不会为了"够目标"而挪底盘。虽然末端目标是 world 绝对系、
-    # 底盘漂移不直接改目标，但编排全程锁底盘，推理要对齐同一工况。
-    #
-    # 关键时序陷阱（踩过）：运控在**离开 OCS2** 时会调
-    # resetHumanoidModeToFsmDefault()（Ocs2WbcController.cpp:100）
-    # 把全身模式设回 fsm_default_humanoid_mode_，BASE_LOCK 被清掉。
-    # 所以 **BASE_LOCK 必须是最后一次写全身模式**，且之后不能再切 FSM。
-    iface = robot.ros2_interface
-
-    def _send_modes(cmds: list[str], require: bool = True, timeout: float = 5.0) -> bool:
-        for c in cmds:
-            try:
-                iface.send_mode_command(c)
-                print(f"[OK] mode command: {c}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[warn] {c} 发送失败: {exc}")
-                if require:
-                    return False
-        # 等运控在 /ocs2_wbc_controller/current_state 上确认
-        waiter = getattr(iface, "wait_until_mode_commands_applied", None)
-        if waiter is not None:
-            try:
-                ok = bool(waiter(cmds, timeout=timeout,
-                                 time_now_fn=sim_time.now_seconds,
-                                 sleep_fn=sim_time.sleep))
-            except Exception as exc:  # noqa: BLE001
-                print(f"[warn] 等待模式确认异常: {exc}")
-                ok = False
-            if ok:
-                print(f"[OK] modes confirmed: {cmds}")
-            else:
-                msg = f"modes {cmds} 在 {timeout:.0f}s 内未确认"
-                print(f"[{'ERROR' if require else 'warn'}] {msg}")
-                if require:
-                    return False
-        else:
-            sim_time.sleep(0.6)     # 旧接口没有确认 API，退化为等一会
-        return True
-
-    def _fsm_state() -> int | None:
-        getter = getattr(iface, "get_fsm_state", None)
-        if getter is None:
-            return None
-        try:
-            return int(getter())
-        except Exception:  # noqa: BLE001
-            return None
-
-    def _ensure_ocs2(timeout: float = 6.0) -> bool:
-        """确保 FSM 真的在 OCS2（不在就切，切完再确认）。"""
-        import time as _t
-        if _fsm_state() == FSM_OCS2:
-            print("[OK] FSM 已在 OCS2")
-            return True
-        print(f"[info] FSM={_fsm_state()}，切到 OCS2 ...")
-        robot.ros2_interface.send_fsm_command(FSM_OCS2)
-        t0 = _t.monotonic()
-        while _t.monotonic() - t0 < timeout:
-            if _fsm_state() == FSM_OCS2:
-                print("[OK] FSM=OCS2（已确认）")
-                return True
-            _t.sleep(0.1)
-        print(f"[warn] {timeout:.0f}s 内未确认 FSM=OCS2（当前 {_fsm_state()}）")
-        return False
-
-    want_lock = not getattr(args, "no_base_lock", False)
-    if not want_lock:
-        print("[info] --no-base-lock: 跳过底盘锁定（全身控制可能自行挪底盘）")
-
-    # ================================================================
-    # 启动顺序：**在 HOLD 里先把全身模式设好，再进 OCS2**
-    # ================================================================
-    #
-    # 这是底盘"从推理一开始就缓慢前移"的根因修复。
-    #
-    # 旧顺序是「先进 OCS2 → 等 2.6s → BASE_LOCK」，问题在于：
-    # 进 OCS2 时用的是 `fsm_default_humanoid_mode_` =
-    # `HM_DUAL_RELATIVE_MOBILE_BASE`（**baseLocked = false**）。
-    # 于是从进 OCS2 到 BASE_LOCK 真正落地的那几秒里，WBC 一直在**按未锁底盘
-    # 在规划**——它为了"够末端目标"会主动挪底盘，底盘就开始往前蹭。
-    # 之后再怎么锁，已经挪出去的那段回不来了。
-    #
-    # 正确做法（与编排采集一致、也与运控设计意图一致）：
-    #   HOLD（不动底盘，全身模式可安全下发）
-    #     → ARMS_INDEPENDENT + BASE_LOCK + BODY_VERTICAL + HOME_JOINT_OFF
-    #     → 把 EE 目标播种到当前实测位姿（防进 OCS2 瞬间被拽向零位）
-    #     → 切 OCS2
-    #     → 再 re-apply 一遍（on_activate 可能重置 fsm_default）
-    #
-    # 关于 **body 模式**：编排 YAML 里**从不发任何 BODY_\* 命令**（只发 BASE_LOCK /
-    # ARM_DISABLE|ENABLE），body 一直沿用 `fsm_default_humanoid_mode_` —— 待机实测
-    # `body_state=1`，即 `BODY_VERTICAL`（本接口里 `BODY_RELATIVE` 与它同值）。
-    #
-    # 所以这里**不发 body 命令**，让它与编排完全一致。
-    # 显式发 `BODY_VERTICAL` 虽然值相同，但会多一次模式变更（走一遍 arm-hold 仲裁），
-    # 反而可能被 delay 或拒绝；不发才是最忠实的复刻。
-    # 绝不要用 `BODY_LOCK`：那会让手臂浮在试管上方、x 方向差一截（同事实测）。
-    #
-    # 关于 **HOME_JOINT_OFF**：`mobile_base_tcp.info` 里 `homeJointReference.activate
-    # = true`，进 OCS2 时会有一个把手臂往全零姿态拉的软约束（mu=1e-3，稳态拉力
-    # 很小，但切换瞬间会有一次拽动）。编排不依赖它，推理也不需要，关掉更干净。
-    def _ensure_fsm(target: int, name: str, timeout: float = 8.0) -> bool:
-        """把 FSM 切到 target 并确认。send_fsm_command 内部会按需先回 HOLD。"""
-        import time as _t
-        if _fsm_state() == target:
-            print(f"[OK] FSM 已在 {name}")
-            return True
-        print(f"[info] FSM={_fsm_state()} → {name} ...")
-        robot.ros2_interface.send_fsm_command(target)
-        t0 = _t.monotonic()
-        while _t.monotonic() - t0 < timeout:
-            if _fsm_state() == target:
-                print(f"[OK] FSM={name}（已确认）")
-                return True
-            _t.sleep(0.1)
-        print(f"[warn] {timeout:.0f}s 内未确认 FSM={name}（当前 {_fsm_state()}）")
-        return False
+    motion_cfg = motion_cfg if motion_cfg is not None else (MOTION_CFG or ROBOT_CFG)
 
     # ---- 1) 先回 HOLD：只有在 HOLD 里下发的全身模式才不会被 OCS2 默认值覆盖 ----
     _ensure_fsm(FSM_HOLD, "HOLD")
@@ -1252,7 +1054,74 @@ def main() -> None:
         print("        建议先跑：python exts/fasim.replicator.sdg/scripts/probe_ee_tracking.py --check-only")
         return False
 
-    lock_ok = _final_check()
+    return _final_check()
+
+
+def main() -> None:
+    """在线控制主循环。"""
+    args = parse_args()
+    _train_cfg, meta, policy, policy_image_feats, gripper_idx, _pre, _post, right_gripper_idx = init_inference(args)
+
+    robot = build_robot()
+    sim_time = SimTimeHelper()
+    robot_connected = False
+
+    def shutdown_handler(sig, frame) -> None:
+        print("\nInterrupt received, shutting down...")
+        try:
+            if robot_connected:
+                try:
+                    robot.ros2_interface.send_fsm_command(FSM_HOLD)
+                except Exception:
+                    pass
+                robot.disconnect()
+        finally:
+            sim_time.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown_handler)
+
+    print("Connecting to robot...")
+    robot.connect()
+    robot_connected = True
+    print("[OK] Robot connected")
+
+    # ---- 同步「自动切 FSM」开关到接口的私有成员 ----
+    #
+    # ROS2RobotInterface.__init__（ros_interface.py:248）把
+    # config.auto_switch_fsm_before_control 复制成 _auto_switch_fsm_before_control，
+    # 而 ArmHandler.send_target 读的是后者。只改 config 不会生效，
+    # 必须在这里同步；否则 send_target 仍会在"以为不在 OCS2"时发 HOLD，
+    # 把 BASE_LOCK 清掉（详见 build_robot 里的注释）。
+    iface0 = getattr(robot, "ros2_interface", None)
+    if iface0 is not None:
+        cur = getattr(iface0, "_auto_switch_fsm_before_control", None)
+        if cur:
+            try:
+                iface0._auto_switch_fsm_before_control = False  # noqa: SLF001
+                print("[OK] 已关闭 send_target 的自动 FSM 切换（保护 BASE_LOCK）")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] 关闭自动 FSM 切换失败: {exc}")
+
+    # ---- 不再复位仿真 ----
+    #
+    # 分工约定：**仿真的开关/复位由人负责**，推理脚本只负责「你开好之后让机器人动」。
+    #
+    # 这里原本会调 reset_simulation_state()（/set_simulation_state + 等物体稳定）。
+    # 它有两处副作用，都很难看：
+    #   1) 仿真时间从 0 重新走，而接口进程已经收过上一轮的 TF（stamp 16.6s）。
+    #      ros2_robot_interface 新版有 clock-regression 检测
+    #      （CLOCK_REGRESSION_THRESHOLD_SEC=1.0），于是判定"仿真重启"并重建 TF buffer，
+    #      重建窗口期内 tf2 对每条旧 TF 打 TF_OLD_DATA —— 就是那段刷屏。
+    #   2) 会把人手动摆好的场景状态冲掉。
+    #
+    # 所以改成只**等**场景可用（等到末端位姿有稳定发布为止），不写任何仿真状态。
+    motion_cfg = MOTION_CFG if MOTION_CFG is not None else ROBOT_CFG
+    print("Waiting for simulation to be ready (只读等待，不复位仿真)...")
+    _wait_for_scene_ready(robot, timeout_s=15.0)
+
+    lock_ok = bringup_control(robot, args, sim_time,
+                              motion_cfg=motion_cfg, want_lock=want_lock)
 
     print("[OK] FSM=OCS2, arms enabled, base locked — starting inference loop...")
     if not lock_ok:
