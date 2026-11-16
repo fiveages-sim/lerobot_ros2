@@ -60,11 +60,12 @@ def _parse_launcher_args() -> tuple[argparse.Namespace, list[str]]:
         "--n-action-steps",
         dest="n_action_steps",
         type=int,
-        default=25,
+        default=100,
         help="一次预测后连续执行多少帧再回读观测（覆盖 checkpoint 里的值）。"
-             "checkpoint 常是 1，配 chunk_size=100 会导致闭环死锁：运控稳态残差"
-             "约 2.5mm，而数据每帧只走 1.66mm，增量被残差吃掉，目标每帧倒退。"
-             "默认 25；设 0 = 用 checkpoint 原值。",
+             "**必须 ≥ 策略从当前观测到关键动作的帧数**：本任务策略第 49 帧才合爪，"
+             "设 25 时那一步不在队列里，手臂只走到 2.06 就重算 → 反复够不到；"
+             "设 100（=chunk_size）可一把完成抓取+交接+插管（已实测成功）。"
+             "默认 100；设 0 = 用 checkpoint 原值（通常 1，会死锁）。",
     )
     launcher_args, core_args = parser.parse_known_args()
     # 透传给 core.py（它自己也要 parse，所以必须显式追加）

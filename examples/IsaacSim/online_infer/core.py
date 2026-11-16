@@ -126,11 +126,15 @@ def parse_args() -> argparse.Namespace:
         "--n-action-steps",
         dest="n_action_steps",
         type=int,
-        default=25,
+        default=100,
         help="覆盖 checkpoint 的 n_action_steps：一次预测后连续执行多少帧再回读观测。"
-             "checkpoint 常是 1，配 chunk_size=100 会导致闭环死锁（运控稳态残差约"
-             "2.5mm > 数据每帧 1.66mm，增量被残差吃掉，目标每帧倒退）。"
-             "默认 25；设 0 = 用 checkpoint 原值。",
+             "**必须 ≥ 策略从当前观测到「关键动作」的帧数**，否则那个动作根本不在"
+             "队列里、永远执行不到。"
+             "实测本任务（G1D 试管）：策略在 obs=起点时第 49 帧才合爪，"
+             "n_action_steps=25 → 本轮最小 x 只到 2.0647（够不到 1.99），"
+             "夹爪在队列边界反复开合，任务必然失败；"
+             "n_action_steps=100（=chunk_size）→ 一把完成抓取+交接+插管。"
+             "默认 100；设 0 = 用 checkpoint 原值（通常是 1，会死锁）。",
     )
     parser.add_argument(
         "--settle-s",
@@ -496,6 +500,52 @@ def _filter_state_features(meta: LeRobotDatasetMetadata, drop_set: set[str]) -> 
             stats[k] = _slice_stat(v)
 
 
+def _estimate_grasp_frame(policy, meta, gripper_idx: int,
+                          dataset_root: str | None = None) -> int | None:
+    """估算「从数据集起始观测出发，第几帧才合爪」。
+
+    用来检查 ``n_action_steps`` 是否覆盖得到关键动作。做法：
+    取数据集第 0 帧（起始状态）做一次 chunk 预测，找夹爪第一次 <0.5 的帧号。
+
+    这是**只读诊断**，失败时返回 None（不影响推理启动）。
+    优先读 ``meta._root``；读不到就跳过。
+    """
+    try:
+        import torch
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+        root = dataset_root or str(getattr(meta, "root", "") or "")
+        if not root:
+            return None
+        ds = LeRobotDataset(repo_id=meta.repo_id, root=root, video_backend="pyav")
+        it = ds[0]
+        batch = {}
+        st = it.get("observation.state")
+        if st is not None:
+            st = st.numpy() if hasattr(st, "numpy") else np.asarray(st)
+            batch["observation.state"] = torch.as_tensor(
+                st, dtype=torch.float32).reshape(1, -1).to(policy.config.device)
+        for cam_key in (meta.camera_keys or []):
+            v = it.get(cam_key)
+            if v is None:
+                continue
+            v = v.numpy() if hasattr(v, "numpy") else np.asarray(v)
+            if v.ndim == 3 and v.shape[0] in (1, 3, 4):
+                v = np.transpose(v, (1, 2, 0))
+            if v.dtype != np.uint8:
+                v = (np.clip(v, 0, 1) * 255).astype(np.uint8)
+            t = torch.from_numpy(v[..., :3]).permute(2, 0, 1).float() / 255.0
+            batch[cam_key] = t.unsqueeze(0).to(policy.config.device)
+        with torch.no_grad():
+            ch = policy.predict_action_chunk(batch).squeeze(0)
+        policy.reset()
+        g = np.asarray(ch[:, gripper_idx].detach().cpu()).reshape(-1)
+        closed = np.where(g < 0.5)[0]
+        return int(closed[0]) if len(closed) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, torch.nn.Module, list[str], int | None]:
     """加载训练配置/数据集元信息/策略模型，用于在线推理。"""
     dataset_root = _resolve_dataset_path(args.dataset)
@@ -611,7 +661,32 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
     elif policy.config.n_action_steps == 1 and policy.config.chunk_size > 1:
         print("[warn] n_action_steps=1 + chunk_size="
               f"{policy.config.chunk_size}：闭环里会因稳态残差**倒退**。"
-              "建议加 --n-action-steps 25")
+              "建议加 --n-action-steps 100")
+
+    # ---- 自检：n_action_steps 是否覆盖得到「关键动作」 ----
+    #
+    # 这是本任务最难发现的一个坑（2026-11-16 定位）：
+    # 策略在 obs=起点时，**第 49 帧**才合爪。而 n_action_steps=25 时，
+    # action queue 里只有第 0~24 帧 —— 合爪那一步**根本不在队列里**，
+    # 永远执行不到。表现是：手臂每 25 帧重算一次、只走到 x≈2.06（够不到
+    # 1.99），夹爪在队列边界反复开合，看着像"反复试探"。
+    # 设成 100（=chunk_size）后一把完成抓取+交接+插管（实测成功）。
+    #
+    # 这里不改任何东西，只在启动时把风险明确说出来。
+    _gidx_probe = (action_names.index("right_gripper.pos")
+                   if "right_gripper.pos" in action_names else None)
+    if _gidx_probe is not None:
+        cap = int(policy.config.n_action_steps)
+        need = _estimate_grasp_frame(policy, meta, _gidx_probe,
+                                     dataset_root=str(dataset_root))
+        if need is not None and need >= cap:
+            print(f"[WARN] n_action_steps={cap} 可能太短：策略在起点观测下"
+                  f"第 {need} 帧才合爪，而队列只有 {cap} 帧 → 合爪动作不在队列内，"
+                  "会反复够不到。建议 --n-action-steps "
+                  f"{min(need + 10, policy.config.chunk_size)} 或直接设 chunk_size。")
+        elif need is not None:
+            print(f"[info] 队列覆盖检查通过：策略第 {need} 帧合爪，"
+                  f"队列 {cap} 帧内包含 ✅")
 
     policy.reset()
     print("[info] Policy reset, action queue initialized")
