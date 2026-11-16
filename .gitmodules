@@ -19,3 +19,6 @@
 [submodule "submodules/LightNav-0_W2"]
 	path = submodules/LightNav-0_W2
 	url = git@github.com:fiveages-sim/LightNav-0_W2.git
+[submodule "submodules/roboapi-fasim"]
+	path = submodules/roboapi-fasim
+	url = git@github.com:fiveages-sim/roboapi-fasim.git
