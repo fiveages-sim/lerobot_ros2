@@ -663,6 +663,11 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
               f"{policy.config.chunk_size}：闭环里会因稳态残差**倒退**。"
               "建议加 --n-action-steps 100")
 
+    policy.reset()
+    print("[info] Policy reset, action queue initialized")
+
+    action_names = meta.features.get("action", {}).get("names", [])
+
     # ---- 自检：n_action_steps 是否覆盖得到「关键动作」 ----
     #
     # 这是本任务最难发现的一个坑（2026-11-16 定位）：
@@ -672,6 +677,8 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
     # 1.99），夹爪在队列边界反复开合，看着像"反复试探"。
     # 设成 100（=chunk_size）后一把完成抓取+交接+插管（实测成功）。
     #
+    # 注意：必须放在 ``action_names`` 定义之后（踩过 —— 放前面会
+    # UnboundLocalError: cannot access local variable 'action_names'）。
     # 这里不改任何东西，只在启动时把风险明确说出来。
     _gidx_probe = (action_names.index("right_gripper.pos")
                    if "right_gripper.pos" in action_names else None)
@@ -679,6 +686,7 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
         cap = int(policy.config.n_action_steps)
         need = _estimate_grasp_frame(policy, meta, _gidx_probe,
                                      dataset_root=str(dataset_root))
+        policy.reset()
         if need is not None and need >= cap:
             print(f"[WARN] n_action_steps={cap} 可能太短：策略在起点观测下"
                   f"第 {need} 帧才合爪，而队列只有 {cap} 帧 → 合爪动作不在队列内，"
@@ -687,11 +695,6 @@ def init_inference(args) -> tuple[TrainPipelineConfig, LeRobotDatasetMetadata, t
         elif need is not None:
             print(f"[info] 队列覆盖检查通过：策略第 {need} 帧合爪，"
                   f"队列 {cap} 帧内包含 ✅")
-
-    policy.reset()
-    print("[info] Policy reset, action queue initialized")
-
-    action_names = meta.features.get("action", {}).get("names", [])
 
     def _find_idx(name: str) -> int | None:
         return action_names.index(name) if name in action_names else None
