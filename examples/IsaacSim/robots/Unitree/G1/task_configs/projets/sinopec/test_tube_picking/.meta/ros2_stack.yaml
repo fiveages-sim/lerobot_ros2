@@ -1,0 +1,8 @@
+# 试管场景的运控由 room.usda 的 ROS=fiveages 在 Play 时启动。
+# 本叶子覆盖只防止 motion-generation --ensure-ros2-stack 再拉外部控制器。
+
+motion:
+  required: false
+
+navigation:
+  required: false

@@ -1,0 +1,37 @@
+# 兜底任务：只回 HOME —— 采集失败后的收尾
+#
+# 与 G1 同目录的同名文件完全同构，仅 `base_link_entity_path` 不同
+# （G1D 的 base_link 在底盘，G1 的在 /World/G1/G1_Lower/pelvis）。
+#
+# 为什么需要：`pick_tube_full` 的 task_queue 失败即 abort，block 9
+# （FSM HOME → HOLD）不会执行，机器人停在半空。sdg 的 auto 循环紧接着开下一轮，
+# 下一轮首帧就是半空姿态 —— pack 的 FK 反解 base 会错，动作标签全废，
+# 而且抓取必然失败形成连锁。详见 G1 同路径文件里的实测数据。
+
+task_key: home_only
+label: 仅回 HOME（采集失败兜底）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  base_link_entity_path: /World/G1D/base_link
+  frame_id: world
+  max_stage_duration: 3.0
+  pose_tol_pos: 0.02
+  pose_tol_ori: 0.08
+  gripper_open: 1.0
+  gripper_closed: 0.0
+
+task_queue:
+  - skill: robot.fsm_command
+    params:
+      state: HOME
+      then: HOLD
+      settle_time: 0.3
+      # HOME 是异步插值（home_duration 默认 5.0s）。/fsm_state 在插值一开始
+      # 就报 HOME，所以要额外等插值走完再切 HOLD。
+      motion_wait: 6.0
+      wait_timeout: 10.0
+
+scene_presets:
+  default: {}

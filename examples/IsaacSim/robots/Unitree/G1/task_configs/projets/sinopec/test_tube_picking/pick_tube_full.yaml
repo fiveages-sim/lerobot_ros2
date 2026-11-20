@@ -1,0 +1,221 @@
+# Unitree G1 + Dex1 — 右手侧抓试管（完整）
+#
+# 与 G1D 的 pick_tube_full 是**同一个任务、同一套场景**，机器人不同。差异只有
+# 下列几处，其余（抓取姿态、插入参数、交接流程）照抄 G1D，因为它们只依赖
+# 试管/架子的世界位姿与 Dex1 夹爪几何，而这两者两台机器人完全相同。
+#
+# ┌─ 与 G1D 的四处刻意差异 ────────────────────────────────────────────────┐
+# │ 1. 没有底盘 → 删掉所有 BASE_LOCK / BASE_UNLOCK 块                      │
+# │    G1 的 task.info 是 manipulatorModelType 0（固定基座），在它上面发    │
+# │    BASE_LOCK 没有对应的底盘自由度；对 WBC 还会让 MPC 卡在              │
+# │    WAITING_FOR_ENABLE_POLICY。G1 本来就不动，什么都不用发。            │
+# │ 2. 没有单臂 disable/enable → 删掉 robot.send_mode_command 块           │
+# │    这些是 WBC 的概念；G1 走 ocs2_arm_controller（双臂恒开启）。         │
+# │    "左臂先别动"由 OCS2 自然实现：进 OCS2 时两臂都以当前位姿为种子，      │
+# │    没收到新目标的臂原地保持。                                          │
+# │ 3. 没有 base_footprint → 胸前交接的路点改用 base_link                  │
+# │    G1D 的 [0.38, 0, 1.05] 写在 base_footprint（地面系）。G1 的          │
+# │    base_link 在骨盆，两帧轴向相同、只差 z 原点，所以 x/y 与姿态照抄，    │
+# │    z 需减去骨盆高度：1.05 − 0.805 ≈ 0.245。**这个值必须实测校准。**     │
+# │ 4. 归位：G1 的 ocs2_arm_controller 同样支持 FSM HOME→HOLD。            │
+# └───────────────────────────────────────────────────────────────────────┘
+#
+# 坐标系约定（与 robot.yaml 配合）：
+#   - 任务位姿按 ee_target_frame（{arm}_eef = 夹指）书写，下发前用实时 TF
+#     换算成运控跟踪的 {arm}_tcp；不要在这里写死 eef↔tcp 偏移。
+#   - 抓取/放置用 world（物体在世界系，机器人不动，世界系最稳）。
+#   - grasp_id 走 /get_prim_attribute 读 USD 静态局部 xform，再叠加刚体
+#     实时位姿（/get_entity_state）。该服务由 fiveages ROS 图里的
+#     isaacsim.ros2.bridge.ROS2ServicePrim 提供。
+#
+# 下方的 ee_base_orientation / 位置沿用 2026-11-01 的 G1D 标定值，
+# **需在 G1 仿真里重新验证**（G1 与 G1D 上身同构，预期可直接复用）。
+
+task_key: pick_tube_full
+label: 右手侧抓试管（完整）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  # 物体抓取/放置在 world 下解算并 stamp。G1 无底盘，world 与 body 的相对
+  # 关系恒定，所以比 G1D 更安全（G1D 需要 BASE_LOCK 才能保证这一点）。
+  base_link_entity_path: /World/G1/G1_Lower/pelvis
+  frame_id: world
+  # 单个 stage 的最长等待时间（秒）。超时不报错，只打 WARN 后继续往下走。
+  #
+  # 为什么是 3.0（继承 G1D 的结论）：
+  #   运动生成的到位判定是 pos_dist < pose_tol_pos(0.02)，而运控有约 10mm
+  #   稳态误差（实测稳定在 0.0100~0.0101），卡在阈值边缘，能不能过看运气，
+  #   过不了就耗满超时。3.0 的依据是抬手 12cm 实测 0.6~1.0s 规划 + 1s 执行。
+  max_stage_duration: 3.0
+  pose_tol_pos: 0.02
+  pose_tol_ori: 0.08
+  gripper_open: 1.0
+  gripper_closed: 0.0
+
+task_queue:
+  # 1) 斜向下 30° 抓取：先到准备点再闭合。水平靠近会碰到木架。
+  #    world 系下夹指 +Z 指向世界 −X 再下倾 30°。
+  #    prepare_offset 在工具系：沿 −Z 退 5cm，避免低位直插撞到试管架。
+  - skill: single_arm.pick
+    params:
+      arm: right
+      object_key: test_tube
+      grasp_id: tube
+      motion_frame_id: world
+      ee_base_orientation: [0.0, -0.866025, 0.0, 0.5]
+      ee_pick_axis: "+z"
+      ee_orientation_frame: motion
+      prepare_offset: [0.0, 0.0, -0.05]
+      pick_clearance: 0.0
+      retreat_open_gripper: false
+      gripper_closed: 0.0
+      # movel_duration 是控制器节点全局参数，设一次后持续生效；
+      # 0.1 = 交给 OCS2 自动延长规划时间。
+      arm_movel_duration: 0.1
+  # 2) 沿世界竖直抬起（勿用 body 系：躯干/腿一动 +Z 会往前偏）。
+  - skill: single_arm.move_relative
+    params:
+      arm: right
+      motion_frame_id: world
+      position_delta: [0.0, 0.0, 0.20]
+      gripper: 0.0
+  # 3) 右手把试管送到胸前（交接点）。
+  #    夹指朝向是抓取方向再绕世界 Z 转 +60°，仍下倾 30°。
+  #    相对身体书写（base_link），这样换机器人站位时不用重算。
+  #    ⚠ z=0.245 由 G1D 的地面系 1.05 减去骨盆高度 0.805 得到，需实测校准。
+  - skill: single_arm.move_to_pose
+    params:
+      arm: right
+      motion_frame_id: base_link
+      position: [0.38, 0.0, 0.245]
+      orientation: [-0.75, -0.433013, -0.433013, 0.25]
+      gripper: 0.0
+  # 4) 左手按实时试管位姿抓偏上（勿写死胸前绝对点）。
+  #    tube_grasp 局部 z≈0.131；再 −0.03 → 只比右手低约 3cm。
+  #    姿态仍下倾 15°，工具系 −Z 退 12cm 再闭合。省略 ee_lift_offset。
+  - skill: single_arm.pick
+    params:
+      arm: left
+      object_key: test_tube
+      grasp_id: tube
+      object_position_offset: [0.0, 0.0, -0.03]
+      motion_frame_id: base_link
+      ee_base_orientation: [0.687064, -0.396676, 0.527203, 0.30438]
+      ee_pick_axis: "+z"
+      ee_orientation_frame: motion
+      prepare_offset: [0.0, 0.0, -0.12]
+      pick_clearance: 0.0
+      retreat_open_gripper: false
+      gripper_closed: 0.0
+  # 5) 左手闭爪后让它夹稳，右手才松开并退出。
+  #    G1D 在 4) 和 5) 之间还夹了一个「右手再次 move_to_pose 到胸前」的块，
+  #    作用是给左手 1.5s 的夹持稳定时间；这里保留同样的语义（同一目标重复
+  #    下发，等价于原地保持 + 等待 gripper_action_wait）。
+  - skill: single_arm.move_to_pose
+    params:
+      arm: right
+      motion_frame_id: base_link
+      position: [0.38, 0.0, 0.245]
+      orientation: [-0.75, -0.433013, -0.433013, 0.25]
+      gripper: 1.0
+  # 6) 右手收到身体右侧、抬高，彻底让开左手放置路径。
+  #    左手同时把 60° 转回去（夹指朝前、仍下倾 15°）。
+  - parallel:
+      - skill: single_arm.move_to_pose
+        params:
+          arm: right
+          motion_frame_id: base_link
+          position: [0.328, -0.09, 0.305]
+          orientation: [-0.75, -0.433013, -0.433013, 0.25]
+          gripper: 1.0
+      - skill: single_arm.move_relative
+        params:
+          arm: left
+          motion_frame_id: base_link
+          position_delta: [0.0, 0.0, 0.0]
+          orientation_delta_rpy: [0.0, 0.0, 1.047198]
+          gripper: 0.0
+  # 7) 左手把试管放进左侧架子 hole_3（要换孔改成 hole_4）。
+  #    insert_axis 由目标物体（试管架）的局部轴计算，"-z" 表示沿架体 −Z 向下插入；
+  #    align_orientation（默认开）会先把试管轴摆到与插入轴对齐（保留绕轴 yaw），
+  #    再重算 EE 位置使管底落在孔口。
+  #    顺序：接近 → AlignHole → 重测管底并补偿 → FineAlign → 下探 insert_depth → 松爪 → 沿轴退出。
+  - skill: single_arm.insert
+    params:
+      arm: left
+      object_key: test_tube_rack
+      grasp_id: hole_3
+      insert_axis: "-z"
+      # 比原 0.06 抬高 1cm，避免夹爪下探时撞到架子。
+      insert_depth: 0.05
+      # 悬停高度（管子在空中纠偏的位置，沿插入轴反方向退这么多）。
+      # 10cm 时管子离孔口太远、视觉上"悬在半空"，5cm 足够留出纠偏空间又贴近孔口。
+      #
+      # 【2026-11-20 恢复为 5cm】
+      #   曾试过降到 2cm（想缩短纠偏后的开环行程），但 2cm 让 AlignAbove 的
+      #   空中横移离架面太近，横移时管子容易蹭到架体；且实测掉管是交接失败
+      #   导致（insert 里 tilt 90°+），并非这一段漂移造成。回到 G1D 验证过的 5cm。
+      approach_distance: 0.05
+      held_object_key: test_tube
+      held_grasp_id: bottom
+      live_align_compensate: true
+      # 把精确对齐提前到「仍悬空」时完成：
+      #   默认(False) 是 Approach→AlignHole 先下到孔口（管底已压架面），
+      #   再测偏差→FineAlign→下探，纠偏发生在接触之后，靠撞孔边反复调，慢且不稳。
+      #   置 true 后只悬停到孔口上方，在空中测偏差、一次性修正 XY，再垂直下探。
+      hover_compensate: true
+      max_align_corr: 0.03
+      motion_frame_id: world
+      # 插入段到位容差。
+      #
+      # 【为什么这里不写 pose_tol_pos（G1D 踩过的坑，同样适用）】
+      #   1) hover_compensate=true 时，insert 的**所有** stage 都是
+      #      skip_arrival=True（见 single_arm.py 的 hover 分支），根本不做到达
+      #      判定 —— 精度来自 hover 阶段的 corr_xy 补偿，不是靠等 MPC 收敛。
+      #   2) 但 skill_insert 末尾有 ctx.task_cfg = replace(..., common=qt.common)
+      #      会把含小容差的 common **写回全局 ctx.task_cfg**。
+      #   3) 于是下一步 move_relative 用被污染的容差做到位判定：
+      #      pos_dist=0.0101 > 0.0015 → 永远判不到 → 耗满 stage 超时。
+      #   所以这个参数是「无用 + 有害」。用 runtime_defaults 的 0.02。
+      pose_tol_ori: 0.02
+      # 松爪后沿插入轴（架体 -Z）反向退出 8cm
+      retreat_distance: 0.08
+      gripper_open: 1.0
+  # 8) 插入后先竖直抬一段再回 HOME —— **必须保留，否则会拖拽试管架**。
+  #
+  # insert 的 retreat 只沿**插入轴**退 8cm（架体 -Z 方向，即竖直向上）。
+  # 但夹爪是从侧面夹住试管的，退出 8cm 后夹爪仍在试管正上方很近处；
+  # 此时若直接切 HOME，手臂向内收的轨迹会**扫过试管架**，把管子撞歪：
+  # G1D 实测 run_43 末帧 tilt=35.8°、dxy=57.4mm（试管被拖出孔并歪倒）。
+  - skill: single_arm.move_relative
+    params:
+      arm: left
+      motion_frame_id: world
+      position_delta: [0.0, 0.0, 0.12]
+      gripper: 1.0
+      # 让 OCS2 用 0.6s 规划这段（比默认慢速规划更快动起来）
+      arm_movel_duration: 0.6
+  # 9) 归位 + 收尾：回 HOME，再切 HOLD。
+  #
+  # 为什么用 FSM HOME 而不是发关节目标（G1D 踩过）：
+  #   `joint.goto_cached_joints` 要按名字把位置数组映射成消息，依赖
+  #   `config.joint_names`；该配置的默认值是占位符（left_joint1..7），
+  #   未显式配置时会发到错误关节 —— 实测 `joint arrival timeout,
+  #   left_err=0.225, right_err=0.927`，机器人根本没归位。
+  #
+  # `then: HOLD` 保证每次任务结束时 FSM 都是 HOLD —— 下一轮（或人工重跑）
+  # 的起始状态完全一致，自动化采集循环依赖这一点。
+  - skill: robot.fsm_command
+    params:
+      state: HOME
+      then: HOLD
+      settle_time: 0.3
+      # HOME 是异步插值（home_duration 默认 5.0s）。
+      # /fsm_state 在插值**一开始**就报 HOME，所以「确认到位」不等于「动作完成」。
+      # 必须额外等插值结束再切 HOLD，否则机器人刚往 home 走就停了。
+      motion_wait: 6.0
+      wait_timeout: 10.0
+
+scene_presets:
+  default: {}

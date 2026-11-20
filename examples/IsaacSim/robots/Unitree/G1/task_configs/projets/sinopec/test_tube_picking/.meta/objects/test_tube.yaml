@@ -1,0 +1,6 @@
+# 物体位姿读刚体 /World/room/scene/test_tube；子 frame 只作局部偏移。
+test_tube:
+  object_prim_path: /World/room/scene/test_tube
+  grasps:
+    tube: tube_grasp
+    bottom: tube_bottom

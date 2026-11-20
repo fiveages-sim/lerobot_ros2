@@ -1,0 +1,37 @@
+key: unitree_g1
+label: Unitree G1
+# room.usda 里的 articulation（IsaacSimSystem 的 targetPrim / 站立策略的 ROOT）在
+# /World/G1/G1_Lower/pelvis。G1 没有移动底盘，也没有 base_footprint。
+base_link_entity_path: /World/G1/G1_Lower/pelvis
+post_reset_wait: 3.0
+gripper_action_wait: 1.5
+# 任务位姿默认是夹爪尖；运控跟踪腕部 TCP，技能下发前用实时 TF 换算。
+ee_target_frame: "{arm}_eef"
+ee_command_frame: "{arm}_tcp"
+
+ros2_interface:
+  preset: auto
+
+# 场景 ROS=fiveages 时，Play 已经在进程内拉起 split_body 运控（ocs2_arm_controller）。
+# required: false 让 ros2-stack / --ensure-ros2-stack 不要再启动第二套控制器。
+#
+# 与 G1D 的差别：
+#   - preset 用 ocs2-split-body（臂级 ocs2_arm_controller），不是 ocs2-fullbody（WBC）
+#   - G1 的 12 条腿由外部站立策略驱动（robot-policy-deployment），不属于本运控
+#   - 没有底盘，因此编排里不应出现 BASE_LOCK / BASE_UNLOCK
+ros2_stack:
+  defaults:
+    args:
+      robot: unitree_g1
+      hardware: isaac
+  motion:
+    required: false
+    preset: ocs2-split-body
+    headless: true
+    args:
+      type: dex1
+      use_profile_eef: "false"
+  navigation:
+    required: false
+    profile: default
+    headless: true

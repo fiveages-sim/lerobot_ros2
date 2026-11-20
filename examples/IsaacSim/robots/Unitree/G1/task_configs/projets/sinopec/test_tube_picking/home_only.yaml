@@ -1,0 +1,50 @@
+# 兜底任务：只回 HOME —— 采集失败后的收尾
+#
+# 为什么需要这个文件
+# ==================
+# `pick_tube_full` 的 task_queue 是「顺序执行、失败即 abort」：
+#   block 7 single_arm.insert 失败 → 直接 `[ERROR] Task queue failed`
+#   → block 8（抬离）和 block 9（FSM HOME → HOLD）**都不会执行**。
+#
+# 后果是机器人停在半空、手里可能已经没有试管。`sdg.sh auto` 紧接着开下一轮，
+# 下一轮的「首帧」就是这个半空姿态。实测（G1，2026-11-19）：
+#   - 失败轮的下一轮首帧手臂 |q| 均值 849 mrad（正常 home 是 57 mrad）
+#   - pack 的 FK 用首帧反解 base，旧实现假定 q≈0 → base 解偏 0.4m
+#     → 动作标签 `left_cmd_pos/right_cmd_pos` 整体错 175~185mm（数据全废）
+#   - 下一轮从错误姿态起步，抓取必然失败，形成连锁失败
+#
+# 所以 sdg 侧在编排退出码非 0 时会再起一次本任务（见 auto_collect.py），
+# 保证「进入下一轮前机器人一定在 HOME」。
+#
+# 单独手动使用也可以：
+#   motion-generation --robot unitree_g1 --task-key home_only --no-reset \
+#       --no-ensure-ros2-stack --workspace examples/IsaacSim
+
+task_key: home_only
+label: 仅回 HOME（采集失败兜底）
+use_stamped: true
+default_scene: default
+
+runtime_defaults:
+  # 与 pick_tube_full 保持一致：本任务不碰物体，但 loader 会校验这组字段。
+  base_link_entity_path: /World/G1/G1_Lower/pelvis
+  frame_id: world
+  max_stage_duration: 3.0
+  pose_tol_pos: 0.02
+  pose_tol_ori: 0.08
+  gripper_open: 1.0
+  gripper_closed: 0.0
+
+task_queue:
+  - skill: robot.fsm_command
+    params:
+      state: HOME
+      then: HOLD
+      settle_time: 0.3
+      # HOME 是异步插值（home_duration 默认 5.0s），/fsm_state 在插值**一开始**
+      # 就报 HOME，所以要额外等插值走完再切 HOLD。
+      motion_wait: 6.0
+      wait_timeout: 10.0
+
+scene_presets:
+  default: {}
